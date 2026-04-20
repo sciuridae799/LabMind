@@ -1,0 +1,9 @@
+spring:
+  ai:
+    dashscope:
+      # Shared by the chat and embedding model chain.
+      api-key: ${ALI_BAI_LIAN_API_KEY}
+    alibaba:
+      toolcalling:
+        tavilysearch:
+          api-key: ${TAVILY_API_KEY}

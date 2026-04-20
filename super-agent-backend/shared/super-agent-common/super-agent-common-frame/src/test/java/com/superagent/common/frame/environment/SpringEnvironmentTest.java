@@ -1,11 +1,16 @@
 package com.superagent.common.frame.environment;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.SpringApplication;
 import org.springframework.mock.env.MockEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
 class SpringEnvironmentTest {
 
@@ -26,6 +31,53 @@ class SpringEnvironmentTest {
         new SpringEnvironment().postProcessEnvironment(environment, new SpringApplication(Object.class));
 
         assertThat(environment.getProperty(SpringEnvironment.ALLOW_BEAN_DEFINITION_OVERRIDING)).isEqualTo("false");
+    }
+
+    @Test
+    void shouldLoadDotEnvPropertiesFromNearestAncestorDirectory(@TempDir Path tempDir) throws Exception {
+        Path rootDirectory = tempDir.resolve("workspace");
+        Path nestedDirectory = rootDirectory.resolve("super-agent-backend/services");
+        Files.createDirectories(nestedDirectory);
+        Files.writeString(
+                rootDirectory.resolve(SpringEnvironment.DOT_ENV_FILE_NAME),
+                """
+                ALI_BAI_LIAN_API_KEY=test-bai-lian-key
+                export TAVILY_API_KEY="test-tavily-key"
+                """);
+
+        Map<String, Object> properties = SpringEnvironment.loadDotEnvProperties(nestedDirectory);
+
+        assertThat(properties)
+                .containsEntry("ALI_BAI_LIAN_API_KEY", "test-bai-lian-key")
+                .containsEntry("TAVILY_API_KEY", "test-tavily-key");
+    }
+
+    @Test
+    void shouldExposeDotEnvPropertiesToEnvironment(@TempDir Path tempDir) throws Exception {
+        Path nestedDirectory = tempDir.resolve("workspace/module");
+        Files.createDirectories(nestedDirectory);
+        Files.writeString(
+                tempDir.resolve("workspace").resolve(SpringEnvironment.DOT_ENV_FILE_NAME),
+                "ALI_BAI_LIAN_API_KEY=test-bai-lian-key");
+        MockEnvironment environment = new MockEnvironment();
+
+        new SpringEnvironment().postProcessEnvironment(environment, new SpringApplication(Object.class), nestedDirectory);
+
+        assertThat(environment.getProperty("ALI_BAI_LIAN_API_KEY")).isEqualTo("test-bai-lian-key");
+    }
+
+    @Test
+    void shouldFailWhenDotEnvContainsInvalidEntry(@TempDir Path tempDir) throws Exception {
+        Files.writeString(
+                tempDir.resolve(SpringEnvironment.DOT_ENV_FILE_NAME),
+                """
+                ALI_BAI_LIAN_API_KEY=test-bai-lian-key
+                invalid-line
+                """);
+
+        assertThatIllegalStateException()
+                .isThrownBy(() -> SpringEnvironment.loadDotEnvProperties(tempDir))
+                .withMessageContaining("Invalid .env entry");
     }
 
     @Test
