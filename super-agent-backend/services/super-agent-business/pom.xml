@@ -24,6 +24,11 @@
             <artifactId>super-agent-id-generator-framework</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.superagent</groupId>
+            <artifactId>super-agent-redisson-service-lease-framework</artifactId>
+            <version>${project.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
