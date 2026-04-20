@@ -11,6 +11,7 @@ target/
 .idea/modules.xml
 .idea/jarRepositories.xml
 .idea/compiler.xml
+.idea/inspectionProfiles/Project_Default.xml
 .idea/libraries/
 *.iws
 *.iml

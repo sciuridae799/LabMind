@@ -1,0 +1,86 @@
+-- super-agent-business-chat 对话域建表脚本
+CREATE TABLE IF NOT EXISTS super_agent_chat_dialogue (
+    id BIGINT NOT NULL COMMENT '主键id',
+    dialogue_code VARCHAR(64) NOT NULL COMMENT '业务会话编号',
+    dialogue_stage TINYINT(1) NOT NULL DEFAULT '1' COMMENT '1:空闲 2:进行中',
+    chat_mode TINYINT(1) NOT NULL DEFAULT '1' COMMENT '1:当前文档问答 2:开放式提问',
+    selected_document_id BIGINT DEFAULT NULL COMMENT '当前会话显式锁定的提问文档id',
+    selected_document_name VARCHAR(255) DEFAULT NULL COMMENT '当前会话显式锁定的提问文档名称',
+    create_time DATETIME DEFAULT NULL COMMENT '创建时间',
+    edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
+    status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
+    PRIMARY KEY (id),
+    KEY idx_super_agent_chat_dialogue_code_status (dialogue_code, status),
+    KEY idx_super_agent_chat_dialogue_stage_status (dialogue_stage, status),
+    KEY idx_super_agent_chat_dialogue_edit_time (edit_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='业务对话归档主表';
+
+CREATE TABLE IF NOT EXISTS super_agent_chat_exchange (
+    id BIGINT NOT NULL COMMENT '主键id',
+    dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
+    user_prompt TEXT NOT NULL COMMENT '用户提问',
+    reply_content LONGTEXT NOT NULL COMMENT '助手回答内容',
+    reasoning_note_list JSON NOT NULL COMMENT '过程提示与思考片段',
+    source_snapshot_list JSON NOT NULL COMMENT '引用来源快照',
+    followup_suggestion_list JSON NOT NULL COMMENT '推荐追问快照',
+    tool_trace_list JSON NOT NULL COMMENT '工具使用轨迹快照',
+    debug_trace_json JSON DEFAULT NULL COMMENT '调试轨迹快照',
+    exchange_state TINYINT(1) NOT NULL DEFAULT '1' COMMENT '1:进行中 2:已完成 3:失败 4:已停止',
+    finish_note TEXT DEFAULT NULL COMMENT '失败或终止说明',
+    first_token_latency_ms BIGINT DEFAULT NULL COMMENT '首包耗时，毫秒',
+    total_latency_ms BIGINT DEFAULT NULL COMMENT '总耗时，毫秒',
+    create_time DATETIME DEFAULT NULL COMMENT '创建时间',
+    edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
+    status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
+    PRIMARY KEY (id),
+    KEY idx_super_agent_chat_exchange_dialogue_status (dialogue_code, status),
+    KEY idx_super_agent_chat_exchange_state_status (exchange_state, status),
+    KEY idx_super_agent_chat_exchange_create_time (create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='业务对话轮次归档表';
+
+CREATE TABLE IF NOT EXISTS super_agent_chat_memory_summary (
+    id BIGINT NOT NULL COMMENT '主键id',
+    dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
+    covered_exchange_id BIGINT NOT NULL DEFAULT '0' COMMENT '长期摘要已覆盖到的最后一条exchangeId',
+    covered_exchange_count INT NOT NULL DEFAULT '0' COMMENT '长期摘要已覆盖的轮次数',
+    compression_count INT NOT NULL DEFAULT '0' COMMENT '累计压缩次数',
+    summary_version INT NOT NULL DEFAULT '0' COMMENT '摘要版本号',
+    summary_text LONGTEXT NOT NULL COMMENT '编排阶段直接使用的长期摘要文本',
+    summary_json JSON DEFAULT NULL COMMENT '长期摘要结构化JSON',
+    last_source_edit_time DATETIME DEFAULT NULL COMMENT '摘要覆盖源轮次的最后更新时间',
+    create_time DATETIME DEFAULT NULL COMMENT '创建时间',
+    edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
+    status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_super_agent_chat_memory_summary_dialogue (dialogue_code),
+    KEY idx_super_agent_chat_memory_summary_cover (covered_exchange_id),
+    KEY idx_super_agent_chat_memory_summary_edit_time (edit_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='业务对话长期记忆摘要快照表';
+
+CREATE TABLE IF NOT EXISTS super_agent_chat_exchange_trace_stage (
+    id BIGINT NOT NULL COMMENT '主键id',
+    dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
+    exchange_id BIGINT NOT NULL COMMENT '所属轮次id',
+    trace_id VARCHAR(64) NOT NULL COMMENT '本轮执行trace id',
+    stage_code VARCHAR(64) NOT NULL COMMENT '阶段编码',
+    stage_name VARCHAR(128) NOT NULL COMMENT '阶段名称',
+    stage_order INT NOT NULL DEFAULT '0' COMMENT '阶段顺序',
+    stage_level TINYINT(1) NOT NULL DEFAULT '1' COMMENT '1:一级阶段 2:二级子步骤',
+    parent_stage_id BIGINT DEFAULT NULL COMMENT '父阶段id',
+    execution_mode VARCHAR(32) DEFAULT NULL COMMENT '执行模式',
+    stage_state TINYINT(1) NOT NULL DEFAULT '1' COMMENT '1:运行中 2:完成 3:失败 4:跳过',
+    start_time DATETIME DEFAULT NULL COMMENT '阶段开始时间',
+    end_time DATETIME DEFAULT NULL COMMENT '阶段结束时间',
+    duration_ms BIGINT DEFAULT NULL COMMENT '阶段耗时，毫秒',
+    summary_text VARCHAR(1000) DEFAULT NULL COMMENT '阶段摘要',
+    error_message TEXT DEFAULT NULL COMMENT '阶段错误信息',
+    snapshot_json JSON DEFAULT NULL COMMENT '阶段结构化快照',
+    create_time DATETIME DEFAULT NULL COMMENT '创建时间',
+    edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
+    status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
+    PRIMARY KEY (id),
+    KEY idx_super_agent_chat_trace_exchange (exchange_id, stage_order),
+    KEY idx_super_agent_chat_trace_dialogue (dialogue_code, exchange_id),
+    KEY idx_super_agent_chat_trace_trace_id (trace_id),
+    KEY idx_super_agent_chat_trace_stage_code (stage_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='对话轮次执行阶段轨迹表';
