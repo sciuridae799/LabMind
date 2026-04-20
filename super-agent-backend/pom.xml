@@ -19,5 +19,6 @@
         <module>shared/super-agent-common</module>
         <module>frameworks/super-agent-id-generator-framework</module>
         <module>frameworks/super-agent-redisson-framework</module>
+        <module>integration/super-agent-external-integration-test</module>
     </modules>
 </project>
