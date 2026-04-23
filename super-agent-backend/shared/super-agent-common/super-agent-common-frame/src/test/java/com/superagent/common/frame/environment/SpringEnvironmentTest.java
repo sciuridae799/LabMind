@@ -61,9 +61,28 @@ class SpringEnvironmentTest {
                 "ALI_BAI_LIAN_API_KEY=test-bai-lian-key");
         MockEnvironment environment = new MockEnvironment();
 
-        new SpringEnvironment().postProcessEnvironment(environment, new SpringApplication(Object.class), nestedDirectory);
+        new SpringEnvironment().postProcessEnvironment(environment, nestedDirectory);
 
         assertThat(environment.getProperty("ALI_BAI_LIAN_API_KEY")).isEqualTo("test-bai-lian-key");
+    }
+
+    @Test
+    void shouldExposeDotEnvPropertiesUsingSpringEnvironmentVariableBinding(@TempDir Path tempDir) throws Exception {
+        Path nestedDirectory = tempDir.resolve("workspace/module");
+        Files.createDirectories(nestedDirectory);
+        Files.writeString(
+                tempDir.resolve("workspace").resolve(SpringEnvironment.DOT_ENV_FILE_NAME),
+                """
+                SPRING_DATASOURCE_URL=jdbc:mysql://127.0.0.1:3306/service_db
+                SPRING_DATA_REDIS_HOST=127.0.0.1
+                """);
+        MockEnvironment environment = new MockEnvironment();
+
+        new SpringEnvironment().postProcessEnvironment(environment, nestedDirectory);
+
+        assertThat(environment.getProperty("spring.datasource.url"))
+                .isEqualTo("jdbc:mysql://127.0.0.1:3306/service_db");
+        assertThat(environment.getProperty("spring.data.redis.host")).isEqualTo("127.0.0.1");
     }
 
     @Test

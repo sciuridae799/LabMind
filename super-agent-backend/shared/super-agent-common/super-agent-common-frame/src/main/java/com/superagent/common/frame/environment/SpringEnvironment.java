@@ -12,6 +12,7 @@ import org.springframework.boot.env.EnvironmentPostProcessor;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
 import org.springframework.util.StringUtils;
 
 public class SpringEnvironment implements EnvironmentPostProcessor, Ordered {
@@ -24,16 +25,13 @@ public class SpringEnvironment implements EnvironmentPostProcessor, Ordered {
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
-        postProcessEnvironment(environment, application, resolveWorkingDirectory());
+        postProcessEnvironment(environment, resolveWorkingDirectory());
     }
 
-    void postProcessEnvironment(
-            ConfigurableEnvironment environment,
-            SpringApplication application,
-            Path workingDirectory) {
+    void postProcessEnvironment(ConfigurableEnvironment environment, Path workingDirectory) {
         Map<String, Object> dotEnvProperties = loadDotEnvProperties(workingDirectory);
         if (!dotEnvProperties.isEmpty()) {
-            environment.getPropertySources().addLast(new MapPropertySource(
+            environment.getPropertySources().addLast(new SystemEnvironmentPropertySource(
                     DOT_ENV_PROPERTY_SOURCE_NAME, dotEnvProperties));
         }
         if (StringUtils.hasText(environment.getProperty(ALLOW_BEAN_DEFINITION_OVERRIDING))) {
