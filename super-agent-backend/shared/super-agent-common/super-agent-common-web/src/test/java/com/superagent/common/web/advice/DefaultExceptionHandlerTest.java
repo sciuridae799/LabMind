@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -98,6 +99,12 @@ class DefaultExceptionHandlerTest {
     }
 
     @Test
+    void shouldHandleDisconnectedAsyncRequest() throws Exception {
+        mockMvc.perform(get("/test/disconnected"))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
     void shouldUseConfiguredJacksonFormatsForSuccessResponse() throws Exception {
         mockMvc.perform(post("/test/echo")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -125,6 +132,11 @@ class DefaultExceptionHandlerTest {
         @GetMapping("/test/system")
         public ApiResponse<Void> system() {
             throw new IllegalStateException("boom");
+        }
+
+        @GetMapping("/test/disconnected")
+        public ApiResponse<Void> disconnected() throws AsyncRequestNotUsableException {
+            throw new AsyncRequestNotUsableException("Servlet container error notification for disconnected client");
         }
 
         @PostMapping("/test/echo")

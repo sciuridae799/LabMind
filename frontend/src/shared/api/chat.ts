@@ -4,6 +4,96 @@ import type { ApiCatalogGroup, ApiCatalogItem, JsonObject, StreamEventHandlers, 
 type PageLike = string | number | bigint | null | undefined
 type ExchangeId = string | number | bigint
 
+export const businessChatModeOptions = [
+  { value: 'CURRENT_DOCUMENT', label: '当前文档问答' },
+  { value: 'KNOWLEDGE_BASE', label: '自动知识问答' },
+  { value: 'OPEN_ENDED', label: '开放式提问' }
+] as const
+
+export type BusinessChatMode = (typeof businessChatModeOptions)[number]['value']
+
+export const modelApiProviderOptions = [
+  { value: 'DASHSCOPE', label: 'DASHSCOPE' },
+  { value: 'DEEPSEEK', label: 'DeepSeek' }
+] as const
+
+export type ModelApiProvider = (typeof modelApiProviderOptions)[number]['value']
+
+export const modelApiBaseUrlOptions: Record<ModelApiProvider, Array<{ value: string; label: string }>> = {
+  DASHSCOPE: [
+    { value: 'https://dashscope.aliyuncs.com/compatible-mode', label: '北京' },
+    { value: 'https://dashscope-intl.aliyuncs.com/compatible-mode', label: '新加坡' },
+    { value: 'https://dashscope-us.aliyuncs.com/compatible-mode', label: '弗吉尼亚' },
+    { value: 'https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode', label: '中国香港' }
+  ],
+  DEEPSEEK: [
+    { value: 'https://api.deepseek.com', label: 'OpenAI compatible' }
+  ]
+}
+
+export const modelApiModelOptions: Record<ModelApiProvider, Array<{ value: string; label: string }>> = {
+  DASHSCOPE: [
+    { value: 'qwen-plus', label: 'qwen-plus' },
+    { value: 'qwen-plus-latest', label: 'qwen-plus-latest' },
+    { value: 'qwen-turbo', label: 'qwen-turbo' },
+    { value: 'qwen-turbo-latest', label: 'qwen-turbo-latest' },
+    { value: 'qwen-max', label: 'qwen-max' },
+    { value: 'qwen-max-latest', label: 'qwen-max-latest' },
+    { value: 'qwq-32b', label: 'qwq-32b' },
+    { value: 'qwen3-235b-a22b', label: 'qwen3-235b-a22b' },
+    { value: 'qwen3-32b', label: 'qwen3-32b' }
+  ],
+  DEEPSEEK: [
+    { value: 'deepseek-v4-flash', label: 'deepseek-v4-flash' },
+    { value: 'deepseek-v4-pro', label: 'deepseek-v4-pro' },
+    { value: 'deepseek-chat', label: 'deepseek-chat' },
+    { value: 'deepseek-reasoner', label: 'deepseek-reasoner' }
+  ]
+}
+
+export interface OpenChatStreamPayload extends JsonObject {
+  question: string
+  conversationId?: string
+  chatMode: BusinessChatMode
+  modelConfigId: string
+}
+
+export interface ModelApiConfig {
+  id: string
+  provider: ModelApiProvider
+  displayName: string
+  baseUrl: string
+  modelName: string
+  apiKeyConfigured: boolean
+  enabled: boolean
+}
+
+export interface SaveModelApiConfigPayload extends JsonObject {
+  id?: string
+  provider: ModelApiProvider
+  displayName: string
+  baseUrl: string
+  modelName: string
+  apiKey?: string
+  enabled: boolean
+}
+
+export interface BusinessChatStreamEvent {
+  eventType?: string
+  conversationId?: string
+  exchangeId?: string | number | null
+  chatMode?: string | null
+  textDelta?: string | null
+  functionSupplement?: string | null
+  sourceSnapshotList?: string[] | null
+  followUpSuggestionList?: string[] | null
+  message?: string | null
+  agentType?: string | null
+  agentName?: string | null
+  firstTokenLatencyMs?: string | number | null
+  totalLatencyMs?: string | number | null
+}
+
 export interface SessionListQuery {
   keyword?: string
   chatMode?: string
@@ -12,12 +102,49 @@ export interface SessionListQuery {
   pageSize?: PageLike
 }
 
+export interface BusinessChatSessionListItem {
+  conversationId: string
+  title: string
+  chatMode: BusinessChatMode
+  turnStatus: string
+  lastExchangeId: string | number | null
+  lastQuestion: string
+  lastReply: string
+  updateTime: string
+}
+
 export interface SessionListPage {
-  pageNo: string
-  pageSize: string
-  totalSize: string
-  totalPages: string
-  sessions: Record<string, unknown>[]
+  pageNo: number
+  pageSize: number
+  totalSize: number
+  totalPages: number
+  sessions: BusinessChatSessionListItem[]
+}
+
+export interface BusinessChatSessionExchange {
+  exchangeId: string | number
+  userPrompt: string
+  replyContent: string
+  sourceSnapshotList: string[]
+  followUpSuggestionList: string[]
+  toolTraceList: string[]
+  exchangeState: string
+  finishNote: string | null
+  firstTokenLatencyMs: string | number | null
+  totalLatencyMs: string | number | null
+  createTime: string
+}
+
+export interface BusinessChatSessionDetail {
+  conversationId: string
+  title: string
+  chatMode: BusinessChatMode
+  dialogueStage: string
+  selectedDocumentId: string | number | null
+  selectedDocumentName: string | null
+  summaryText: string | null
+  summaryJson: unknown
+  exchanges: BusinessChatSessionExchange[]
 }
 
 export interface ChatApi {
@@ -31,13 +158,13 @@ export interface ChatApi {
    * 分页查询会话列表。
    * 业务筛选维度包括关键词、聊天模式和当前轮次状态。
    */
-  listSessionsPage(query?: SessionListQuery): Promise<SessionListPage>
+  listSessionsPage(query: SessionListQuery): Promise<SessionListPage>
 
   /**
    * 查询单个会话详情。
    * 用于回显完整对话内容、会话元信息和当前上下文状态。
    */
-  getSession(conversationId: string): Promise<unknown>
+  getSession(conversationId: string): Promise<BusinessChatSessionDetail>
 
   /**
    * 查询单轮 exchange 详情。
@@ -46,10 +173,10 @@ export interface ChatApi {
   getExchangeDetail(conversationId: string, exchangeId: ExchangeId): Promise<unknown>
 
   /**
-   * 重置会话。
-   * 业务含义不是单纯删一条前端记录，而是收口运行、清理业务数据和 Graph checkpoint。
+   * 删除会话。
+   * 业务含义不是单纯删一条前端记录，而是删除整条会话归档。
    */
-  deleteSession(conversationId: string): Promise<unknown>
+  deleteSession(conversationId: string): Promise<void>
 
   /**
    * 停止当前会话正在运行的生成任务。
@@ -81,11 +208,24 @@ export interface ChatApi {
    */
   getStageBenchmarks(): Promise<unknown>
 
+  listModelConfigs(): Promise<ModelApiConfig[]>
+
+  listAvailableModelConfigs(): Promise<ModelApiConfig[]>
+
+  saveModelConfig(payload: SaveModelApiConfigPayload): Promise<ModelApiConfig>
+
+  deleteModelConfig(id: string): Promise<void>
+
+  clearModelConfigApiKey(id: string): Promise<void>
+
   /**
    * 打开对话流式接口。
-   * payload 是本次提问入参，handlers.onEvent 用于逐条消费后端 SSE 事件。
+   * payload 是本次提问入参，conversationId 可省略；省略时以后端 SSE 返回的 conversationId 为准。
    */
-  openStream(payload: JsonObject, handlers?: StreamEventHandlers): StreamRequest
+  openStream(
+    payload: OpenChatStreamPayload,
+    handlers?: StreamEventHandlers<BusinessChatStreamEvent>
+  ): StreamRequest
 }
 
 const chatApiCatalogDefinitions = {
@@ -114,9 +254,9 @@ const chatApiCatalogDefinitions = {
     keyInputs: 'conversationId, exchangeId'
   },
   deleteSession: {
-    summary: '重置会话并清理该会话关联的业务数据与 checkpoint。',
+    summary: '删除整条会话归档及其关联数据。',
     requestMethod: 'POST',
-    path: '/api/chat/session/reset',
+    path: '/api/chat/session/delete',
     keyInputs: 'conversationId'
   },
   stopSession: {
@@ -153,7 +293,37 @@ const chatApiCatalogDefinitions = {
     summary: '发起对话生成并持续接收服务端 SSE 事件流。',
     requestMethod: 'POST · SSE',
     path: '/api/chat/stream',
-    keyInputs: 'payload, handlers.onEvent'
+    keyInputs: 'question, chatMode, modelConfigId, conversationId(可选), handlers.onEvent'
+  },
+  listModelConfigs: {
+    summary: '查询全部模型 API 配置，API Key 只返回是否已配置。',
+    requestMethod: 'POST',
+    path: '/api/chat/model-config/list',
+    keyInputs: '无'
+  },
+  listAvailableModelConfigs: {
+    summary: '查询聊天可选择的模型 API 配置。',
+    requestMethod: 'POST',
+    path: '/api/chat/model-config/available',
+    keyInputs: '无'
+  },
+  saveModelConfig: {
+    summary: '新增或更新模型 API 配置。',
+    requestMethod: 'POST',
+    path: '/api/chat/model-config/save',
+    keyInputs: 'id(可选), provider, displayName, baseUrl, modelName, apiKey(可选), enabled'
+  },
+  deleteModelConfig: {
+    summary: '删除模型 API 配置。',
+    requestMethod: 'POST',
+    path: '/api/chat/model-config/delete',
+    keyInputs: 'id'
+  },
+  clearModelConfigApiKey: {
+    summary: '清除模型 API 配置中的 API Key。',
+    requestMethod: 'POST',
+    path: '/api/chat/model-config/clear-api-key',
+    keyInputs: 'id'
   }
 } satisfies Record<keyof ChatApi, Omit<ApiCatalogItem, 'name'>>
 
@@ -172,9 +342,19 @@ export function createConversationId(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
 }
 
-function normalizePageString(value: PageLike, fallbackValue: string): string {
-  const normalized = String(value ?? fallbackValue).trim()
-  return normalized || fallbackValue
+function normalizeRequiredText(value: unknown, fieldName: string): string {
+  const normalized = String(value ?? '').trim()
+  if (!normalized) {
+    throw new Error(`${fieldName} is required`)
+  }
+  return normalized
+}
+
+function requireChatApiPayload<T>(data: T | null, errorMessage: string): T {
+  if (data == null) {
+    throw new Error(errorMessage)
+  }
+  return data
 }
 
 export const chatApi: ChatApi = {
@@ -185,32 +365,26 @@ export const chatApi: ChatApi = {
     })
   },
 
-  listSessionsPage(query = {}) {
-    return requestApiEnvelope<Partial<SessionListPage>, JsonObject>('/api/chat/session/list', {
+  listSessionsPage(query) {
+    return requestApiEnvelope<SessionListPage, JsonObject>('/api/chat/session/list', {
       method: 'POST',
       body: {
-        keyword: String(query.keyword || '').trim(),
-        chatMode: String(query.chatMode || 'ALL').trim(),
-        turnStatus: String(query.turnStatus || 'ALL').trim(),
-        pageNo: normalizePageString(query.pageNo, '1'),
-        pageSize: normalizePageString(query.pageSize, '20')
+        keyword: String(query.keyword ?? '').trim(),
+        chatMode: normalizeRequiredText(query.chatMode, 'chatMode'),
+        turnStatus: normalizeRequiredText(query.turnStatus, 'turnStatus'),
+        pageNo: normalizeRequiredText(query.pageNo, 'pageNo'),
+        pageSize: normalizeRequiredText(query.pageSize, 'pageSize')
       }
-    }).then((data) => ({
-      pageNo: data?.pageNo || '1',
-      pageSize: data?.pageSize || '20',
-      totalSize: data?.totalSize || '0',
-      totalPages: data?.totalPages || '0',
-      sessions: data?.sessions || []
-    }))
+    }).then((data) => requireChatApiPayload(data, '会话列表响应为空'))
   },
 
   getSession(conversationId) {
-    return requestApiEnvelope('/api/chat/session/detail', {
+    return requestApiEnvelope<BusinessChatSessionDetail, JsonObject>('/api/chat/session/detail', {
       method: 'POST',
       body: {
         conversationId
       }
-    })
+    }).then((data) => requireChatApiPayload(data, '会话详情响应为空'))
   },
 
   getExchangeDetail(conversationId, exchangeId) {
@@ -224,12 +398,12 @@ export const chatApi: ChatApi = {
   },
 
   deleteSession(conversationId) {
-    return requestApiEnvelope('/api/chat/session/reset', {
+    return requestApiEnvelope<void, JsonObject>('/api/chat/session/delete', {
       method: 'POST',
       body: {
         conversationId
       }
-    })
+    }).then(() => undefined)
   },
 
   stopSession(conversationId) {
@@ -275,6 +449,41 @@ export const chatApi: ChatApi = {
       method: 'POST',
       body: {}
     })
+  },
+
+  listModelConfigs() {
+    return requestApiEnvelope<ModelApiConfig[], JsonObject>('/api/chat/model-config/list', {
+      method: 'POST',
+      body: {}
+    }).then((data) => data ?? [])
+  },
+
+  listAvailableModelConfigs() {
+    return requestApiEnvelope<ModelApiConfig[], JsonObject>('/api/chat/model-config/available', {
+      method: 'POST',
+      body: {}
+    }).then((data) => data ?? [])
+  },
+
+  saveModelConfig(payload) {
+    return requestApiEnvelope<ModelApiConfig, JsonObject>('/api/chat/model-config/save', {
+      method: 'POST',
+      body: payload
+    }).then((data) => requireChatApiPayload(data, '模型配置保存响应为空'))
+  },
+
+  deleteModelConfig(id) {
+    return requestApiEnvelope<void, JsonObject>('/api/chat/model-config/delete', {
+      method: 'POST',
+      body: { id }
+    }).then(() => undefined)
+  },
+
+  clearModelConfigApiKey(id) {
+    return requestApiEnvelope<void, JsonObject>('/api/chat/model-config/clear-api-key', {
+      method: 'POST',
+      body: { id }
+    }).then(() => undefined)
   },
 
   openStream(payload, handlers = {}) {

@@ -1,5 +1,6 @@
 package com.superagent.common.web.database;
 
+import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
@@ -61,5 +62,8 @@ class MybatisPlusAutoConfigurationTest {
     }
 
     static class TestTableData extends BaseTableData {
+
+        @TableId
+        private Long id;
     }
 }

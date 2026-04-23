@@ -44,7 +44,7 @@ const multipartClient = axios.create({
 
 const streamClient = axios.create({
   baseURL: API_BASE_URL || undefined,
-  timeout: REQUEST_TIMEOUT,
+  timeout: 0,
   adapter: 'fetch',
   responseType: 'stream',
   headers: {
@@ -220,6 +220,28 @@ function dispatchStreamPayload<TEvent extends ApiRecord>(
   }
 }
 
+function readSseDataPayload(block: string): string {
+  // SSE 一个事件块里可能有多行 data，这里只抽取业务 payload，忽略 event/id/comment 等控制字段。
+  const dataLineList: string[] = []
+
+  block.split(/\r?\n/).forEach((line) => {
+    if (!line || line.startsWith(':')) {
+      return
+    }
+
+    const separatorIndex = line.indexOf(':')
+    const field = separatorIndex === -1 ? line : line.slice(0, separatorIndex)
+    const rawValue = separatorIndex === -1 ? '' : line.slice(separatorIndex + 1)
+    const value = rawValue.startsWith(' ') ? rawValue.slice(1) : rawValue
+
+    if (field === 'data') {
+      dataLineList.push(value)
+    }
+  })
+
+  return dataLineList.join('\n')
+}
+
 function consumeEventBlock<TEvent extends ApiRecord>(
   block: string,
   handlers: StreamEventHandlers<TEvent>
@@ -229,20 +251,12 @@ function consumeEventBlock<TEvent extends ApiRecord>(
     return
   }
 
-  if (normalizedBlock.startsWith('data:')) {
-    const payload = normalizedBlock
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith('data:'))
-      .map((line) => line.slice(5).trimStart())
-      .join('\n')
-    dispatchStreamPayload(payload, handlers)
+  const payload = readSseDataPayload(normalizedBlock)
+  if (!payload) {
     return
   }
 
-  normalizedBlock
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .forEach((line) => dispatchStreamPayload(line, handlers))
+  dispatchStreamPayload(payload, handlers)
 }
 
 async function consumeEventStream<TEvent extends ApiRecord>(
@@ -251,6 +265,7 @@ async function consumeEventStream<TEvent extends ApiRecord>(
 ): Promise<void> {
   const reader = stream.getReader()
   const decoder = new TextDecoder('utf-8')
+  // 网络分片不一定刚好落在 SSE 边界上，buffer 用来拼齐 "\n\n" 分隔出的完整事件块。
   let buffer = ''
 
   while (true) {
@@ -289,6 +304,7 @@ export function openEventStream<TEvent extends ApiRecord = JsonObject>(
 
   const done = (async () => {
     try {
+      // 返回 controller 给调用方取消请求，done 则代表整个流读取和事件分发的完成状态。
       const response = await streamClient.request<ReadableStream<Uint8Array>>({
         url: path,
         method: 'POST',

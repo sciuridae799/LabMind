@@ -12,6 +12,12 @@ const catalogCardPaddingPx = 20
 
 const activeItemId = ref<string | null>(null)
 const activeItemPlacement = ref<'below' | 'above'>('below')
+const completedApiItemIdSet = new Set([
+  'chatApi:openStream',
+  'chatApi:listSessionsPage',
+  'chatApi:getSession',
+  'chatApi:deleteSession'
+])
 
 let openTimerId: number | null = null
 let openTargetId: string | null = null
@@ -20,6 +26,10 @@ let closeTargetId: string | null = null
 
 function buildItemId(groupTitle: string, itemName: string): string {
   return `${groupTitle}:${itemName}`
+}
+
+function isCompletedItem(itemId: string): boolean {
+  return completedApiItemIdSet.has(itemId)
 }
 
 function clearOpenTimer(): void {
@@ -45,7 +55,7 @@ function findApiItemElement(itemId: string): HTMLElement | null {
 function resolveItemPlacement(itemId: string): 'below' | 'above' {
   const itemElement = findApiItemElement(itemId)
   const detailElement = itemElement?.querySelector<HTMLElement>('.api-item-detail')
-  const catalogCardElement = itemElement?.closest<HTMLElement>('.catalog-card')
+  const catalogCardElement = itemElement?.closest<HTMLElement>('.admin-content-panel')
 
   if (!itemElement || !detailElement) {
     return 'below'
@@ -162,41 +172,32 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="page-shell">
-    <section class="hero-card">
-      <p class="eyebrow">API Query Catalog</p>
-      <h1>当前页面 API 查询目录</h1>
-      <p class="hero-copy">
-        目录直接消费接口层导出的元数据。鼠标悬停 1 秒后展开当前 API 细节，移开 0.2 秒后自动收起，并根据可视空间自动向上或向下展开。
-      </p>
+  <section class="admin-content-page">
+    <article class="admin-content-panel">
+      <h1 class="admin-content-title">前端 API 目录</h1>
 
-      <dl class="hero-stats">
-        <div>
+      <dl class="catalog-stats">
+        <div class="catalog-stat-card">
           <dt>接口函数总数</dt>
           <dd>{{ totalApiCount }}</dd>
         </div>
-        <div>
+        <div class="catalog-stat-card">
           <dt>接口分组数</dt>
           <dd>{{ apiGroupCount }}</dd>
         </div>
-        <div>
-          <dt>悬浮展开节奏</dt>
-          <dd>1 秒开 / 0.2 秒关</dd>
-        </div>
       </dl>
-    </section>
+    </article>
 
-    <section
+    <article
       v-for="group in apiCatalogGroups"
       :key="group.title"
-      class="catalog-card"
+      class="admin-content-panel"
     >
-      <div class="section-head">
+      <div class="catalog-section-head">
         <div>
-          <p class="section-label">{{ group.title }}</p>
-          <h2>{{ group.description }}</h2>
+          <h2 class="catalog-section-title">{{ group.description }}</h2>
         </div>
-        <span class="section-count">{{ group.items.length }} 个</span>
+        <span class="catalog-section-count">{{ group.items.length }} 个</span>
       </div>
 
       <ul class="api-list">
@@ -218,8 +219,16 @@ onBeforeUnmount(() => {
             @focusout="scheduleClose(buildItemId(group.title, item.name))"
           >
             <div class="api-item-head">
-              <code>{{ item.name }}</code>
-              <span class="api-method">{{ item.requestMethod }}</span>
+              <code class="api-item-name">{{ item.name }}</code>
+              <div class="api-item-badges">
+                <span
+                  v-if="isCompletedItem(buildItemId(group.title, item.name))"
+                  class="api-status api-status-completed"
+                >
+                  已完成
+                </span>
+                <span class="api-method">{{ item.requestMethod }}</span>
+              </div>
             </div>
             <div class="api-item-detail">
               <p class="api-item-summary">{{ item.summary }}</p>
@@ -239,119 +248,69 @@ onBeforeUnmount(() => {
           </article>
         </li>
       </ul>
-    </section>
-  </main>
+    </article>
+  </section>
 </template>
 
 <style scoped>
-.page-shell {
-  min-height: 100vh;
-  padding: 32px 20px 48px;
-  background:
-    radial-gradient(circle at top left, rgba(255, 216, 160, 0.7), transparent 32%),
-    radial-gradient(circle at top right, rgba(129, 199, 255, 0.6), transparent 28%),
-    linear-gradient(180deg, #fff8ee 0%, #f5f7fb 52%, #eef2f8 100%);
-  color: #1f2937;
-}
-
-.hero-card,
-.catalog-card {
-  width: min(1100px, 100%);
-  margin: 0 auto;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(16px);
-}
-
-.hero-card {
-  padding: 32px;
-}
-
-.catalog-card {
-  margin-top: 20px;
-  padding: 24px 28px 28px;
-}
-
-.eyebrow,
-.section-label {
-  margin: 0 0 10px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: #b45309;
-}
-
-h1,
-h2 {
-  margin: 0;
-  font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
-}
-
-h1 {
-  font-size: clamp(32px, 4vw, 48px);
-  line-height: 1.05;
-}
-
-h2 {
-  font-size: 22px;
-  line-height: 1.3;
-}
-
-.hero-copy {
-  max-width: 760px;
-  margin: 18px 0 0;
-  font-size: 16px;
-  line-height: 1.7;
-  color: #475569;
-}
-
-.hero-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+.admin-content-page {
   gap: 16px;
-  margin: 28px 0 0;
 }
 
-.hero-stats div {
-  padding: 18px 20px;
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(249, 250, 251, 0.88));
+.catalog-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0 0;
 }
 
-dt {
-  font-size: 13px;
-  color: #64748b;
+.catalog-stat-card {
+  padding: 16px;
+  border: 1px solid #f0f0f0;
+  border-radius: 12px;
+  background: #fafafa;
 }
 
-dd {
+.catalog-stat-card dt {
+  margin: 0;
+  color: #999999;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.catalog-stat-card dd {
   margin: 10px 0 0;
-  font-size: 20px;
-  font-weight: 700;
-  color: #0f172a;
+  color: #222222;
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 600;
 }
 
-code {
-  word-break: break-all;
-  font-family: "SFMono-Regular", "JetBrains Mono", "Fira Code", monospace;
-}
-
-.section-head {
+.catalog-section-head {
   display: flex;
   gap: 16px;
   align-items: flex-start;
   justify-content: space-between;
 }
 
-.section-count {
-  padding: 8px 12px;
+.catalog-section-title {
+  margin: 0;
+  color: #222222;
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.catalog-section-count {
+  padding: 7px 12px;
   border-radius: 999px;
-  background: #e0f2fe;
-  color: #0369a1;
-  font-size: 13px;
-  font-weight: 700;
+  border: 1px solid #e7eaee;
+  background: #f7f8fa;
+  color: #444444;
+  font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -373,9 +332,9 @@ code {
   position: relative;
   min-height: 84px;
   padding: 14px 16px;
-  border-radius: 16px;
-  background: #f8fafc;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
   transition:
     border-color 180ms ease,
     box-shadow 180ms ease,
@@ -389,10 +348,10 @@ code {
 .api-item:hover,
 .api-item:focus-visible,
 .api-item.is-active {
-  border-color: rgba(37, 99, 235, 0.35);
-  box-shadow: 0 18px 40px rgba(37, 99, 235, 0.12);
+  border-color: #d7dce2;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.06);
   transform: translateY(-1px);
-  background: linear-gradient(180deg, #f8fbff 0%, #eff6ff 100%);
+  background: #ffffff;
 }
 
 .api-item.is-active {
@@ -400,27 +359,70 @@ code {
 }
 
 .api-item-head {
+  display: grid;
+  gap: 10px;
+  align-items: start;
+}
+
+.api-item-badges {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.api-item-name,
+.api-item-detail code {
+  overflow-wrap: anywhere;
+  word-break: normal;
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    SF Mono,
+    Menlo,
+    Monaco,
+    Consolas,
+    Liberation Mono,
+    Courier New,
+    monospace;
+}
+
+.api-item-name {
+  color: #222222;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .api-method {
   flex-shrink: 0;
   padding: 4px 8px;
   border-radius: 999px;
-  background: rgba(191, 219, 254, 0.75);
-  color: #1d4ed8;
+  border: 1px solid #e7eaee;
+  background: #ffffff;
+  color: #444444;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
+}
+
+.api-status {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.api-status-completed {
+  border: 1px solid #b7e4c7;
+  background: #eefbf3;
+  color: #166534;
 }
 
 .api-item-summary {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.6;
-  color: #475569;
+  color: #555555;
 }
 
 .api-item-detail {
@@ -429,10 +431,10 @@ code {
   left: 0;
   right: 0;
   padding: 16px;
-  border: 1px solid rgba(37, 99, 235, 0.18);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 22px 44px rgba(15, 23, 42, 0.14);
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -473,36 +475,31 @@ code {
 
 .api-item-meta dt {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.02em;
+  color: #999999;
 }
 
 .api-item-meta dd {
   margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   line-height: 1.6;
+  color: #333333;
 }
 
-@media (max-width: 640px) {
-  .page-shell {
-    padding: 20px 14px 36px;
+@media (max-width: 1080px) {
+  .catalog-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .catalog-stats {
+    grid-template-columns: 1fr;
   }
 
-  .hero-card,
-  .catalog-card {
-    border-radius: 20px;
-  }
-
-  .hero-card {
-    padding: 24px 20px;
-  }
-
-  .catalog-card {
-    padding: 20px;
-  }
-
-  .section-head {
+  .catalog-section-head {
     flex-direction: column;
   }
 

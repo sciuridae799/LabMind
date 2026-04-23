@@ -1,0 +1,115 @@
+package com.superagent.business.chat.chatagent.service.impl;
+
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.superagent.business.chat.chatagent.data.BusinessChatDialogueData;
+import com.superagent.business.chat.chatagent.data.BusinessChatExchangeData;
+import com.superagent.business.chat.chatagent.data.BusinessChatExchangeTraceStageData;
+import com.superagent.business.chat.chatagent.data.BusinessChatMemorySummaryData;
+import com.superagent.business.chat.chatagent.dto.BusinessChatDeleteSessionRequest;
+import com.superagent.business.chat.chatagent.mapper.BusinessChatDialogueMapper;
+import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeMapper;
+import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeTraceStageMapper;
+import com.superagent.business.chat.chatagent.mapper.BusinessChatMemorySummaryMapper;
+import com.superagent.business.chat.chatagent.model.BusinessChatConversationLeaseKeys;
+import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
+import com.superagent.business.chat.chatagent.service.BusinessChatSessionService;
+import com.superagent.common.frame.enums.BaseCode;
+import com.superagent.common.frame.exception.BaseException;
+import com.superagent.redisson.servicelease.lease.RedisLeaseManager;
+import java.time.Duration;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+@Service
+@Slf4j
+@RequiredArgsConstructor
+public class BusinessChatSessionServiceImpl implements BusinessChatSessionService {
+
+    private static final int NORMAL_STATUS = 1;
+
+    private static final int DELETED_STATUS = 0;
+
+    private static final Duration DELETE_LEASE_TTL = Duration.ofSeconds(30);
+
+    private final RedisLeaseManager redisLeaseManager;
+
+    private final BusinessChatDialogueMapper businessChatDialogueMapper;
+
+    private final BusinessChatExchangeMapper businessChatExchangeMapper;
+
+    private final BusinessChatMemorySummaryMapper businessChatMemorySummaryMapper;
+
+    private final BusinessChatExchangeTraceStageMapper businessChatExchangeTraceStageMapper;
+
+    @Override
+    @Transactional
+    public void deleteSession(BusinessChatDeleteSessionRequest request) {
+        String conversationId = normalizeConversationId(request.getConversationId());
+        String leaseKey = BusinessChatConversationLeaseKeys.conversationLeaseKey(conversationId);
+        String ownerToken = UUID.randomUUID().toString();
+        // 删除和流式生成共用同一把会话锁，保证不会一边写 RUNNING exchange，一边把会话归档软删。
+        boolean acquired = redisLeaseManager.acquire(leaseKey, ownerToken, DELETE_LEASE_TTL);
+        if (!acquired) {
+            throw new BaseException(
+                    BusinessChatErrorCode.CHAT_SESSION_RUNNING,
+                    "conversation is running and cannot be deleted: " + conversationId);
+        }
+        try {
+            BusinessChatDialogueData dialogueData = businessChatDialogueMapper.selectOne(
+                    Wrappers.<BusinessChatDialogueData>lambdaQuery()
+                            .eq(BusinessChatDialogueData::getDialogueCode, conversationId)
+                            .eq(BusinessChatDialogueData::getStatus, NORMAL_STATUS)
+                            .last("limit 1"));
+            if (dialogueData == null) {
+                throw new BaseException(
+                        BusinessChatErrorCode.CHAT_SESSION_NOT_FOUND,
+                        "conversationId was not found: " + conversationId);
+            }
+
+            // 会话删除按 conversationId 贯穿主表、轮次、摘要和阶段明细，统一软删后查询链路自然不可见。
+            businessChatDialogueMapper.update(
+                    null,
+                    Wrappers.<BusinessChatDialogueData>update()
+                            .eq("dialogue_code", conversationId)
+                            .eq("status", NORMAL_STATUS)
+                            .set("status", DELETED_STATUS));
+            businessChatExchangeMapper.update(
+                    null,
+                    Wrappers.<BusinessChatExchangeData>update()
+                            .eq("dialogue_code", conversationId)
+                            .eq("status", NORMAL_STATUS)
+                            .set("status", DELETED_STATUS));
+            businessChatMemorySummaryMapper.update(
+                    null,
+                    Wrappers.<BusinessChatMemorySummaryData>update()
+                            .eq("dialogue_code", conversationId)
+                            .eq("status", NORMAL_STATUS)
+                            .set("status", DELETED_STATUS));
+            businessChatExchangeTraceStageMapper.update(
+                    null,
+                    Wrappers.<BusinessChatExchangeTraceStageData>update()
+                            .eq("dialogue_code", conversationId)
+                            .eq("status", NORMAL_STATUS)
+                            .set("status", DELETED_STATUS));
+        } finally {
+            boolean released = redisLeaseManager.release(leaseKey, ownerToken);
+            if (!released) {
+                log.error("Conversation delete lease release failed. conversationId={}, leaseKey={}",
+                        conversationId,
+                        leaseKey);
+            }
+        }
+    }
+
+    private String normalizeConversationId(String conversationId) {
+        String normalizedConversationId = conversationId == null ? null : conversationId.strip();
+        if (!StringUtils.hasText(normalizedConversationId)) {
+            throw new BaseException(BaseCode.INVALID_PARAMETER, "conversationId must not be blank");
+        }
+        return normalizedConversationId;
+    }
+}

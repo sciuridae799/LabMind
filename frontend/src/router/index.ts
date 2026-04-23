@@ -16,6 +16,14 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/model-config',
+    name: 'ModelConfig',
+    component: () => import('../views/ModelConfigView.vue'),
+    meta: {
+      title: '模型配置'
+    }
+  },
+  {
     path: '/admin/login',
     name: 'AdminLogin',
     component: () => import('../views/AdminLoginView.vue'),
@@ -81,6 +89,14 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../views/admin/AdminObservabilityListView.vue'),
         meta: {
           title: '对话观测'
+        }
+      },
+      {
+        path: 'api-catalog',
+        name: 'AdminApiCatalog',
+        component: () => import('../pages/ApiCatalogPage.vue'),
+        meta: {
+          title: '前端 API 目录'
         }
       },
       {

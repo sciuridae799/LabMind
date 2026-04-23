@@ -1,19 +1,93 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
+import {
+  businessChatModeOptions,
+  type BusinessChatSessionDetail,
+  type BusinessChatSessionExchange,
+  type BusinessChatSessionListItem,
+  chatApi,
+  createConversationId,
+  type BusinessChatMode,
+  type ModelApiConfig,
+  type BusinessChatStreamEvent
+} from '../shared/api/chat'
 
-const modes = ['当前文档问答', '自动知识问答', '开放式提问'] as const
-
-type ChatMode = (typeof modes)[number]
-
-const currentMode = ref<ChatMode>('开放式提问')
-const selectedDoc = ref('')
-const isDocContextVisible = ref(false)
-const conversationHistory = [] as Array<{
-  id: string
+interface ConversationHistoryItem {
+  conversationId: string
   title: string
   time: string
-}>
+  chatMode: BusinessChatMode
+  turnStatus: string
+}
+
+interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  functionSupplementItems: string[]
+  sourceSnapshotList: string[]
+  followUpSuggestionList: string[]
+  errorMessage: string
+  status: 'streaming' | 'finished' | 'failed'
+  exchangeId: string
+  createdTime: string
+}
+
+interface ConversationTurn {
+  id: string
+  userMessage: ChatMessage
+  assistantMessage: ChatMessage
+}
+
+const starterPrompts = [
+  {
+    icon: 'write',
+    question: '我想写一篇内容（比如文章/文案），你可以帮我从思路到成稿一步步完成吗？'
+  },
+  {
+    icon: 'chart',
+    question: '我有一段数据或信息需要分析，你能帮我整理重点并给出结论吗？'
+  },
+  {
+    icon: 'plan',
+    question: '我有一个实际问题需要解决，你可以给我一个具体可执行的方案吗？'
+  }
+] as const
+
+const currentMode = ref<BusinessChatMode>('OPEN_ENDED')
+const currentModelConfigId = ref('')
+const availableModelConfigs = ref<ModelApiConfig[]>([])
+const selectedDoc = ref('')
+const isDocContextVisible = ref(false)
+const conversationHistory = ref<ConversationHistoryItem[]>([])
+const activeConversationId = ref('')
+const activeConversationTitle = ref('')
+const messageList = ref<ChatMessage[]>([])
+const userQuestion = ref('')
+const streamStatusMessage = ref('')
+const historyStatusMessage = ref('')
+const modelConfigStatusMessage = ref('')
+const isHistoryLoading = ref(false)
+const isModelConfigLoading = ref(false)
+const deletingConversationId = ref('')
+const deleteConfirmConversationId = ref('')
+const isStreaming = ref(false)
+const conversationId = ref(createConversationId())
+const activeStreamRequest = ref<ReturnType<typeof chatApi.openStream> | null>(null)
+const expandedThinkingTurnIds = ref<string[]>([])
+const conversationScrollRegion = ref<HTMLElement | null>(null)
+const shouldAutoScroll = ref(true)
+const isTextareaComposing = ref(false)
+const modelPickerElement = ref<HTMLElement | null>(null)
+const isModelPickerOpen = ref(false)
+const modelPickerPlacement = ref<'up' | 'down'>('up')
 let docContextHideTimer: ReturnType<typeof setTimeout> | null = null
+let scrollAnimationFrame: number | null = null
+
+const AUTO_SCROLL_BOTTOM_THRESHOLD = 80
 
 function clearDocContextHideTimer(): void {
   if (!docContextHideTimer) {
@@ -27,7 +101,7 @@ function clearDocContextHideTimer(): void {
 function scheduleDocContextHide(): void {
   clearDocContextHideTimer()
 
-  if (currentMode.value !== '当前文档问答') {
+  if (currentMode.value !== 'CURRENT_DOCUMENT') {
     isDocContextVisible.value = false
     return
   }
@@ -41,27 +115,722 @@ function scheduleDocContextHide(): void {
 function keepDocContextVisible(): void {
   clearDocContextHideTimer()
 
-  if (currentMode.value === '当前文档问答') {
+  if (currentMode.value === 'CURRENT_DOCUMENT') {
     isDocContextVisible.value = true
   }
 }
 
-function selectMode(mode: ChatMode): void {
+function selectMode(mode: BusinessChatMode): void {
   currentMode.value = mode
   clearDocContextHideTimer()
-  isDocContextVisible.value = mode === '当前文档问答'
+  isDocContextVisible.value = mode === 'CURRENT_DOCUMENT'
 }
 
-function handleModePointerEnter(mode: ChatMode): void {
-  if (mode !== '当前文档问答' || currentMode.value !== '当前文档问答') {
+function handleModePointerEnter(mode: BusinessChatMode): void {
+  if (mode !== 'CURRENT_DOCUMENT' || currentMode.value !== 'CURRENT_DOCUMENT') {
     return
   }
 
   keepDocContextVisible()
 }
 
+function createMessageId(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+}
+
+function resolveErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : '请求失败'
+}
+
+function createAssistantMessage(): ChatMessage {
+  return {
+    id: createMessageId(),
+    role: 'assistant',
+    text: '',
+    functionSupplementItems: [],
+    sourceSnapshotList: [],
+    followUpSuggestionList: [],
+    errorMessage: '',
+    status: 'streaming',
+    exchangeId: '',
+    createdTime: new Date().toISOString()
+  }
+}
+
+function findMessage(messageId: string): ChatMessage | undefined {
+  return messageList.value.find((message) => message.id === messageId)
+}
+
+function isConversationScrolledNearBottom(element: HTMLElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= AUTO_SCROLL_BOTTOM_THRESHOLD
+}
+
+function updateAutoScrollPreference(): void {
+  const scrollRegion = conversationScrollRegion.value
+  if (!scrollRegion) {
+    shouldAutoScroll.value = true
+    return
+  }
+
+  shouldAutoScroll.value = isConversationScrolledNearBottom(scrollRegion)
+}
+
+function scheduleScrollToLatest(force = false): void {
+  if (force) {
+    shouldAutoScroll.value = true
+  }
+
+  if (!force && !shouldAutoScroll.value) {
+    return
+  }
+
+  void nextTick(() => {
+    if (!force && !shouldAutoScroll.value) {
+      return
+    }
+
+    if (scrollAnimationFrame !== null) {
+      cancelAnimationFrame(scrollAnimationFrame)
+    }
+
+    scrollAnimationFrame = requestAnimationFrame(() => {
+      const scrollRegion = conversationScrollRegion.value
+      if (!scrollRegion) {
+        scrollAnimationFrame = null
+        return
+      }
+
+      scrollRegion.scrollTop = scrollRegion.scrollHeight
+      scrollAnimationFrame = null
+    })
+  })
+}
+
+function parseDateText(value: string): Date | null {
+  const normalizedValue = String(value || '').trim()
+  if (!normalizedValue) {
+    return null
+  }
+
+  const parsedDate = new Date(normalizedValue.replace(' ', 'T'))
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate
+}
+
+function formatMessageTime(value: string): string {
+  const parsedDate = parseDateText(value)
+  if (!parsedDate) {
+    return ''
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(parsedDate)
+}
+
+function formatHistoryTime(value: string): string {
+  const parsedDate = parseDateText(value)
+  if (!parsedDate) {
+    return String(value || '').trim()
+  }
+
+  const now = new Date()
+  const sameDay = now.getFullYear() === parsedDate.getFullYear() &&
+    now.getMonth() === parsedDate.getMonth() &&
+    now.getDate() === parsedDate.getDate()
+
+  return new Intl.DateTimeFormat(
+    'zh-CN',
+    sameDay ? { hour: '2-digit', minute: '2-digit' } : { month: '2-digit', day: '2-digit' }
+  ).format(parsedDate)
+}
+
+function parseFunctionSupplementItems(value: string): string[] {
+  const normalizedValue = String(value || '')
+    .replace(/\r\n/g, '\n')
+    .trim()
+
+  if (!normalizedValue) {
+    return []
+  }
+
+  const paragraphItems = normalizedValue
+    .split(/\n{2,}/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  if (paragraphItems.length > 1) {
+    return paragraphItems
+  }
+
+  return normalizedValue
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function mapConversationHistoryItem(session: BusinessChatSessionListItem): ConversationHistoryItem {
+  return {
+    conversationId: session.conversationId,
+    title: session.title,
+    time: formatHistoryTime(session.updateTime),
+    chatMode: session.chatMode,
+    turnStatus: session.turnStatus
+  }
+}
+
+function buildAssistantMessageStatus(exchange: BusinessChatSessionExchange): ChatMessage['status'] {
+  if (exchange.exchangeState === 'RUNNING') {
+    return 'streaming'
+  }
+
+  if (exchange.exchangeState === 'FAILED' || exchange.exchangeState === 'STOPPED') {
+    return 'failed'
+  }
+
+  return 'finished'
+}
+
+function buildAssistantErrorMessage(exchange: BusinessChatSessionExchange): string {
+  if (exchange.exchangeState === 'FAILED') {
+    return String(exchange.finishNote || '本轮对话执行失败')
+  }
+
+  if (exchange.exchangeState === 'STOPPED') {
+    return String(exchange.finishNote || '本轮回答已中止')
+  }
+
+  return ''
+}
+
+function buildMessageListFromSession(sessionDetail: BusinessChatSessionDetail): ChatMessage[] {
+  // 后端详情按 exchange 返回一轮问答，这里拆成前端消息流里的 user + assistant 两条消息。
+  return sessionDetail.exchanges.flatMap((exchange) => {
+    const exchangeId = String(exchange.exchangeId)
+
+    return [
+      {
+        id: `user-${exchangeId}`,
+        role: 'user',
+        text: exchange.userPrompt,
+        functionSupplementItems: [],
+        sourceSnapshotList: [],
+        followUpSuggestionList: [],
+        errorMessage: '',
+        status: 'finished',
+        exchangeId,
+        createdTime: exchange.createTime
+      },
+      {
+        id: `assistant-${exchangeId}`,
+        role: 'assistant',
+        text: exchange.replyContent,
+        functionSupplementItems: exchange.toolTraceList
+          .map((item) => String(item || '').trim())
+          .filter(Boolean),
+        sourceSnapshotList: [...exchange.sourceSnapshotList],
+        followUpSuggestionList: [...exchange.followUpSuggestionList],
+        errorMessage: buildAssistantErrorMessage(exchange),
+        status: buildAssistantMessageStatus(exchange),
+        exchangeId,
+        createdTime: exchange.createTime
+      }
+    ]
+  })
+}
+
+const conversationTurns = computed<ConversationTurn[]>(() => {
+  const turns: ConversationTurn[] = []
+
+  for (let index = 0; index < messageList.value.length; index += 1) {
+    const userMessage = messageList.value[index]
+    if (!userMessage || userMessage.role !== 'user') {
+      continue
+    }
+
+    const assistantMessage = messageList.value[index + 1]
+    if (!assistantMessage || assistantMessage.role !== 'assistant') {
+      continue
+    }
+
+    turns.push({
+      id: userMessage.id,
+      userMessage,
+      assistantMessage
+    })
+    index += 1
+  }
+
+  return turns
+})
+
+const hasConversation = computed<boolean>(() => messageList.value.length > 0)
+
+const canSendMessage = computed<boolean>(() => {
+  return !isStreaming.value && userQuestion.value.trim().length > 0 && currentModelConfigId.value.length > 0
+})
+
+const currentModelConfig = computed<ModelApiConfig | null>(() => {
+  return availableModelConfigs.value.find((config) => config.id === currentModelConfigId.value) ?? null
+})
+
+const latestTurnId = computed<string>(() => {
+  const turns = conversationTurns.value
+  return turns.length > 0 ? turns[turns.length - 1].id : ''
+})
+
+function renderMarkdown(value: string): string {
+  const html = marked.parse(value, {
+    async: false,
+    breaks: true,
+    gfm: true
+  }) as string
+  const sanitizedHtml = DOMPurify.sanitize(html)
+  const template = document.createElement('template')
+  template.innerHTML = sanitizedHtml
+
+  template.content.querySelectorAll('pre').forEach((preElement) => {
+    const wrapper = document.createElement('div')
+    wrapper.className = 'markdown-code-block'
+
+    const copyButton = document.createElement('button')
+    copyButton.type = 'button'
+    copyButton.className = 'markdown-code-copy'
+    copyButton.dataset.copyCodeButton = 'true'
+    copyButton.textContent = '复制'
+
+    preElement.replaceWith(wrapper)
+    wrapper.append(copyButton, preElement)
+  })
+
+  return template.innerHTML
+}
+
+function handleMarkdownClick(event: MouseEvent): void {
+  const target = event.target
+  if (!(target instanceof Element)) {
+    return
+  }
+
+  const copyButton = target.closest<HTMLButtonElement>('[data-copy-code-button="true"]')
+  if (!copyButton) {
+    return
+  }
+
+  const codeElement = copyButton.closest('.markdown-code-block')?.querySelector('pre code')
+  const codeText = codeElement?.textContent ?? ''
+  if (!codeText) {
+    return
+  }
+
+  void navigator.clipboard.writeText(codeText).then(() => {
+    copyButton.textContent = '已复制'
+    window.setTimeout(() => {
+      copyButton.textContent = '复制'
+    }, 1200)
+  })
+}
+
+function isThinkingExpanded(turnId: string): boolean {
+  return expandedThinkingTurnIds.value.includes(turnId)
+}
+
+function toggleThinking(turnId: string): void {
+  if (isThinkingExpanded(turnId)) {
+    expandedThinkingTurnIds.value = expandedThinkingTurnIds.value.filter((item) => item !== turnId)
+    return
+  }
+
+  expandedThinkingTurnIds.value = [...expandedThinkingTurnIds.value, turnId]
+}
+
+function resetThinkingExpansion(): void {
+  expandedThinkingTurnIds.value = []
+}
+
+function buildThinkingSummary(count: number): string {
+  return `${count} 条 Agent 执行`
+}
+
+function upsertAgentEventMessage(assistantMessage: ChatMessage, event: BusinessChatStreamEvent): void {
+  const agentName = String(event.agentName || '').trim()
+  const message = String(event.message || '').trim()
+  const text = [message, agentName].filter(Boolean).join('：')
+  if (!text) {
+    return
+  }
+
+  const existingIndex = assistantMessage.functionSupplementItems.findIndex((item) => {
+    return agentName.length > 0 && item.endsWith(`：${agentName}`)
+  })
+  if (existingIndex < 0) {
+    assistantMessage.functionSupplementItems = [...assistantMessage.functionSupplementItems, text]
+    return
+  }
+
+  assistantMessage.functionSupplementItems = assistantMessage.functionSupplementItems.map((item, index) => {
+    return index === existingIndex ? text : item
+  })
+}
+
+async function loadConversationHistory(preservedConversationId: string | null = activeConversationId.value): Promise<void> {
+  isHistoryLoading.value = true
+  historyStatusMessage.value = ''
+
+  try {
+    // 历史列表只承载会话入口；真正的消息内容在点击会话后再通过详情接口加载。
+    const sessionPage = await chatApi.listSessionsPage({
+      keyword: '',
+      chatMode: 'ALL',
+      turnStatus: 'ALL',
+      pageNo: '1',
+      pageSize: '50'
+    })
+    conversationHistory.value = sessionPage.sessions.map(mapConversationHistoryItem)
+    const activeHistoryItem = conversationHistory.value.find((item) => item.conversationId === preservedConversationId)
+
+    if (
+      preservedConversationId &&
+      activeHistoryItem
+    ) {
+      activeConversationId.value = preservedConversationId
+      activeConversationTitle.value = activeHistoryItem.title
+      return
+    }
+
+    if (messageList.value.length === 0) {
+      activeConversationId.value = ''
+      activeConversationTitle.value = ''
+    }
+  } catch (error) {
+    conversationHistory.value = []
+    historyStatusMessage.value = resolveErrorMessage(error)
+  } finally {
+    isHistoryLoading.value = false
+  }
+}
+
+async function loadAvailableModelConfigs(): Promise<void> {
+  isModelConfigLoading.value = true
+  modelConfigStatusMessage.value = ''
+
+  try {
+    const configs = await chatApi.listAvailableModelConfigs()
+    availableModelConfigs.value = configs
+    if (configs.some((config) => config.id === currentModelConfigId.value)) {
+      return
+    }
+    currentModelConfigId.value = configs[0]?.id ?? ''
+    isModelPickerOpen.value = false
+  } catch (error) {
+    availableModelConfigs.value = []
+    currentModelConfigId.value = ''
+    modelConfigStatusMessage.value = resolveErrorMessage(error)
+  } finally {
+    isModelConfigLoading.value = false
+  }
+}
+
+function toggleModelPicker(): void {
+  if (isStreaming.value || isModelConfigLoading.value || availableModelConfigs.value.length === 0) {
+    return
+  }
+
+  if (!isModelPickerOpen.value) {
+    updateModelPickerPlacement()
+  }
+  isModelPickerOpen.value = !isModelPickerOpen.value
+}
+
+function updateModelPickerPlacement(): void {
+  const element = modelPickerElement.value
+  if (!element) {
+    modelPickerPlacement.value = 'up'
+    return
+  }
+
+  const rect = element.getBoundingClientRect()
+  const spaceBelow = window.innerHeight - rect.bottom
+  const spaceAbove = rect.top
+  modelPickerPlacement.value = spaceBelow >= 180 || spaceBelow >= spaceAbove ? 'down' : 'up'
+}
+
+function selectModelConfig(configId: string): void {
+  currentModelConfigId.value = configId
+  isModelPickerOpen.value = false
+}
+
+function handleDocumentClick(event: MouseEvent): void {
+  const target = event.target
+  if (!(target instanceof Node)) {
+    return
+  }
+
+  if (!modelPickerElement.value?.contains(target)) {
+    isModelPickerOpen.value = false
+  }
+}
+
+async function openConversation(conversationIdToOpen: string): Promise<void> {
+  if (isStreaming.value || deletingConversationId.value) {
+    return
+  }
+
+  deleteConfirmConversationId.value = ''
+  streamStatusMessage.value = '正在加载会话历史'
+
+  try {
+    // 打开历史会话时，用后端详情作为唯一数据源回填当前模式、会话编号和消息列表。
+    const sessionDetail = await chatApi.getSession(conversationIdToOpen)
+    activeConversationId.value = sessionDetail.conversationId
+    activeConversationTitle.value = sessionDetail.title
+    conversationId.value = sessionDetail.conversationId
+    currentMode.value = sessionDetail.chatMode
+    selectedDoc.value = ''
+    isDocContextVisible.value = sessionDetail.chatMode === 'CURRENT_DOCUMENT'
+    messageList.value = buildMessageListFromSession(sessionDetail)
+    resetThinkingExpansion()
+    userQuestion.value = ''
+    streamStatusMessage.value = ''
+    scheduleScrollToLatest(true)
+  } catch (error) {
+    streamStatusMessage.value = resolveErrorMessage(error)
+  }
+}
+
+async function deleteConversation(conversationIdToDelete: string): Promise<void> {
+  if (isStreaming.value || deletingConversationId.value) {
+    return
+  }
+
+  deletingConversationId.value = conversationIdToDelete
+  historyStatusMessage.value = ''
+
+  try {
+    await chatApi.deleteSession(conversationIdToDelete)
+
+    if (activeConversationId.value === conversationIdToDelete) {
+      startNewConversation()
+      await loadConversationHistory()
+      return
+    }
+
+    await loadConversationHistory(activeConversationId.value)
+  } catch (error) {
+    historyStatusMessage.value = resolveErrorMessage(error)
+  } finally {
+    deletingConversationId.value = ''
+    deleteConfirmConversationId.value = ''
+  }
+}
+
+function requestDeleteConversation(conversationIdToDelete: string): void {
+  if (isStreaming.value || deletingConversationId.value) {
+    return
+  }
+
+  deleteConfirmConversationId.value = conversationIdToDelete
+}
+
+function cancelDeleteConversation(): void {
+  deleteConfirmConversationId.value = ''
+}
+
+function confirmDeleteConversation(conversationIdToDelete: string): void {
+  void deleteConversation(conversationIdToDelete)
+}
+
+function consumeStreamEvent(assistantMessageId: string, event: BusinessChatStreamEvent): void {
+  const assistantMessage = findMessage(assistantMessageId)
+  if (!assistantMessage) {
+    return
+  }
+
+  // 后端 SSE 按事件类型推进本轮助手消息：正文增量、补充信息、推荐追问和终态都落到同一条消息上。
+  if (event.exchangeId != null) {
+    assistantMessage.exchangeId = String(event.exchangeId)
+  }
+
+  switch (String(event.eventType || '')) {
+    case 'AGENT_STARTED':
+      upsertAgentEventMessage(assistantMessage, event)
+      streamStatusMessage.value = String(event.agentName || 'Agent') + '开始处理'
+      break
+    case 'AGENT_FINISHED':
+      upsertAgentEventMessage(assistantMessage, event)
+      streamStatusMessage.value = String(event.agentName || 'Agent') + '处理完成'
+      break
+    case 'EXECUTION_PROGRESS':
+      streamStatusMessage.value = String(event.message || '正在生成执行计划')
+      break
+    case 'TEXT_DELTA':
+      assistantMessage.text += String(event.textDelta || '')
+      streamStatusMessage.value = ''
+      break
+    case 'FUNCTION_SUPPLEMENT':
+      streamStatusMessage.value = ''
+      break
+    case 'REFERENCE_SUPPLEMENT':
+      assistantMessage.sourceSnapshotList = Array.isArray(event.sourceSnapshotList)
+        ? [...event.sourceSnapshotList]
+        : []
+      streamStatusMessage.value = '正在补发引用信息'
+      break
+    case 'FOLLOW_UP_RECOMMENDATION':
+      assistantMessage.followUpSuggestionList = Array.isArray(event.followUpSuggestionList)
+        ? [...event.followUpSuggestionList]
+        : []
+      streamStatusMessage.value = '正在补发推荐追问'
+      break
+    case 'TURN_FINISHED':
+      assistantMessage.status = 'finished'
+      streamStatusMessage.value = ''
+      break
+    case 'TURN_REJECTED':
+      assistantMessage.status = 'failed'
+      assistantMessage.errorMessage = String(event.message || '该会话当前正在执行中')
+      streamStatusMessage.value = assistantMessage.errorMessage
+      break
+    case 'TURN_FAILED':
+      assistantMessage.status = 'failed'
+      assistantMessage.errorMessage = String(event.message || '本轮对话执行失败')
+      streamStatusMessage.value = assistantMessage.errorMessage
+      break
+    default:
+      break
+  }
+
+  scheduleScrollToLatest()
+}
+
+async function handleSend(): Promise<void> {
+  const question = userQuestion.value.trim()
+  if (!question || isStreaming.value || !currentModelConfigId.value) {
+    return
+  }
+
+  // 前端先把用户消息和占位助手消息放入本地消息流，随后用 SSE 事件持续填充这条助手消息。
+  const currentConversationId = conversationId.value || createConversationId()
+  conversationId.value = currentConversationId
+  activeConversationId.value = currentConversationId
+
+  messageList.value.push({
+    id: createMessageId(),
+    role: 'user',
+    text: question,
+    functionSupplementItems: [],
+    sourceSnapshotList: [],
+    followUpSuggestionList: [],
+    errorMessage: '',
+    status: 'finished',
+    exchangeId: '',
+    createdTime: new Date().toISOString()
+  })
+
+  const assistantMessage = createAssistantMessage()
+  const assistantMessageId = assistantMessage.id
+  messageList.value.push(assistantMessage)
+  scheduleScrollToLatest(true)
+
+  userQuestion.value = ''
+  isStreaming.value = true
+  streamStatusMessage.value = '正在建立执行链路'
+
+  const streamRequest = chatApi.openStream(
+    {
+      question,
+      conversationId: currentConversationId,
+      chatMode: currentMode.value,
+      modelConfigId: currentModelConfigId.value
+    },
+    {
+      // 每条 SSE 事件只更新当前轮助手消息，避免历史消息被正在进行的流式响应污染。
+      onEvent: (event) => consumeStreamEvent(assistantMessage.id, event)
+    }
+  )
+  activeStreamRequest.value = streamRequest
+
+  try {
+    await streamRequest.done
+    const currentAssistantMessage = findMessage(assistantMessageId)
+    if (currentAssistantMessage?.status === 'streaming') {
+      currentAssistantMessage.status = 'finished'
+      streamStatusMessage.value = ''
+    }
+  } catch (error) {
+    const currentAssistantMessage = findMessage(assistantMessageId)
+    if (currentAssistantMessage) {
+      currentAssistantMessage.status = 'failed'
+      currentAssistantMessage.errorMessage = error instanceof Error ? error.message : '流式请求失败'
+      streamStatusMessage.value = currentAssistantMessage.errorMessage
+      scheduleScrollToLatest()
+    }
+  } finally {
+    activeStreamRequest.value = null
+    isStreaming.value = false
+  }
+
+  await loadConversationHistory(currentConversationId)
+}
+
+function startNewConversation(): void {
+  activeStreamRequest.value?.controller.abort()
+  activeStreamRequest.value = null
+  isStreaming.value = false
+  deleteConfirmConversationId.value = ''
+  userQuestion.value = ''
+  streamStatusMessage.value = ''
+  selectedDoc.value = ''
+  activeConversationId.value = ''
+  activeConversationTitle.value = ''
+  messageList.value = []
+  shouldAutoScroll.value = true
+  resetThinkingExpansion()
+  conversationId.value = createConversationId()
+}
+
+function useFollowUpSuggestion(question: string): void {
+  if (isStreaming.value) {
+    return
+  }
+
+  userQuestion.value = question
+  void handleSend()
+}
+
+function useStarterPrompt(question: string): void {
+  userQuestion.value = question
+}
+
+function handleTextareaKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing || isTextareaComposing.value) {
+    return
+  }
+  event.preventDefault()
+  void handleSend()
+}
+
+function handleTextareaCompositionStart(): void {
+  isTextareaComposing.value = true
+}
+
+function handleTextareaCompositionEnd(): void {
+  isTextareaComposing.value = false
+}
+
+onMounted(() => {
+  void loadConversationHistory()
+  void loadAvailableModelConfigs()
+  document.addEventListener('click', handleDocumentClick)
+})
+
 onBeforeUnmount(() => {
   clearDocContextHideTimer()
+  if (scrollAnimationFrame !== null) {
+    cancelAnimationFrame(scrollAnimationFrame)
+  }
+  document.removeEventListener('click', handleDocumentClick)
+  activeStreamRequest.value?.controller.abort()
 })
 </script>
 
@@ -72,6 +841,7 @@ onBeforeUnmount(() => {
         <button
           type="button"
           class="nav-item nav-item-primary"
+          @click="startNewConversation"
         >
           <span
             class="nav-item-icon"
@@ -98,23 +868,117 @@ onBeforeUnmount(() => {
           </span>
           <span class="nav-item-label">New chat</span>
         </button>
+        <RouterLink
+          to="/model-config"
+          class="nav-item nav-item-secondary"
+        >
+          <span
+            class="nav-item-icon"
+            aria-hidden="true"
+          >
+            <svg viewBox="0 0 20 20">
+              <path
+                d="M5.833 4.167h8.334a1.667 1.667 0 0 1 1.666 1.666v8.334a1.667 1.667 0 0 1-1.666 1.666H5.833a1.667 1.667 0 0 1-1.666-1.666V5.833a1.667 1.667 0 0 1 1.666-1.666Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+              <path
+                d="M7.5 8.333h5M7.5 11.667h3.333"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-width="1.5"
+              />
+            </svg>
+          </span>
+          <span class="nav-item-label">Config</span>
+        </RouterLink>
       </nav>
 
-      <div
-        v-if="conversationHistory.length > 0"
-        class="history-section"
-      >
+      <div class="history-section">
         <div class="section-header">
           <span>History</span>
+          <span
+            v-if="isHistoryLoading"
+            class="section-status"
+          >
+            加载中
+          </span>
         </div>
 
-        <ul class="history-list">
+        <p
+          v-if="historyStatusMessage"
+          class="history-status history-status-error"
+        >
+          {{ historyStatusMessage }}
+        </p>
+
+        <p
+          v-else-if="!isHistoryLoading && conversationHistory.length === 0"
+          class="history-status"
+        >
+          暂无历史对话
+        </p>
+
+        <ul
+          v-else
+          class="history-list"
+        >
           <li
             v-for="conversation in conversationHistory"
-            :key="conversation.id"
+            :key="conversation.conversationId"
+            class="history-row"
+            :class="{ active: activeConversationId === conversation.conversationId }"
           >
-            <span class="truncate">{{ conversation.title }}</span>
-            <span class="time">{{ conversation.time }}</span>
+            <button
+              type="button"
+              class="history-open-button"
+              :disabled="isStreaming || deletingConversationId.length > 0"
+              @click="openConversation(conversation.conversationId)"
+            >
+              <span class="truncate">{{ conversation.title }}</span>
+            </button>
+            <div
+              class="history-action-slot"
+              :data-delete-visible="deletingConversationId === conversation.conversationId || deleteConfirmConversationId === conversation.conversationId ? 'true' : 'false'"
+            >
+              <span class="time">{{ conversation.time }}</span>
+              <button
+                type="button"
+                class="history-delete-button"
+                :data-visible="deletingConversationId === conversation.conversationId || deleteConfirmConversationId === conversation.conversationId ? 'true' : 'false'"
+                :disabled="isStreaming || deletingConversationId.length > 0"
+                @click="requestDeleteConversation(conversation.conversationId)"
+              >
+                {{ deletingConversationId === conversation.conversationId ? '删除中' : '删除' }}
+              </button>
+              <div
+                v-if="deleteConfirmConversationId === conversation.conversationId"
+                class="delete-popover history-delete-popover"
+              >
+                <strong>删除这段对话？</strong>
+                <span>删除后历史消息将无法恢复。</span>
+                <div class="delete-popover-actions">
+                  <button
+                    type="button"
+                    class="delete-popover-cancel"
+                    :disabled="deletingConversationId.length > 0"
+                    @click="cancelDeleteConversation"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    class="delete-popover-confirm"
+                    :disabled="deletingConversationId.length > 0"
+                    @click="confirmDeleteConversation(conversation.conversationId)"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
           </li>
         </ul>
       </div>
@@ -122,100 +986,346 @@ onBeforeUnmount(() => {
     </aside>
 
     <main class="main-content">
-      <div class="workspace">
-        <h1 class="greeting">超级智能，连接知识、推理与执行</h1>
+      <div
+        class="workspace"
+        :class="{ 'workspace-has-conversation': hasConversation }"
+      >
+        <header
+          v-if="hasConversation"
+          class="chat-page-header"
+        >
+          <h1 class="chat-page-title">{{ activeConversationTitle || '智能对话' }}</h1>
+        </header>
 
-        <div class="interaction-container">
+        <h1
+          v-else
+          class="greeting"
+        >
+          What should we build?
+        </h1>
+
+        <div
+          class="interaction-container"
+          :class="{ 'interaction-container-has-conversation': hasConversation }"
+        >
           <div
-            class="custom-mode-selector"
-            @mouseenter="keepDocContextVisible"
-            @mouseleave="scheduleDocContextHide"
+            class="conversation-scroll-region"
+            :class="{ 'conversation-scroll-region-has-conversation': hasConversation }"
+            ref="conversationScrollRegion"
+            @scroll="updateAutoScrollPreference"
           >
-            <div class="mode-tabs">
-              <button
-                v-for="mode in modes"
-                :key="mode"
-                type="button"
-                class="mode-btn"
-                :class="{ active: currentMode === mode }"
-                @click="selectMode(mode)"
-                @mouseenter="handleModePointerEnter(mode)"
+            <div
+              v-if="conversationTurns.length > 0"
+              class="message-list"
+            >
+              <section
+                v-for="turn in conversationTurns"
+                :key="turn.id"
+                class="turn-block"
               >
-                {{ mode }}
-              </button>
-            </div>
+                <div class="user-turn">
+                  <div class="user-turn-stack">
+                    <article class="user-bubble">
+                      <p class="user-bubble-text">
+                        {{ turn.userMessage.text }}
+                      </p>
+                    </article>
 
-            <transition name="doc-context">
-              <div
-                v-if="currentMode === '当前文档问答' && isDocContextVisible"
-                class="doc-selector-wrapper"
-              >
-                <div class="doc-context-panel">
-                  <span class="doc-context-label">关联文档上下文</span>
-                  <select
-                    v-model="selectedDoc"
-                    class="doc-select"
-                  >
-                    <option
-                      disabled
-                      value=""
+                    <div
+                      v-if="turn.userMessage.createdTime"
+                      class="user-bubble-meta"
                     >
-                      选择关联的文档上下文...
-                    </option>
-                    <option value="doc1">
-                      ChatBI 架构文档.pdf
-                    </option>
-                    <option value="doc2">
-                      前端 Vue3 组件规范.md
-                    </option>
-                  </select>
+                      <span class="message-time">{{ formatMessageTime(turn.userMessage.createdTime) }}</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </transition>
-          </div>
 
-          <div class="input-panel">
-            <textarea placeholder="输入你的问题、需求或改动目标，我们直接开始。"></textarea>
+                <div
+                  v-if="turn.assistantMessage.functionSupplementItems.length > 0"
+                  class="thinking-divider"
+                >
+                  <button
+                    type="button"
+                    class="thinking-toggle"
+                    :aria-expanded="isThinkingExpanded(turn.id)"
+                    @click="toggleThinking(turn.id)"
+                  >
+                    <span class="thinking-toggle-text">
+                      {{ buildThinkingSummary(turn.assistantMessage.functionSupplementItems.length) }}
+                    </span>
+                    <span
+                      class="thinking-toggle-icon"
+                      :class="{ expanded: isThinkingExpanded(turn.id) }"
+                      aria-hidden="true"
+                    >
+                      <svg viewBox="0 0 20 20">
+                        <path
+                          d="M7.5 5.833 12.5 10l-5 4.167"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="1.5"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+                </div>
 
-            <div class="input-toolbar">
-              <button
-                type="button"
-                class="icon-btn"
-              >
-                +
-              </button>
-              <button
-                type="button"
-                class="send-btn"
-              >
-                ↑
-              </button>
+                <div
+                  v-if="turn.assistantMessage.functionSupplementItems.length > 0 && isThinkingExpanded(turn.id)"
+                  class="thinking-panel"
+                >
+                  <ol class="thinking-list">
+                    <li
+                      v-for="(item, itemIndex) in turn.assistantMessage.functionSupplementItems"
+                      :key="`${turn.id}-${itemIndex}`"
+                      class="thinking-item"
+                    >
+                      {{ item }}
+                    </li>
+                  </ol>
+                </div>
+
+                <article
+                  class="assistant-response"
+                  :class="`assistant-response-${turn.assistantMessage.status}`"
+                >
+                  <div
+                    v-if="turn.assistantMessage.text"
+                    class="assistant-text markdown-body"
+                    v-html="renderMarkdown(turn.assistantMessage.text)"
+                    @click="handleMarkdownClick"
+                  />
+
+                  <p
+                    v-else-if="turn.assistantMessage.status === 'streaming'"
+                    class="assistant-placeholder"
+                  >
+                    <span class="typing-dots">
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                  </p>
+
+                  <p
+                    v-if="turn.assistantMessage.errorMessage"
+                    class="message-error"
+                  >
+                    {{ turn.assistantMessage.errorMessage }}
+                  </p>
+                </article>
+
+                <div
+                  v-if="turn.id === latestTurnId && turn.assistantMessage.followUpSuggestionList.length > 0 && turn.assistantMessage.status === 'finished'"
+                  class="follow-up-list"
+                >
+                  <button
+                    v-for="suggestion in turn.assistantMessage.followUpSuggestionList"
+                    :key="`${turn.id}-${suggestion}`"
+                    type="button"
+                    class="follow-up-item"
+                    :disabled="isStreaming"
+                    @click="useFollowUpSuggestion(suggestion)"
+                  >
+                    {{ suggestion }}
+                  </button>
+                </div>
+              </section>
+            </div>
+
+            <div
+              v-if="streamStatusMessage"
+              class="stream-status"
+            >
+              {{ streamStatusMessage }}
             </div>
           </div>
 
-          <div class="suggestions-list">
+          <div
+            class="composer-section"
+            :class="{ 'composer-section-has-conversation': hasConversation }"
+          >
+            <div
+              class="custom-mode-selector"
+              @mouseenter="keepDocContextVisible"
+              @mouseleave="scheduleDocContextHide"
+            >
+              <div class="mode-tabs">
+                <button
+                  v-for="mode in businessChatModeOptions"
+                  :key="mode.value"
+                  type="button"
+                  class="mode-btn"
+                  :class="{ active: currentMode === mode.value }"
+                  @click="selectMode(mode.value)"
+                  @mouseenter="handleModePointerEnter(mode.value)"
+                >
+                  {{ mode.label }}
+                </button>
+              </div>
+
+              <transition name="doc-context">
+                <div
+                  v-if="currentMode === 'CURRENT_DOCUMENT' && isDocContextVisible"
+                  class="doc-selector-wrapper"
+                >
+                  <div class="doc-context-panel">
+                    <span class="doc-context-label">关联文档上下文</span>
+                    <select
+                      v-model="selectedDoc"
+                      class="doc-select"
+                    >
+                      <option
+                        disabled
+                        value=""
+                      >
+                        选择关联的文档上下文...
+                      </option>
+                      <option value="doc1">
+                        ChatBI 架构文档.pdf
+                      </option>
+                      <option value="doc2">
+                        前端 Vue3 组件规范.md
+                      </option>
+                    </select>
+                  </div>
+                </div>
+              </transition>
+            </div>
+
+            <div
+              class="input-panel"
+              :class="{ 'input-panel-compact': hasConversation }"
+            >
+              <textarea
+                v-model="userQuestion"
+                placeholder="输入你的问题、需求或改动目标，我们直接开始。"
+                @compositionstart="handleTextareaCompositionStart"
+                @compositionend="handleTextareaCompositionEnd"
+                @keydown="handleTextareaKeydown"
+              />
+
+              <div class="input-toolbar">
+                <div
+                  ref="modelPickerElement"
+                  class="model-provider-select-wrap"
+                  :class="{ open: isModelPickerOpen }"
+                >
+                  <button
+                    type="button"
+                    class="model-provider-trigger"
+                    :disabled="isStreaming || isModelConfigLoading || availableModelConfigs.length === 0"
+                    @click.stop="toggleModelPicker"
+                  >
+                    <span class="model-provider-select-label">模型</span>
+                    <span class="model-provider-current">
+                      {{ currentModelConfig?.modelName || '暂无可用模型' }}
+                    </span>
+                    <span
+                      class="model-provider-arrow"
+                      aria-hidden="true"
+                    />
+                  </button>
+
+                  <div
+                    v-if="isModelPickerOpen"
+                    class="model-provider-menu"
+                    :class="`model-provider-menu-${modelPickerPlacement}`"
+                  >
+                    <button
+                      v-for="config in availableModelConfigs"
+                      :key="config.id"
+                      type="button"
+                      class="model-provider-option"
+                      :class="{ active: config.id === currentModelConfigId }"
+                      @click="selectModelConfig(config.id)"
+                    >
+                      {{ config.modelName }}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  class="send-btn"
+                  :disabled="!canSendMessage"
+                  @click="handleSend"
+                >
+                  ↑
+                </button>
+              </div>
+
+              <p
+                v-if="modelConfigStatusMessage || (!isModelConfigLoading && availableModelConfigs.length === 0)"
+                class="model-config-hint"
+              >
+                {{ modelConfigStatusMessage || '请先到 Config 配置可用模型 API' }}
+              </p>
+            </div>
+          </div>
+
+          <div
+            v-if="!hasConversation"
+            class="suggestions-list"
+          >
             <button
+              v-for="prompt in starterPrompts"
+              :key="prompt.question"
               type="button"
               class="suggestion-item"
+              :disabled="isStreaming"
+              @click="useStarterPrompt(prompt.question)"
             >
-              <span class="icon">💬</span>
-              <span>接通左侧会话历史和详情链路</span>
-            </button>
-            <button
-              type="button"
-              class="suggestion-item"
-            >
-              <span class="icon">🐞</span>
-              <span>补上聊天调试明细面板</span>
-            </button>
-            <button
-              type="button"
-              class="suggestion-item"
-            >
-              <span class="icon">🖥</span>
-              <span>把管理后台入口做成真实页面</span>
+              <span
+                class="suggestion-icon"
+                aria-hidden="true"
+              >
+                <svg
+                  v-if="prompt.icon === 'write'"
+                  viewBox="0 0 20 20"
+                >
+                  <path
+                    d="M4.167 15.833h11.666M5.833 12.917l.487-2.436a1.25 1.25 0 0 1 .343-.641l6.094-6.094a1.355 1.355 0 0 1 1.916 1.916L8.58 11.756a1.25 1.25 0 0 1-.641.343l-2.106.818Z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.6"
+                  />
+                </svg>
+                <svg
+                  v-else-if="prompt.icon === 'chart'"
+                  viewBox="0 0 20 20"
+                >
+                  <path
+                    d="M4.167 15.833V4.167M4.167 15.833h11.666M7.5 12.5V9.167M10 12.5V6.667M12.5 12.5v-2.083M15 12.5V7.917"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.6"
+                  />
+                </svg>
+                <svg
+                  v-else
+                  viewBox="0 0 20 20"
+                >
+                  <path
+                    d="M5 5.833h.008M8.333 5.833H15M5 10h.008M8.333 10H15M5 14.167h.008M8.333 14.167h4.584"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.7"
+                  />
+                </svg>
+              </span>
+              <span>{{ prompt.question }}</span>
             </button>
           </div>
+
         </div>
       </div>
     </main>
@@ -265,10 +1375,12 @@ onBeforeUnmount(() => {
   --toolbar-icon: #888888;
   --send-bg: #999999;
   --send-text: #ffffff;
-  --suggestion-border: #f0f0f0;
-  --suggestion-text: #555555;
-  --suggestion-icon: #999999;
-  --suggestion-hover: #f9f9f9;
+  --follow-up-border: #e6e9ee;
+  --follow-up-text: #344054;
+  --follow-up-hover: #f6f8fa;
+  --suggestion-border: #edf0f4;
+  --suggestion-text: #475467;
+  --suggestion-hover: #f8fafc;
   --nav-icon-color: #5b6472;
   display: flex;
   width: 100%;
@@ -332,6 +1444,7 @@ select {
   border-radius: 6px;
   background: transparent;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
   transition:
     background-color 0.2s ease,
@@ -382,6 +1495,17 @@ select {
   transform: none;
 }
 
+.nav-item-secondary {
+  gap: 10px;
+  justify-content: flex-start;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+}
+
+.nav-item-secondary:hover {
+  border-color: #e5e7eb;
+}
+
 .history-section {
   flex: 1;
   overflow-y: auto;
@@ -390,6 +1514,7 @@ select {
 .section-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 10px;
   margin-bottom: 12px;
   color: var(--section-text);
@@ -398,26 +1523,182 @@ select {
   text-transform: uppercase;
 }
 
-.history-list li {
+.section-status {
+  color: var(--section-text);
+  font-size: 11px;
+}
+
+.history-status {
+  margin: 0;
+  padding: 0 10px;
+  color: var(--section-text);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.history-status-error {
+  color: #c53030;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.history-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
+  padding: 2px 0;
+  border-radius: 8px;
+}
+
+.history-row.active {
+  background-color: #eceff3;
+}
+
+.history-open-button {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
   padding: 6px 10px;
   color: var(--history-text);
   font-size: 13px;
-  cursor: pointer;
+  border: 0;
   border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
   transition: background-color 0.2s ease;
 }
 
-.history-list li:hover {
+.history-open-button:hover {
   background-color: var(--history-hover);
 }
 
+.history-open-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.history-action-slot {
+  position: relative;
+  width: 52px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.time,
+.history-delete-button {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  transition:
+    opacity 0.2s ease,
+    visibility 0.2s ease;
+}
+
+.history-delete-button {
+  padding: 0;
+  color: #c53030;
+  font-size: 11px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.history-action-slot:hover .time,
+.history-action-slot[data-delete-visible='true'] .time {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.history-action-slot:hover .history-delete-button,
+.history-action-slot[data-delete-visible='true'] .history-delete-button {
+  opacity: 1;
+  visibility: visible;
+}
+
+.history-delete-button:disabled {
+  cursor: not-allowed;
+}
+
+.delete-popover {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  width: 218px;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px;
+  color: #344054;
+  border: 1px solid #f2b8b5;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 40px rgb(16 24 40 / 16%);
+}
+
+.history-delete-popover {
+  top: calc(100% + 6px);
+  right: 0;
+}
+
+.delete-popover strong {
+  color: #9f1d1d;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.delete-popover span {
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.delete-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.delete-popover-cancel,
+.delete-popover-confirm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.delete-popover-cancel {
+  color: #344054;
+  border: 1px solid #d0d5dd;
+  background: #ffffff;
+}
+
+.delete-popover-confirm {
+  color: #ffffff;
+  border: 1px solid #c53030;
+  background: #c53030;
+}
+
+.delete-popover-cancel:disabled,
+.delete-popover-confirm:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .truncate {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
-  max-width: 140px;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -447,18 +1728,403 @@ select {
   overflow-y: auto;
 }
 
+.workspace-has-conversation {
+  padding-top: 24px;
+  padding-bottom: 20px;
+  overflow: hidden;
+}
+
+.chat-page-header {
+  width: 100%;
+  max-width: 720px;
+  margin-bottom: 20px;
+}
+
+.chat-page-title {
+  margin: 0;
+  color: var(--title-text);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: left;
+  transition: color 0.2s ease;
+}
+
 .greeting {
-  margin: 0 0 40px;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 0 24px;
   color: var(--title-text);
   font-size: 28px;
   font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: 0;
   text-align: center;
-  transition: color 0.2s ease;
 }
 
 .interaction-container {
   width: 100%;
   max-width: 720px;
+}
+
+.interaction-container-has-conversation {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.conversation-scroll-region-has-conversation {
+  flex: 1;
+  min-height: 0;
+  padding-right: 24px;
+  margin-right: -24px;
+  margin-bottom: 12px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.composer-section-has-conversation {
+  flex-shrink: 0;
+  padding-top: 12px;
+  background: #ffffff;
+}
+
+.message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  margin-bottom: 20px;
+}
+
+.turn-block {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.user-turn {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.user-turn-stack {
+  display: flex;
+  max-width: min(100%, 640px);
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.user-bubble {
+  width: fit-content;
+  max-width: 100%;
+  padding: 13px 16px 12px;
+  border-radius: 16px;
+  background: #f3f4f6;
+  box-shadow: inset 0 0 0 1px #ebeef2;
+}
+
+.user-bubble-text {
+  margin: 0;
+  color: #1f2937;
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.user-bubble-meta {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.message-time {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.thinking-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.thinking-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #eceff3;
+}
+
+.thinking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  color: #6b7280;
+  font-size: 14px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.thinking-toggle-text {
+  white-space: nowrap;
+}
+
+.thinking-toggle-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease;
+}
+
+.thinking-toggle-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.thinking-toggle-icon.expanded {
+  transform: rotate(90deg);
+}
+
+.thinking-panel {
+  padding: 16px 18px;
+  border: 1px solid #eceff3;
+  border-radius: 18px;
+  background: #fafbfc;
+}
+
+.thinking-list {
+  display: flex;
+  margin: 0;
+  padding-left: 20px;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.thinking-item {
+  color: #475467;
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+.assistant-response {
+  color: #243041;
+}
+
+.assistant-response-streaming {
+  opacity: 0.92;
+}
+
+.assistant-response-failed {
+  color: #7f1d1d;
+}
+
+.assistant-text {
+  margin: 0;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1.85;
+}
+
+.markdown-body :deep(*) {
+  letter-spacing: 0;
+}
+
+.markdown-body :deep(p),
+.markdown-body :deep(ul),
+.markdown-body :deep(ol),
+.markdown-body :deep(blockquote),
+.markdown-body :deep(pre),
+.markdown-body :deep(table) {
+  margin: 0 0 12px;
+}
+
+.markdown-body :deep(p:last-child),
+.markdown-body :deep(ul:last-child),
+.markdown-body :deep(ol:last-child),
+.markdown-body :deep(blockquote:last-child),
+.markdown-body :deep(pre:last-child),
+.markdown-body :deep(table:last-child) {
+  margin-bottom: 0;
+}
+
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  padding-left: 20px;
+}
+
+.markdown-body :deep(li + li) {
+  margin-top: 6px;
+}
+
+.markdown-body :deep(code) {
+  padding: 2px 5px;
+  color: #344054;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.92em;
+  border-radius: 5px;
+  background: #f2f4f7;
+}
+
+.markdown-body :deep(pre) {
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.markdown-body :deep(pre code) {
+  padding: 0;
+  background: transparent;
+}
+
+.markdown-body :deep(.markdown-code-block) {
+  position: relative;
+  margin: 0 0 12px;
+}
+
+.markdown-body :deep(.markdown-code-block:last-child) {
+  margin-bottom: 0;
+}
+
+.markdown-body :deep(.markdown-code-block pre) {
+  margin: 0;
+  padding-top: 38px;
+}
+
+.markdown-body :deep(.markdown-code-copy) {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  height: 24px;
+  padding: 0 9px;
+  color: #475467;
+  font-size: 12px;
+  border: 1px solid #d0d5dd;
+  border-radius: 7px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.markdown-body :deep(.markdown-code-copy:hover) {
+  color: #1f2937;
+  border-color: #98a2b3;
+}
+
+.markdown-body :deep(blockquote) {
+  padding-left: 12px;
+  color: #667085;
+  border-left: 2px solid #d0d5dd;
+}
+
+.markdown-body :deep(a) {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.markdown-body :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.follow-up-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.follow-up-item {
+  max-width: 100%;
+  padding: 7px 11px;
+  color: var(--follow-up-text);
+  font-size: 13px;
+  line-height: 1.4;
+  border: 1px solid var(--follow-up-border);
+  border-radius: 999px;
+  background: #ffffff;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.follow-up-item:hover {
+  background-color: var(--follow-up-hover);
+  border-color: #d7dce3;
+}
+
+.follow-up-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.assistant-placeholder {
+  display: flex;
+  min-height: 25px;
+  align-items: center;
+  margin: 0;
+  color: #98a2b3;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.typing-dots span {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #98a2b3;
+  animation: typing-dot-pulse 1.2s ease-in-out infinite;
+}
+
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes typing-dot-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.message-error {
+  margin: 16px 0 0;
+  color: #c53030;
+  font-size: 13px;
+}
+
+.stream-status {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  color: #455468;
+  font-size: 13px;
+  border: 1px solid #e7ebf1;
+  border-radius: 999px;
+  background: #f8fafc;
 }
 
 .custom-mode-selector {
@@ -467,8 +2133,137 @@ select {
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 8px;
   margin-bottom: 16px;
   z-index: 4;
+}
+
+.model-provider-select-wrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 156px;
+  max-width: min(260px, 100%);
+}
+
+.model-provider-trigger {
+  display: inline-flex;
+  width: 100%;
+  height: 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border: 1px solid #d9e0ea;
+  border-radius: 10px;
+  color: inherit;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 1px 2px rgb(16 24 40 / 5%);
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.model-provider-trigger:hover {
+  border-color: #b9c6d8;
+  background: #ffffff;
+}
+
+.model-provider-select-wrap.open .model-provider-trigger,
+.model-provider-trigger:focus-visible {
+  border-color: #8bb5f8;
+  box-shadow:
+    0 0 0 3px rgb(37 99 235 / 12%),
+    0 1px 2px rgb(16 24 40 / 5%);
+}
+
+.model-provider-select-label {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.model-provider-current {
+  min-width: 0;
+  max-width: 170px;
+  color: #182230;
+  font-size: 13px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-provider-arrow {
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-right: 1.5px solid #667085;
+  border-bottom: 1.5px solid #667085;
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.model-provider-select-wrap.open .model-provider-arrow {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.model-provider-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.model-provider-menu {
+  position: absolute;
+  left: 0;
+  z-index: 24;
+  min-width: 100%;
+  max-width: min(320px, calc(100vw - 32px));
+  max-height: 220px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid #d9e0ea;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgb(16 24 40 / 14%);
+}
+
+.model-provider-menu-up {
+  bottom: calc(100% + 8px);
+}
+
+.model-provider-menu-down {
+  top: calc(100% + 8px);
+}
+
+.model-provider-option {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 7px 9px;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 550;
+  text-align: left;
+  white-space: nowrap;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.model-provider-option:hover,
+.model-provider-option.active {
+  color: #175cd3;
+  background: #eff6ff;
+}
+
+.model-config-hint {
+  margin: 8px 0 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .mode-tabs {
@@ -559,15 +2354,21 @@ select {
   position: relative;
   z-index: 1;
   margin-bottom: 24px;
-  padding: 18px 18px 16px;
+  padding: 16px 16px 14px;
   background-color: var(--panel-bg);
   border: 1px solid var(--panel-border);
-  border-radius: 16px;
-  box-shadow: var(--panel-shadow);
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease,
     box-shadow 0.2s ease;
+}
+
+.input-panel-compact {
+  margin-bottom: 0;
+  padding: 14px 16px 12px;
+  border-radius: 14px;
 }
 
 .input-panel textarea {
@@ -582,6 +2383,11 @@ select {
   background: transparent;
 }
 
+.input-panel-compact textarea {
+  min-height: 72px;
+  max-height: 156px;
+}
+
 .input-panel textarea::placeholder {
   color: var(--placeholder-text);
 }
@@ -590,22 +2396,12 @@ select {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-top: 16px;
 }
 
-.icon-btn,
-.suggestion-item {
-  border: 0;
-  background: transparent;
-}
-
-.icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--toolbar-icon);
-  font-size: 18px;
-  cursor: pointer;
+.input-panel-compact .input-toolbar {
+  margin-top: 12px;
 }
 
 .send-btn {
@@ -624,44 +2420,87 @@ select {
     color 0.2s ease;
 }
 
+.send-btn:disabled {
+  cursor: not-allowed;
+  background-color: #c5cbd3;
+}
+
+.send-btn:not(:disabled):hover {
+  background-color: #2563eb;
+}
+
 .suggestions-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
+  margin-top: 10px;
 }
 
 .suggestion-item {
   display: flex;
-  width: 100%;
+  width: fit-content;
+  max-width: 100%;
   align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
+  gap: 10px;
+  padding: 8px 6px;
   color: var(--suggestion-text);
   font-size: 14px;
+  line-height: 1.45;
   text-align: left;
-  border-top: 1px solid var(--suggestion-border);
+  border: 0;
+  background: transparent;
   cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.suggestion-item:hover {
+  color: #2563eb;
+}
+
+.suggestion-icon {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: #667085;
+  line-height: 1;
+  border: 1px solid #d9dee6;
+  border-radius: 999px;
+  background: #ffffff;
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease,
     color 0.2s ease;
 }
 
-.suggestion-item:hover {
-  background-color: var(--suggestion-hover);
-  border-radius: 8px;
+.suggestion-icon svg {
+  width: 14px;
+  height: 14px;
 }
 
-.suggestion-item .icon {
-  color: var(--suggestion-icon);
+.suggestion-item:hover .suggestion-icon {
+  color: #2563eb;
+  border-color: #9dbcf8;
+  background: #eff6ff;
+}
+
+.suggestion-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .nav-item:focus-visible,
 .mode-btn:focus-visible,
+.markdown-body :deep(.markdown-code-copy:focus-visible),
+.model-provider-option:focus-visible,
 .doc-select:focus-visible,
-.icon-btn:focus-visible,
 .send-btn:focus-visible,
-.suggestion-item:focus-visible {
+.suggestion-item:focus-visible,
+.follow-up-item:focus-visible {
   outline: 2px solid #c5dcff;
   outline-offset: 2px;
 }
@@ -689,6 +2528,11 @@ select {
   .workspace {
     padding-top: 48px;
   }
+
+  .workspace-has-conversation {
+    padding-top: 20px;
+    padding-bottom: 16px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -697,22 +2541,33 @@ select {
     padding: 32px 16px 24px;
   }
 
-  .greeting {
-    font-size: 24px;
-    margin-bottom: 28px;
+  .workspace-has-conversation {
+    padding: 16px 12px 12px;
+  }
+
+  .chat-page-header {
+    margin-bottom: 16px;
   }
 
   .input-toolbar {
     margin-top: 14px;
+    flex-wrap: wrap;
+  }
+
+  .model-provider-select-wrap {
+    min-width: 148px;
   }
 
   .doc-select {
     width: 100%;
   }
 
-  .suggestion-item {
-    padding-left: 12px;
-    padding-right: 12px;
+  .input-panel-compact {
+    padding: 12px 14px 10px;
+  }
+
+  .input-panel-compact textarea {
+    min-height: 64px;
   }
 }
 </style>

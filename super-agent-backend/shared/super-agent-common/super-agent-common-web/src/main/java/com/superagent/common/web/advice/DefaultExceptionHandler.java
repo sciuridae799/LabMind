@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -107,6 +108,12 @@ public class DefaultExceptionHandler {
         return badRequest(BaseCode.INVALID_PARAMETER.getMessage());
     }
 
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public ResponseEntity<Void> handleAsyncRequestNotUsableException(AsyncRequestNotUsableException exception) {
+        log.debug("Async request is no longer usable.", exception);
+        return ResponseEntity.noContent().build();
+    }
+
     @ExceptionHandler(Throwable.class)
     public ResponseEntity<ApiResponse<Void>> handleThrowable(Throwable exception) {
         log.error("Unhandled exception captured by default handler.", exception);
@@ -141,18 +148,22 @@ public class DefaultExceptionHandler {
 
     private String resolveHttpMessageNotReadableMessage(HttpMessageNotReadableException exception) {
         Throwable mostSpecificCause = exception.getMostSpecificCause();
-        if (mostSpecificCause instanceof UnrecognizedPropertyException unrecognizedPropertyException) {
-            return unrecognizedPropertyException.getPropertyName() + ": unknown field";
-        }
-        if (mostSpecificCause instanceof InvalidFormatException invalidFormatException) {
-            String path = resolveJsonPath(invalidFormatException.getPath());
-            if (StringUtils.hasText(path)) {
-                return path + ": invalid value";
+        switch (mostSpecificCause) {
+            case UnrecognizedPropertyException unrecognizedPropertyException -> {
+                return unrecognizedPropertyException.getPropertyName() + ": unknown field";
             }
-            return BaseCode.INVALID_PARAMETER.getMessage();
-        }
-        if (mostSpecificCause instanceof JsonParseException) {
-            return "request body is not valid JSON";
+            case InvalidFormatException invalidFormatException -> {
+                String path = resolveJsonPath(invalidFormatException.getPath());
+                if (StringUtils.hasText(path)) {
+                    return path + ": invalid value";
+                }
+                return BaseCode.INVALID_PARAMETER.getMessage();
+            }
+            case JsonParseException jsonParseException -> {
+                return "request body is not valid JSON";
+            }
+            default -> {
+            }
         }
         return BaseCode.INVALID_PARAMETER.getMessage();
     }

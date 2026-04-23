@@ -31,6 +31,11 @@ const navigationItems = [
     to: '/admin/observability',
     label: '对话观测',
     icon: 'M2.75 10s2.55-4.25 7.25-4.25S17.25 10 17.25 10s-2.55 4.25-7.25 4.25S2.75 10 2.75 10Zm7.25-2.25a2.25 2.25 0 1 1 0 4.5a2.25 2.25 0 0 1 0-4.5Z'
+  },
+  {
+    to: '/admin/api-catalog',
+    label: '前端 API 目录',
+    icon: 'M4.75 5.5h10.5M4.75 10h10.5M4.75 14.5h6.5'
   }
 ]
 
