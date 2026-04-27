@@ -12,6 +12,7 @@ import com.superagent.business.chat.chatagent.service.BusinessChatSessionService
 import com.superagent.business.chat.chatagent.service.BusinessChatService;
 import com.superagent.business.chat.chatagent.vo.BusinessChatSessionDetailVo;
 import com.superagent.business.chat.chatagent.vo.BusinessChatSessionListPageVo;
+import com.superagent.business.chat.knowledge.service.KnowledgeManageService;
 import com.superagent.common.web.advice.DefaultExceptionHandler;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,16 +69,27 @@ class BusinessChatControllerTest {
             }
 
             @Override
+            public void move(com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigMoveRequest request) {
+            }
+
+            @Override
             public com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot getRequiredAvailableSnapshot(
                     String id) {
                 return null;
             }
+
+            @Override
+            public com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot getLatestAvailableSnapshot() {
+                return null;
+            }
         };
+        KnowledgeManageService knowledgeManageService = org.mockito.Mockito.mock(KnowledgeManageService.class);
         mockMvc = MockMvcBuilders.standaloneSetup(new BusinessChatController(
                         businessChatService,
                         businessChatQueryService,
                         businessChatSessionService,
-                        modelApiConfigService))
+                        modelApiConfigService,
+                        knowledgeManageService))
                 .setControllerAdvice(new DefaultExceptionHandler())
                 .build();
     }

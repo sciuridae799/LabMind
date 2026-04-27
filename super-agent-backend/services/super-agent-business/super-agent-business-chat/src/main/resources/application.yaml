@@ -25,3 +25,15 @@ spring:
     redisson:
       protocol: redis
       local-lock-cache-ttl: 30s
+super-agent:
+  knowledge:
+    neo4j:
+      uri: ${SUPER_AGENT_NEO4J_URI}
+      username: ${SUPER_AGENT_NEO4J_USERNAME}
+      password: ${SUPER_AGENT_NEO4J_PASSWORD}
+      database: ${SUPER_AGENT_NEO4J_DATABASE}
+    document-storage:
+      endpoint: ${SUPER_AGENT_MINIO_ENDPOINT}
+      access-key: ${SUPER_AGENT_MINIO_ACCESS_KEY}
+      secret-key: ${SUPER_AGENT_MINIO_SECRET_KEY}
+      bucket: ${SUPER_AGENT_MINIO_BUCKET}

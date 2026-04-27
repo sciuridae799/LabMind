@@ -3,6 +3,7 @@ package com.superagent.business.chat.chatagent.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.superagent.business.chat.chatagent.data.BusinessChatModelApiConfigData;
 import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigIdRequest;
+import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigMoveRequest;
 import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigSaveRequest;
 import com.superagent.business.chat.chatagent.mapper.BusinessChatModelApiConfigMapper;
 import com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot;
@@ -33,15 +34,18 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
 
     private static final int DISABLED = 0;
 
+    private static final int SORT_ORDER_STEP = 1000;
+
     private final BusinessChatModelApiConfigMapper modelApiConfigMapper;
 
     private final SnowflakeIdGenerator snowflakeIdGenerator;
 
     @Override
     public List<BusinessChatModelApiConfigVo> listAll() {
+        normalizeSortOrders();
         return modelApiConfigMapper.selectList(Wrappers.<BusinessChatModelApiConfigData>lambdaQuery()
                         .eq(BusinessChatModelApiConfigData::getStatus, NORMAL_STATUS)
-                        .orderByDesc(BusinessChatModelApiConfigData::getEditTime)
+                        .orderByAsc(BusinessChatModelApiConfigData::getSortOrder)
                         .orderByDesc(BusinessChatModelApiConfigData::getId))
                 .stream()
                 .map(this::toVo)
@@ -50,6 +54,7 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
 
     @Override
     public List<BusinessChatModelApiConfigVo> listAvailable() {
+        normalizeSortOrders();
         return modelApiConfigMapper.selectList(Wrappers.<BusinessChatModelApiConfigData>lambdaQuery()
                         .eq(BusinessChatModelApiConfigData::getStatus, NORMAL_STATUS)
                         .eq(BusinessChatModelApiConfigData::getEnabled, ENABLED)
@@ -59,7 +64,7 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
                         .ne(BusinessChatModelApiConfigData::getBaseUrl, "")
                         .isNotNull(BusinessChatModelApiConfigData::getModelName)
                         .ne(BusinessChatModelApiConfigData::getModelName, "")
-                        .orderByDesc(BusinessChatModelApiConfigData::getEditTime)
+                        .orderByAsc(BusinessChatModelApiConfigData::getSortOrder)
                         .orderByDesc(BusinessChatModelApiConfigData::getId))
                 .stream()
                 .map(this::toVo)
@@ -77,6 +82,7 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
         if (id == null) {
             data.setId(snowflakeIdGenerator.nextId());
             data.setStatus(NORMAL_STATUS);
+            data.setSortOrder(nextSortOrder());
         }
         data.setProvider(provider.getValue());
         data.setDisplayName(normalizeRequiredText(request.getDisplayName(), "displayName"));
@@ -112,12 +118,77 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
     }
 
     @Override
+    @Transactional
+    public void move(BusinessChatModelApiConfigMoveRequest request) {
+        normalizeSortOrders();
+        Long id = parseRequiredId(request.getId());
+        String direction = normalizeRequiredText(request.getDirection(), "direction");
+        List<BusinessChatModelApiConfigData> configList = loadOrderedConfigList();
+        int currentIndex = -1;
+        for (int index = 0; index < configList.size(); index++) {
+            if (id.equals(configList.get(index).getId())) {
+                currentIndex = index;
+                break;
+            }
+        }
+        if (currentIndex < 0) {
+            throw new BaseException(
+                    BusinessChatErrorCode.CHAT_MODEL_CONFIG_NOT_FOUND,
+                    "model config was not found: " + id);
+        }
+        int targetIndex = switch (direction) {
+            case "UP" -> currentIndex - 1;
+            case "DOWN" -> currentIndex + 1;
+            default -> throw new BaseException(BaseCode.INVALID_PARAMETER, "direction must be UP or DOWN");
+        };
+        if (targetIndex < 0 || targetIndex >= configList.size()) {
+            return;
+        }
+        BusinessChatModelApiConfigData current = configList.get(currentIndex);
+        BusinessChatModelApiConfigData target = configList.get(targetIndex);
+        Integer currentSortOrder = current.getSortOrder();
+        current.setSortOrder(target.getSortOrder());
+        target.setSortOrder(currentSortOrder);
+        modelApiConfigMapper.updateById(current);
+        modelApiConfigMapper.updateById(target);
+    }
+
+    @Override
     public BusinessChatModelApiConfigSnapshot getRequiredAvailableSnapshot(String id) {
         BusinessChatModelApiConfigData data = loadExisting(parseRequiredId(id));
         if (!isAvailable(data)) {
             throw new BaseException(
                     BusinessChatErrorCode.CHAT_MODEL_CONFIG_UNAVAILABLE,
                     "model config is unavailable: " + id);
+        }
+        return new BusinessChatModelApiConfigSnapshot(
+                data.getId(),
+                BusinessChatModelProvider.fromValue(data.getProvider()),
+                data.getDisplayName(),
+                normalizeBaseUrl(data.getBaseUrl()),
+                data.getModelName(),
+                decodeApiKey(data.getApiKeyCipher()));
+    }
+
+    @Override
+    public BusinessChatModelApiConfigSnapshot getLatestAvailableSnapshot() {
+        normalizeSortOrders();
+        BusinessChatModelApiConfigData data = modelApiConfigMapper.selectOne(Wrappers.<BusinessChatModelApiConfigData>lambdaQuery()
+                .eq(BusinessChatModelApiConfigData::getStatus, NORMAL_STATUS)
+                .eq(BusinessChatModelApiConfigData::getEnabled, ENABLED)
+                .isNotNull(BusinessChatModelApiConfigData::getApiKeyCipher)
+                .ne(BusinessChatModelApiConfigData::getApiKeyCipher, "")
+                .isNotNull(BusinessChatModelApiConfigData::getBaseUrl)
+                .ne(BusinessChatModelApiConfigData::getBaseUrl, "")
+                .isNotNull(BusinessChatModelApiConfigData::getModelName)
+                .ne(BusinessChatModelApiConfigData::getModelName, "")
+                .orderByAsc(BusinessChatModelApiConfigData::getSortOrder)
+                .orderByDesc(BusinessChatModelApiConfigData::getId)
+                .last("limit 1"));
+        if (data == null) {
+            throw new BaseException(
+                    BusinessChatErrorCode.CHAT_MODEL_CONFIG_UNAVAILABLE,
+                    "available model config is required before auto completing knowledge metadata");
         }
         return new BusinessChatModelApiConfigSnapshot(
                 data.getId(),
@@ -150,6 +221,49 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
                 data.getModelName(),
                 StringUtils.hasText(data.getApiKeyCipher()),
                 Integer.valueOf(ENABLED).equals(data.getEnabled()));
+    }
+
+    private void normalizeSortOrders() {
+        List<BusinessChatModelApiConfigData> configList = modelApiConfigMapper.selectList(
+                Wrappers.<BusinessChatModelApiConfigData>lambdaQuery()
+                        .eq(BusinessChatModelApiConfigData::getStatus, NORMAL_STATUS)
+                        .orderByAsc(BusinessChatModelApiConfigData::getSortOrder)
+                        .orderByDesc(BusinessChatModelApiConfigData::getEditTime)
+                        .orderByDesc(BusinessChatModelApiConfigData::getId));
+        boolean changed = false;
+        for (int index = 0; index < configList.size(); index++) {
+            BusinessChatModelApiConfigData data = configList.get(index);
+            int expectedSortOrder = (index + 1) * SORT_ORDER_STEP;
+            if (!Integer.valueOf(expectedSortOrder).equals(data.getSortOrder())) {
+                data.setSortOrder(expectedSortOrder);
+                modelApiConfigMapper.updateById(data);
+                changed = true;
+            }
+        }
+        if (changed) {
+            modelApiConfigMapper.selectList(Wrappers.<BusinessChatModelApiConfigData>lambdaQuery()
+                    .eq(BusinessChatModelApiConfigData::getStatus, NORMAL_STATUS)
+                    .orderByAsc(BusinessChatModelApiConfigData::getSortOrder));
+        }
+    }
+
+    private List<BusinessChatModelApiConfigData> loadOrderedConfigList() {
+        return modelApiConfigMapper.selectList(Wrappers.<BusinessChatModelApiConfigData>lambdaQuery()
+                .eq(BusinessChatModelApiConfigData::getStatus, NORMAL_STATUS)
+                .orderByAsc(BusinessChatModelApiConfigData::getSortOrder)
+                .orderByDesc(BusinessChatModelApiConfigData::getId));
+    }
+
+    private int nextSortOrder() {
+        BusinessChatModelApiConfigData last = modelApiConfigMapper.selectOne(
+                Wrappers.<BusinessChatModelApiConfigData>lambdaQuery()
+                        .eq(BusinessChatModelApiConfigData::getStatus, NORMAL_STATUS)
+                        .orderByDesc(BusinessChatModelApiConfigData::getSortOrder)
+                        .orderByDesc(BusinessChatModelApiConfigData::getId)
+                        .last("limit 1"));
+        return last == null || last.getSortOrder() == null
+                ? SORT_ORDER_STEP
+                : last.getSortOrder() + SORT_ORDER_STEP;
     }
 
     private boolean isAvailable(BusinessChatModelApiConfigData data) {

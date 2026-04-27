@@ -29,6 +29,7 @@ import com.superagent.business.chat.chatagent.persistence.BusinessChatPersistenc
 import com.superagent.business.chat.chatagent.service.BusinessChatModelApiConfigService;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeRegistry;
 import com.superagent.business.chat.chatagent.vo.BusinessChatStreamEvent;
+import com.superagent.business.chat.knowledge.service.KnowledgeManageService;
 import com.superagent.redisson.servicelease.lease.RedisLeaseManager;
 import java.time.Duration;
 import java.util.List;
@@ -69,6 +70,9 @@ class BusinessChatServiceImplTest {
     @Mock
     private BusinessChatModelApiConfigService modelApiConfigService;
 
+    @Mock
+    private KnowledgeManageService knowledgeManageService;
+
     private BusinessChatServiceImpl businessChatService;
 
     private final BusinessChatModelApiConfigSnapshot modelConfig = new BusinessChatModelApiConfigSnapshot(
@@ -96,7 +100,8 @@ class BusinessChatServiceImplTest {
                 businessChatOrchestrator,
                 businessChatAgentRegistry,
                 businessChatFinalizationGenerator,
-                modelApiConfigService);
+                modelApiConfigService,
+                knowledgeManageService);
         lenient().when(modelApiConfigService.getRequiredAvailableSnapshot("3001")).thenReturn(modelConfig);
         lenient().when(modelApiConfigService.getRequiredAvailableSnapshot("3002")).thenReturn(secondModelConfig);
     }
@@ -212,6 +217,8 @@ class BusinessChatServiceImplTest {
                             startPlan.conversationId(),
                             startPlan.chatMode(),
                             startPlan.modelConfig(),
+                            startPlan.selectedDocumentId(),
+                            startPlan.selectedDocumentName(),
                             startPlan.traceId(),
                             startPlan.leaseKey(),
                             startPlan.leaseOwnerToken(),
@@ -233,8 +240,10 @@ class BusinessChatServiceImplTest {
                             null,
                             null,
                             0,
+                            null,
                             new BusinessChatFreshnessRequirement(false, "用户问题未命中明确实时信息信号", List.of(), "NOT_REQUIRED"),
                             "NOT_REQUIRED",
+                            List.of(),
                             runtimeContext.getTaskInfo().modelConfig().modelName(),
                             "open_ended_question_answer",
                             "根据会话模式、历史上下文、知识路由和时效性要求生成本轮执行计划。",
@@ -270,6 +279,8 @@ class BusinessChatServiceImplTest {
                 "conversation-1",
                 BusinessChatMode.OPEN_ENDED,
                 modelConfig,
+                null,
+                null,
                 "trace-1",
                 "chat:conversation:running:conversation-1",
                 "owner-1",
@@ -283,8 +294,10 @@ class BusinessChatServiceImplTest {
                 null,
                 null,
                 0,
+                null,
                 new BusinessChatFreshnessRequirement(false, "用户问题未命中明确实时信息信号", List.of(), "NOT_REQUIRED"),
                 "NOT_REQUIRED",
+                List.of(),
                 "CHAT_CLIENT_DEFAULT",
                 "open_ended_question_answer",
                 "根据会话模式、历史上下文、知识路由和时效性要求生成本轮执行计划。",

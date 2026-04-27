@@ -1,32 +1,91 @@
 <script setup lang="ts">
-const stats = [
+import { computed, onMounted, ref } from 'vue'
+import { manageApi } from '../../shared/api/manage'
+
+interface DocumentRow {
+  parseStatus: string
+  strategyStatus: string
+  indexStatus: string
+}
+
+interface DocumentPageResponse {
+  documents?: DocumentRow[]
+  totalSize?: string | number
+}
+
+const documentRows = ref<DocumentRow[]>([])
+const totalSize = ref(0)
+const statusMessage = ref('')
+
+const parsedSuccessCount = computed(() => {
+  return documentRows.value.filter((row) => row.parseStatus === '3').length
+})
+
+const strategyConfirmedCount = computed(() => {
+  return documentRows.value.filter((row) => row.strategyStatus === '3').length
+})
+
+const indexedCount = computed(() => {
+  return documentRows.value.filter((row) => row.indexStatus === '3').length
+})
+
+const stats = computed(() => [
   {
     title: '文档总数',
-    value: '0',
-    note: '当前还没有接入业务资料'
+    value: String(totalSize.value),
+    note: totalSize.value > 0 ? '已接入业务资料' : '当前还没有接入业务资料'
   },
   {
-    title: '解析成功',
-    value: '0',
-    note: '还没有进入策略确认阶段'
+    title: '解析完成',
+    value: String(parsedSuccessCount.value),
+    note: parsedSuccessCount.value > 0 ? '可进入当前文档问答' : '还没有可问答正文'
   },
   {
     title: '策略已确认',
-    value: '0',
-    note: '还没有形成最终切块链路'
+    value: String(strategyConfirmedCount.value),
+    note: strategyConfirmedCount.value > 0 ? '已有确认后的处理方案' : '还没有确认策略'
   },
   {
     title: '索引完成',
-    value: '0',
-    note: '还没有可参与检索的内容'
+    value: String(indexedCount.value),
+    note: indexedCount.value > 0 ? '已有可参与检索的内容' : '还没有可参与检索的内容'
   }
-] as const
+])
+
+function normalizeError(error: unknown): string {
+  return error instanceof Error ? error.message : '状态加载失败'
+}
+
+async function loadDashboardStats(): Promise<void> {
+  try {
+    const response = await manageApi.queryDocumentPage({
+      keyword: '',
+      pageNo: '1',
+      pageSize: '1000'
+    }) as DocumentPageResponse
+    documentRows.value = response.documents ?? []
+    totalSize.value = Number(response.totalSize ?? documentRows.value.length)
+    statusMessage.value = ''
+  } catch (error) {
+    statusMessage.value = normalizeError(error)
+  }
+}
+
+onMounted(() => {
+  void loadDashboardStats()
+})
 </script>
 
 <template>
   <section class="overview-page">
     <article class="panel">
       <h1 class="section-title">当前状态</h1>
+      <p
+        v-if="statusMessage"
+        class="status-message"
+      >
+        {{ statusMessage }}
+      </p>
 
       <div class="stats-grid">
         <article
@@ -56,7 +115,7 @@ const stats = [
 .panel {
   padding: 20px;
   border: 1px solid #e5e5e5;
-  border-radius: 16px;
+  border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
@@ -69,6 +128,12 @@ const stats = [
   font-weight: 600;
 }
 
+.status-message {
+  margin: 10px 0 0;
+  color: #b42318;
+  font-size: 13px;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -79,17 +144,15 @@ const stats = [
 .stat-card {
   padding: 16px;
   border: 1px solid #f0f0f0;
-  border-radius: 12px;
+  border-radius: 8px;
   background: #fafafa;
 }
 
 .stat-title {
   margin: 0;
-  color: #999999;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  color: #777777;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .stat-value {

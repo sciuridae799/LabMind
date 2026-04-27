@@ -46,6 +46,7 @@ build/
 !.env
 .env.*
 !.env.example
+storage/
 
 ### Frontend ###
 frontend/node_modules/

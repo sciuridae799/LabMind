@@ -13,6 +13,10 @@ import com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSn
 import com.superagent.business.chat.chatagent.model.BusinessChatModelProvider;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
 import com.superagent.business.chat.chatagent.model.BusinessChatTaskInfo;
+import com.superagent.business.chat.knowledge.graph.KnowledgeGraphClient;
+import com.superagent.business.chat.knowledge.model.KnowledgeRouteCandidate;
+import com.superagent.business.chat.knowledge.service.KnowledgeManageService;
+import com.superagent.business.chat.knowledge.vo.KnowledgeDocumentProfileVo;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -32,13 +36,21 @@ class BusinessChatOrchestratorImplTest {
     @Mock
     private BusinessChatExchangeMapper businessChatExchangeMapper;
 
+    @Mock
+    private KnowledgeGraphClient knowledgeGraphClient;
+
+    @Mock
+    private KnowledgeManageService knowledgeManageService;
+
     private BusinessChatOrchestratorImpl businessChatOrchestrator;
 
     @BeforeEach
     void setUp() {
         businessChatOrchestrator = new BusinessChatOrchestratorImpl(
                 businessChatMemorySummaryMapper,
-                businessChatExchangeMapper);
+                businessChatExchangeMapper,
+                knowledgeGraphClient,
+                knowledgeManageService);
     }
 
     @Test
@@ -72,6 +84,16 @@ class BusinessChatOrchestratorImplTest {
                 "包括提交、风控、人工审核和归档。",
                 LocalDateTime.of(2026, 4, 24, 9, 0));
         when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of(latestExchangeData));
+        when(knowledgeGraphClient.routeQuestion("结合历史上下文，回答当前问题：请说明这条链路", 5))
+                .thenReturn(List.of(new KnowledgeRouteCandidate(
+                        9001L,
+                        "订单审核手册",
+                        "order_scope",
+                        "订单知识域",
+                        "audit_topic",
+                        "审核专题",
+                        1.0,
+                        "术语命中：订单审核")));
 
         var executionPlan = businessChatOrchestrator.orchestrate(createRuntimeContext(BusinessChatMode.KNOWLEDGE_BASE));
 
@@ -84,9 +106,41 @@ class BusinessChatOrchestratorImplTest {
                 "包括提交、风控、人工审核和归档。");
         assertThat(executionPlan.recentExchangeCount()).isEqualTo(1);
         assertThat(executionPlan.rewrittenQuestion()).isEqualTo("结合历史上下文，回答当前问题：请说明这条链路");
-        assertThat(executionPlan.knowledgeRoute()).isEqualTo("KNOWLEDGE_BASE");
+        assertThat(executionPlan.knowledgeRoute()).isEqualTo("KNOWLEDGE_BASE|DOCUMENT_MATCHED");
+        assertThat(executionPlan.knowledgeRouteCandidateList()).hasSize(1);
         assertThat(executionPlan.executionMode()).isEqualTo(BusinessChatMode.KNOWLEDGE_BASE);
-        assertThat(executionPlan.executionStepList()).contains("加载长期摘要：已加载", "加载最近对话窗口：1轮", "知识路由：KNOWLEDGE_BASE");
+        assertThat(executionPlan.executionStepList()).contains(
+                "加载长期摘要：已加载",
+                "加载最近对话窗口：1轮",
+                "知识路由：KNOWLEDGE_BASE|DOCUMENT_MATCHED",
+                "路由候选文档：1");
+    }
+
+    @Test
+    void shouldBuildCurrentDocumentPlanWithSelectedDocumentContext() {
+        when(businessChatMemorySummaryMapper.selectOne(any())).thenReturn(null);
+        when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of());
+        KnowledgeDocumentProfileVo profileVo = new KnowledgeDocumentProfileVo();
+        profileVo.setDocumentId("9001");
+        profileVo.setSummaryText("这是一份订单审核规范。");
+        profileVo.setTerms(List.of("订单审核", "风控"));
+        profileVo.setAnswerableQuestions(List.of("订单审核有哪些节点？"));
+        when(knowledgeManageService.queryDocumentProfile(any())).thenReturn(profileVo);
+        when(knowledgeManageService.queryDocumentParsedText(any())).thenReturn("正文说明：订单审核包括提交、风控、人工审核和归档。");
+
+        var executionPlan = businessChatOrchestrator.orchestrate(
+                createRuntimeContext(BusinessChatMode.CURRENT_DOCUMENT, "订单审核有哪些节点？"));
+
+        assertThat(executionPlan.knowledgeRoute()).isEqualTo("CURRENT_DOCUMENT");
+        assertThat(executionPlan.selectedDocumentContextText()).contains(
+                "文档ID：9001",
+                "文档名称：订单审核规范.pdf",
+                "画像摘要：这是一份订单审核规范。",
+                "可回答问题：订单审核有哪些节点？",
+                "术语：订单审核、风控",
+                "文档正文：",
+                "订单审核包括提交、风控、人工审核和归档。");
+        assertThat(executionPlan.executionStepList()).contains("当前文档上下文：已加载");
     }
 
     @Test
@@ -149,6 +203,8 @@ class BusinessChatOrchestratorImplTest {
                         "https://dashscope.aliyuncs.com/compatible-mode",
                         modelName,
                         "api-key"),
+                chatMode == BusinessChatMode.CURRENT_DOCUMENT ? 9001L : null,
+                chatMode == BusinessChatMode.CURRENT_DOCUMENT ? "订单审核规范.pdf" : null,
                 "trace-1",
                 "chat:conversation:running:conversation-1",
                 "owner-1",

@@ -1,6 +1,7 @@
 package com.superagent.business.chat.chatagent.model;
 
 import com.superagent.business.chat.chatagent.agent.BusinessChatAgentType;
+import com.superagent.business.chat.knowledge.model.KnowledgeRouteCandidate;
 import java.util.List;
 
 /**
@@ -14,8 +15,10 @@ public record BusinessChatExecutionPlan(
         String historyContextText,
         String memorySummary,
         int recentExchangeCount,
+        String selectedDocumentContextText,
         BusinessChatFreshnessRequirement freshnessRequirement,
         String knowledgeRoute,
+        List<KnowledgeRouteCandidate> knowledgeRouteCandidateList,
         String executionModel,
         String intentLabel,
         String intentReason,

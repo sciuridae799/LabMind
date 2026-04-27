@@ -22,6 +22,9 @@ import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatModelApiConfigService;
 import com.superagent.business.chat.chatagent.service.BusinessChatService;
 import com.superagent.business.chat.chatagent.vo.BusinessChatStreamEvent;
+import com.superagent.business.chat.knowledge.dto.KnowledgeDocumentIdRequest;
+import com.superagent.business.chat.knowledge.service.KnowledgeManageService;
+import com.superagent.business.chat.knowledge.vo.KnowledgeDocumentVo;
 import com.superagent.common.frame.exception.BaseException;
 import com.superagent.redisson.servicelease.lease.RedisLeaseManager;
 import java.time.Duration;
@@ -66,6 +69,8 @@ public class BusinessChatServiceImpl implements BusinessChatService {
 
     private final BusinessChatModelApiConfigService modelApiConfigService;
 
+    private final KnowledgeManageService knowledgeManageService;
+
     @Override
     public Flux<ServerSentEvent<BusinessChatStreamEvent>> streamChat(BusinessChatStreamRequest request) {
         return Flux.defer(() -> startDeferredChatStream(request));
@@ -107,17 +112,46 @@ public class BusinessChatServiceImpl implements BusinessChatService {
         BusinessChatMode chatMode = BusinessChatMode.fromValue(request.getChatMode());
         BusinessChatModelApiConfigSnapshot modelConfig =
                 modelApiConfigService.getRequiredAvailableSnapshot(request.getModelConfigId());
+        KnowledgeDocumentVo selectedDocument = loadSelectedDocument(chatMode, request.getSelectedDocumentId());
         long startAtEpochMillis = System.currentTimeMillis();
         return new BusinessChatStartPlan(
                 question,
                 conversationId,
                 chatMode,
                 modelConfig,
+                selectedDocument == null ? null : Long.valueOf(selectedDocument.getDocumentId()),
+                selectedDocument == null ? null : selectedDocument.getDocumentName(),
                 UUID.randomUUID().toString().replace("-", ""),
                 BusinessChatConversationLeaseKeys.conversationLeaseKey(conversationId),
                 UUID.randomUUID().toString(),
                 CONVERSATION_LEASE_TTL,
                 startAtEpochMillis);
+    }
+
+    private KnowledgeDocumentVo loadSelectedDocument(BusinessChatMode chatMode, String selectedDocumentId) {
+        if (chatMode != BusinessChatMode.CURRENT_DOCUMENT) {
+            return null;
+        }
+        long documentId = parsePositiveLong(selectedDocumentId, "selectedDocumentId");
+        KnowledgeDocumentIdRequest request = new KnowledgeDocumentIdRequest();
+        request.setDocumentId(String.valueOf(documentId));
+        return knowledgeManageService.queryDocumentDetail(request);
+    }
+
+    private long parsePositiveLong(String value, String fieldName) {
+        String normalized = value == null ? null : value.strip();
+        if (!StringUtils.hasText(normalized)) {
+            throw new IllegalArgumentException(fieldName + " must not be blank");
+        }
+        try {
+            long parsedValue = Long.parseLong(normalized);
+            if (parsedValue <= 0) {
+                throw new IllegalArgumentException(fieldName + " must be positive");
+            }
+            return parsedValue;
+        } catch (NumberFormatException error) {
+            throw new IllegalArgumentException(fieldName + " must be a positive long", error);
+        }
     }
 
     private String normalizeOptionalConversationId(String conversationId) {

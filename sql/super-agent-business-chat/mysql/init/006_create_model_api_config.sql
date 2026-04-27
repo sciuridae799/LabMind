@@ -7,10 +7,12 @@ CREATE TABLE IF NOT EXISTS super_agent_model_api_config (
     model_name VARCHAR(128) NOT NULL COMMENT '模型名称',
     api_key_cipher VARCHAR(1024) DEFAULT NULL COMMENT 'API Key存储值',
     enabled TINYINT(1) NOT NULL DEFAULT '1' COMMENT '1:启用 0:禁用',
+    sort_order INT NOT NULL DEFAULT '1000' COMMENT '排序值，越小越靠前',
     create_time DATETIME DEFAULT NULL COMMENT '创建时间',
     edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
     PRIMARY KEY (id),
     KEY idx_super_agent_model_api_config_status_enabled (status, enabled),
+    KEY idx_super_agent_model_api_config_sort_order (sort_order),
     KEY idx_super_agent_model_api_config_edit_time (edit_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='模型API配置表';

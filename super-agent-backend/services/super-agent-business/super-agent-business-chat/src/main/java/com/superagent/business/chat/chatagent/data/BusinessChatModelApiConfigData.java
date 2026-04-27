@@ -27,5 +27,7 @@ public class BusinessChatModelApiConfigData extends BaseTableData {
 
     private Integer enabled;
 
+    private Integer sortOrder;
+
     private Integer status;
 }

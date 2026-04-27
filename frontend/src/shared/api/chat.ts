@@ -56,6 +56,21 @@ export interface OpenChatStreamPayload extends JsonObject {
   conversationId?: string
   chatMode: BusinessChatMode
   modelConfigId: string
+  selectedDocumentId?: string
+}
+
+export interface KnowledgeDocumentOption {
+  documentId: string
+  documentName: string
+  originalFileName: string
+  knowledgeScopeCode: string
+  knowledgeScopeName: string
+  businessCategory: string
+  documentTags: string
+  parseStatus: string
+  strategyStatus: string
+  indexStatus: string
+  createTime: string
 }
 
 export interface ModelApiConfig {
@@ -152,7 +167,7 @@ export interface ChatApi {
    * 查询聊天页可选择的知识文档项。
    * 这一步决定了提问时可挂载哪些文档上下文。
    */
-  listKnowledgeDocumentOptions(): Promise<unknown>
+  listKnowledgeDocumentOptions(): Promise<KnowledgeDocumentOption[]>
 
   /**
    * 分页查询会话列表。
@@ -217,6 +232,8 @@ export interface ChatApi {
   deleteModelConfig(id: string): Promise<void>
 
   clearModelConfigApiKey(id: string): Promise<void>
+
+  moveModelConfig(id: string, direction: 'UP' | 'DOWN'): Promise<void>
 
   /**
    * 打开对话流式接口。
@@ -324,6 +341,12 @@ const chatApiCatalogDefinitions = {
     requestMethod: 'POST',
     path: '/api/chat/model-config/clear-api-key',
     keyInputs: 'id'
+  },
+  moveModelConfig: {
+    summary: '调整模型 API 配置顺序，列表最上方的可用配置作为默认模型。',
+    requestMethod: 'POST',
+    path: '/api/chat/model-config/move',
+    keyInputs: 'id, direction'
   }
 } satisfies Record<keyof ChatApi, Omit<ApiCatalogItem, 'name'>>
 
@@ -359,10 +382,10 @@ function requireChatApiPayload<T>(data: T | null, errorMessage: string): T {
 
 export const chatApi: ChatApi = {
   listKnowledgeDocumentOptions() {
-    return requestApiEnvelope('/api/chat/document/options', {
+    return requestApiEnvelope<KnowledgeDocumentOption[]>('/api/chat/document/options', {
       method: 'POST',
       body: {}
-    })
+    }).then((data) => requireChatApiPayload(data, '文档选项响应为空'))
   },
 
   listSessionsPage(query) {
@@ -483,6 +506,13 @@ export const chatApi: ChatApi = {
     return requestApiEnvelope<void, JsonObject>('/api/chat/model-config/clear-api-key', {
       method: 'POST',
       body: { id }
+    }).then(() => undefined)
+  },
+
+  moveModelConfig(id, direction) {
+    return requestApiEnvelope<void, JsonObject>('/api/chat/model-config/move', {
+      method: 'POST',
+      body: { id, direction }
     }).then(() => undefined)
   },
 

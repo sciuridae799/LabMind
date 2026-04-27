@@ -2,6 +2,7 @@ package com.superagent.business.chat.chatagent.controller;
 
 import com.superagent.business.chat.chatagent.dto.BusinessChatDeleteSessionRequest;
 import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigIdRequest;
+import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigMoveRequest;
 import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigSaveRequest;
 import com.superagent.business.chat.chatagent.dto.BusinessChatSessionDetailRequest;
 import com.superagent.business.chat.chatagent.dto.BusinessChatSessionListRequest;
@@ -14,6 +15,8 @@ import com.superagent.business.chat.chatagent.vo.BusinessChatModelApiConfigVo;
 import com.superagent.business.chat.chatagent.vo.BusinessChatSessionDetailVo;
 import com.superagent.business.chat.chatagent.vo.BusinessChatSessionListPageVo;
 import com.superagent.business.chat.chatagent.vo.BusinessChatStreamEvent;
+import com.superagent.business.chat.knowledge.service.KnowledgeManageService;
+import com.superagent.business.chat.knowledge.vo.KnowledgeDocumentVo;
 import com.superagent.common.frame.response.ApiResponse;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -38,6 +41,8 @@ public class BusinessChatController {
     private final BusinessChatSessionService businessChatSessionService;
 
     private final BusinessChatModelApiConfigService modelApiConfigService;
+
+    private final KnowledgeManageService knowledgeManageService;
 
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<BusinessChatStreamEvent>> streamChat(
@@ -73,6 +78,11 @@ public class BusinessChatController {
         return ApiResponse.ok(modelApiConfigService.listAvailable());
     }
 
+    @PostMapping("/document/options")
+    public ApiResponse<List<KnowledgeDocumentVo>> listKnowledgeDocumentOptions() {
+        return ApiResponse.ok(knowledgeManageService.listDocumentOptions());
+    }
+
     @PostMapping("/model-config/save")
     public ApiResponse<BusinessChatModelApiConfigVo> saveModelConfig(
             @Valid @RequestBody BusinessChatModelApiConfigSaveRequest request) {
@@ -88,6 +98,12 @@ public class BusinessChatController {
     @PostMapping("/model-config/clear-api-key")
     public ApiResponse<Void> clearModelConfigApiKey(@Valid @RequestBody BusinessChatModelApiConfigIdRequest request) {
         modelApiConfigService.clearApiKey(request);
+        return ApiResponse.ok();
+    }
+
+    @PostMapping("/model-config/move")
+    public ApiResponse<Void> moveModelConfig(@Valid @RequestBody BusinessChatModelApiConfigMoveRequest request) {
+        modelApiConfigService.move(request);
         return ApiResponse.ok();
     }
 }

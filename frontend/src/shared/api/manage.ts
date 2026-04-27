@@ -9,6 +9,8 @@ export interface UploadDocumentInput {
   operatorId?: string | number | bigint | null
   knowledgeScopeCode?: string
   knowledgeScopeName?: string
+  knowledgeTopicCode?: string
+  knowledgeTopicName?: string
   businessCategory?: string
   documentTags?: string
 }
@@ -116,6 +118,8 @@ export interface ManageApi {
    */
   queryDocumentProfile(payload: ManageObject): Promise<unknown>
 
+  queryDocumentParsedText(payload: ManageObject): Promise<unknown>
+
   /**
    * 重新生成单个文档画像。
    * 当文档内容或画像策略变化后，需要用它刷新画像结果。
@@ -151,6 +155,12 @@ export interface ManageApi {
    * 用于回放问题命中了哪些范围、专题和文档，定位路由是否正确。
    */
   queryKnowledgeRouteTracePage(payload?: ManageObject): Promise<unknown>
+
+  /**
+   * 预览知识路由候选。
+   * 用于在不进入正式问答前验证问题会命中哪些知识域、专题和文档。
+   */
+  previewKnowledgeRoute(payload: ManageObject): Promise<unknown>
 }
 
 const manageApiCatalogDefinitions = {
@@ -256,6 +266,12 @@ const manageApiCatalogDefinitions = {
     path: '/manage/knowledge/document/profile/detail',
     keyInputs: 'payload（documentId）'
   },
+  queryDocumentParsedText: {
+    summary: '查询文档解析正文，用于浏览当前可问答全文。',
+    requestMethod: 'POST',
+    path: '/manage/knowledge/document/parsed-text/query',
+    keyInputs: 'payload（documentId）'
+  },
   regenerateDocumentProfile: {
     summary: '重新生成单个文档画像，刷新画像结果。',
     requestMethod: 'POST',
@@ -291,6 +307,12 @@ const manageApiCatalogDefinitions = {
     requestMethod: 'POST',
     path: '/manage/knowledge/route/trace/page/query',
     keyInputs: 'payload（分页与路由筛选条件）'
+  },
+  previewKnowledgeRoute: {
+    summary: '预览知识路由候选，用于验证问题会命中哪些文档。',
+    requestMethod: 'POST',
+    path: '/manage/knowledge/route/preview',
+    keyInputs: 'payload（question, limit）'
   }
 } satisfies Record<keyof ManageApi, Omit<ApiCatalogItem, 'name'>>
 
@@ -334,6 +356,8 @@ export const manageApi: ManageApi = {
     operatorId,
     knowledgeScopeCode,
     knowledgeScopeName,
+    knowledgeTopicCode,
+    knowledgeTopicName,
     businessCategory,
     documentTags
   }) {
@@ -345,6 +369,8 @@ export const manageApi: ManageApi = {
       operatorId: operatorId ?? '',
       knowledgeScopeCode: knowledgeScopeCode || '',
       knowledgeScopeName: knowledgeScopeName || '',
+      knowledgeTopicCode: knowledgeTopicCode || '',
+      knowledgeTopicName: knowledgeTopicName || '',
       businessCategory: businessCategory || '',
       documentTags: documentTags || ''
     })
@@ -469,6 +495,13 @@ export const manageApi: ManageApi = {
     })
   },
 
+  queryDocumentParsedText(payload) {
+    return requestApiEnvelope('/manage/knowledge/document/parsed-text/query', {
+      method: 'POST',
+      body: stringifyManagePayload(payload)
+    })
+  },
+
   regenerateDocumentProfile(payload) {
     return requestApiEnvelope('/manage/knowledge/document/profile/regenerate', {
       method: 'POST',
@@ -506,6 +539,13 @@ export const manageApi: ManageApi = {
 
   queryKnowledgeRouteTracePage(payload = {}) {
     return requestApiEnvelope('/manage/knowledge/route/trace/page/query', {
+      method: 'POST',
+      body: stringifyManagePayload(payload)
+    })
+  },
+
+  previewKnowledgeRoute(payload) {
+    return requestApiEnvelope('/manage/knowledge/route/preview', {
       method: 'POST',
       body: stringifyManagePayload(payload)
     })

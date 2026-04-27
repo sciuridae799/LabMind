@@ -10,10 +10,12 @@ import {
   type BusinessChatSessionListItem,
   chatApi,
   createConversationId,
+  type KnowledgeDocumentOption,
   type BusinessChatMode,
   type ModelApiConfig,
   type BusinessChatStreamEvent
 } from '../shared/api/chat'
+import { manageApi } from '../shared/api/manage'
 
 interface ConversationHistoryItem {
   conversationId: string
@@ -42,6 +44,15 @@ interface ConversationTurn {
   assistantMessage: ChatMessage
 }
 
+interface DocumentProfile {
+  summaryText?: string | null
+  terms?: string[]
+  answerableQuestions?: string[]
+  unanswerableQuestions?: string[]
+  businessEntities?: string[]
+  questionPatterns?: string[]
+}
+
 const starterPrompts = [
   {
     icon: 'write',
@@ -57,11 +68,45 @@ const starterPrompts = [
   }
 ] as const
 
-const currentMode = ref<BusinessChatMode>('OPEN_ENDED')
+const CHAT_MODE_STORAGE_KEY = 'super-agent.chat.mode'
+const SELECTED_DOCUMENT_STORAGE_KEY = 'super-agent.chat.selected-document-id'
+
+function readStoredChatMode(): BusinessChatMode {
+  const storedMode = localStorage.getItem(CHAT_MODE_STORAGE_KEY)
+  const matchedMode = businessChatModeOptions.find((mode) => mode.value === storedMode)
+  return matchedMode?.value ?? 'OPEN_ENDED'
+}
+
+function writeStoredChatMode(mode: BusinessChatMode): void {
+  localStorage.setItem(CHAT_MODE_STORAGE_KEY, mode)
+}
+
+function readStoredDocumentId(): string {
+  return String(localStorage.getItem(SELECTED_DOCUMENT_STORAGE_KEY) || '').trim()
+}
+
+function writeStoredDocumentId(documentId: string): void {
+  const normalizedDocumentId = String(documentId || '').trim()
+  if (!normalizedDocumentId) {
+    localStorage.removeItem(SELECTED_DOCUMENT_STORAGE_KEY)
+    return
+  }
+
+  localStorage.setItem(SELECTED_DOCUMENT_STORAGE_KEY, normalizedDocumentId)
+}
+
+const currentMode = ref<BusinessChatMode>(readStoredChatMode())
 const currentModelConfigId = ref('')
 const availableModelConfigs = ref<ModelApiConfig[]>([])
-const selectedDoc = ref('')
-const isDocContextVisible = ref(false)
+const selectedDoc = ref(readStoredDocumentId())
+const knowledgeDocumentOptions = ref<KnowledgeDocumentOption[]>([])
+const isDocumentOptionsLoading = ref(false)
+const documentOptionsStatusMessage = ref('')
+const detailDocument = ref<KnowledgeDocumentOption | null>(null)
+const detailProfile = ref<DocumentProfile | null>(null)
+const isDocumentDetailLoading = ref(false)
+const documentDetailStatusMessage = ref('')
+const isDocContextVisible = ref(currentMode.value === 'CURRENT_DOCUMENT')
 const conversationHistory = ref<ConversationHistoryItem[]>([])
 const activeConversationId = ref('')
 const activeConversationTitle = ref('')
@@ -122,8 +167,14 @@ function keepDocContextVisible(): void {
 
 function selectMode(mode: BusinessChatMode): void {
   currentMode.value = mode
+  writeStoredChatMode(mode)
   clearDocContextHideTimer()
   isDocContextVisible.value = mode === 'CURRENT_DOCUMENT'
+  applyLatestDocumentSelection()
+}
+
+function selectDocument(): void {
+  writeStoredDocumentId(selectedDoc.value)
 }
 
 function handleModePointerEnter(mode: BusinessChatMode): void {
@@ -367,12 +418,34 @@ const conversationTurns = computed<ConversationTurn[]>(() => {
 const hasConversation = computed<boolean>(() => messageList.value.length > 0)
 
 const canSendMessage = computed<boolean>(() => {
-  return !isStreaming.value && userQuestion.value.trim().length > 0 && currentModelConfigId.value.length > 0
+  return !isStreaming.value &&
+    userQuestion.value.trim().length > 0 &&
+    currentModelConfigId.value.length > 0 &&
+    (currentMode.value !== 'CURRENT_DOCUMENT' || selectedDoc.value.length > 0)
 })
 
 const currentModelConfig = computed<ModelApiConfig | null>(() => {
   return availableModelConfigs.value.find((config) => config.id === currentModelConfigId.value) ?? null
 })
+
+const selectedDocumentOption = computed<KnowledgeDocumentOption | null>(() => {
+  return knowledgeDocumentOptions.value.find((document) => document.documentId === selectedDoc.value) ?? null
+})
+
+function applyLatestDocumentSelection(): void {
+  if (currentMode.value !== 'CURRENT_DOCUMENT' || selectedDoc.value || hasConversation.value) {
+    return
+  }
+
+  const storedDocumentId = readStoredDocumentId()
+  if (storedDocumentId && knowledgeDocumentOptions.value.some((document) => document.documentId === storedDocumentId)) {
+    selectedDoc.value = storedDocumentId
+    return
+  }
+
+  selectedDoc.value = knowledgeDocumentOptions.value[0]?.documentId ?? ''
+  writeStoredDocumentId(selectedDoc.value)
+}
 
 const latestTurnId = computed<string>(() => {
   const turns = conversationTurns.value
@@ -531,6 +604,56 @@ async function loadAvailableModelConfigs(): Promise<void> {
   }
 }
 
+async function loadKnowledgeDocumentOptions(): Promise<void> {
+  isDocumentOptionsLoading.value = true
+  documentOptionsStatusMessage.value = ''
+
+  try {
+    const documents = await chatApi.listKnowledgeDocumentOptions()
+    knowledgeDocumentOptions.value = documents
+    if (selectedDoc.value && !documents.some((document) => document.documentId === selectedDoc.value)) {
+      selectedDoc.value = ''
+      writeStoredDocumentId('')
+    }
+    applyLatestDocumentSelection()
+  } catch (error) {
+    knowledgeDocumentOptions.value = []
+    selectedDoc.value = ''
+    writeStoredDocumentId('')
+    documentOptionsStatusMessage.value = resolveErrorMessage(error)
+  } finally {
+    isDocumentOptionsLoading.value = false
+  }
+}
+
+function closeDocumentDetail(): void {
+  detailDocument.value = null
+  detailProfile.value = null
+  documentDetailStatusMessage.value = ''
+}
+
+async function openSelectedDocumentDetail(): Promise<void> {
+  const document = selectedDocumentOption.value
+  if (!document || isDocumentDetailLoading.value) {
+    return
+  }
+
+  detailDocument.value = document
+  detailProfile.value = null
+  documentDetailStatusMessage.value = ''
+  isDocumentDetailLoading.value = true
+
+  try {
+    detailProfile.value = await manageApi.queryDocumentProfile({
+      documentId: document.documentId
+    }) as DocumentProfile
+  } catch (error) {
+    documentDetailStatusMessage.value = resolveErrorMessage(error)
+  } finally {
+    isDocumentDetailLoading.value = false
+  }
+}
+
 function toggleModelPicker(): void {
   if (isStreaming.value || isModelConfigLoading.value || availableModelConfigs.value.length === 0) {
     return
@@ -586,7 +709,7 @@ async function openConversation(conversationIdToOpen: string): Promise<void> {
     activeConversationTitle.value = sessionDetail.title
     conversationId.value = sessionDetail.conversationId
     currentMode.value = sessionDetail.chatMode
-    selectedDoc.value = ''
+    selectedDoc.value = sessionDetail.selectedDocumentId == null ? '' : String(sessionDetail.selectedDocumentId)
     isDocContextVisible.value = sessionDetail.chatMode === 'CURRENT_DOCUMENT'
     messageList.value = buildMessageListFromSession(sessionDetail)
     resetThinkingExpansion()
@@ -709,6 +832,15 @@ async function handleSend(): Promise<void> {
     return
   }
 
+  if (currentMode.value === 'CURRENT_DOCUMENT' && !selectedDoc.value) {
+    streamStatusMessage.value = '请先选择要问答的上传文档'
+    isDocContextVisible.value = true
+    return
+  }
+  if (currentMode.value === 'CURRENT_DOCUMENT') {
+    writeStoredDocumentId(selectedDoc.value)
+  }
+
   // 前端先把用户消息和占位助手消息放入本地消息流，随后用 SSE 事件持续填充这条助手消息。
   const currentConversationId = conversationId.value || createConversationId()
   conversationId.value = currentConversationId
@@ -741,7 +873,8 @@ async function handleSend(): Promise<void> {
       question,
       conversationId: currentConversationId,
       chatMode: currentMode.value,
-      modelConfigId: currentModelConfigId.value
+      modelConfigId: currentModelConfigId.value,
+      selectedDocumentId: currentMode.value === 'CURRENT_DOCUMENT' ? selectedDoc.value : undefined
     },
     {
       // 每条 SSE 事件只更新当前轮助手消息，避免历史消息被正在进行的流式响应污染。
@@ -784,6 +917,7 @@ function startNewConversation(): void {
   activeConversationId.value = ''
   activeConversationTitle.value = ''
   messageList.value = []
+  applyLatestDocumentSelection()
   shouldAutoScroll.value = true
   resetThinkingExpansion()
   conversationId.value = createConversationId()
@@ -821,6 +955,7 @@ function handleTextareaCompositionEnd(): void {
 onMounted(() => {
   void loadConversationHistory()
   void loadAvailableModelConfigs()
+  void loadKnowledgeDocumentOptions()
   document.addEventListener('click', handleDocumentClick)
 })
 
@@ -1173,23 +1308,42 @@ onBeforeUnmount(() => {
                 >
                   <div class="doc-context-panel">
                     <span class="doc-context-label">关联文档上下文</span>
-                    <select
-                      v-model="selectedDoc"
-                      class="doc-select"
-                    >
-                      <option
-                        disabled
-                        value=""
+                    <div class="doc-select-row">
+                      <select
+                        v-model="selectedDoc"
+                        class="doc-select"
+                        :disabled="isDocumentOptionsLoading || knowledgeDocumentOptions.length === 0"
+                        @change="selectDocument"
                       >
-                        选择关联的文档上下文...
-                      </option>
-                      <option value="doc1">
-                        ChatBI 架构文档.pdf
-                      </option>
-                      <option value="doc2">
-                        前端 Vue3 组件规范.md
-                      </option>
-                    </select>
+                        <option
+                          disabled
+                          value=""
+                        >
+                          {{ isDocumentOptionsLoading ? '正在加载上传文档...' : '选择上传的文档...' }}
+                        </option>
+                        <option
+                          v-for="document in knowledgeDocumentOptions"
+                          :key="document.documentId"
+                          :value="document.documentId"
+                        >
+                          {{ document.documentName }}
+                        </option>
+                      </select>
+                      <button
+                        type="button"
+                        class="doc-detail-button"
+                        :disabled="!selectedDocumentOption || isDocumentDetailLoading"
+                        @click="openSelectedDocumentDetail"
+                      >
+                        详情
+                      </button>
+                    </div>
+                    <p
+                      v-if="documentOptionsStatusMessage || (!isDocumentOptionsLoading && knowledgeDocumentOptions.length === 0)"
+                      class="doc-context-hint"
+                    >
+                      {{ documentOptionsStatusMessage || '暂无可选择的上传文档' }}
+                    </p>
                   </div>
                 </div>
               </transition>
@@ -1329,6 +1483,62 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </main>
+
+    <div
+      v-if="detailDocument"
+      class="document-detail-mask"
+      @click.self="closeDocumentDetail"
+    >
+      <article class="document-detail-modal">
+        <header class="document-detail-header">
+          <div>
+            <h2>文档详情</h2>
+            <p>{{ detailDocument.documentName }}</p>
+          </div>
+          <button
+            type="button"
+            class="document-detail-close"
+            @click="closeDocumentDetail"
+          >
+            关闭
+          </button>
+        </header>
+
+        <div class="document-detail-grid">
+          <span>文档 ID</span>
+          <strong>{{ detailDocument.documentId }}</strong>
+          <span>原始文件名</span>
+          <strong>{{ detailDocument.originalFileName }}</strong>
+          <span>知识域</span>
+          <strong>{{ detailDocument.knowledgeScopeName }} / {{ detailDocument.knowledgeScopeCode }}</strong>
+          <span>业务分类</span>
+          <strong>{{ detailDocument.businessCategory || '-' }}</strong>
+          <span>文档标签</span>
+          <strong>{{ detailDocument.documentTags || '-' }}</strong>
+          <span>处理状态</span>
+          <strong>解析 {{ detailDocument.parseStatus }} / 策略 {{ detailDocument.strategyStatus }} / 索引 {{ detailDocument.indexStatus }}</strong>
+          <span>创建时间</span>
+          <strong>{{ detailDocument.createTime || '-' }}</strong>
+        </div>
+
+        <section class="document-profile-block">
+          <h3>画像摘要</h3>
+          <p v-if="isDocumentDetailLoading">正在加载画像</p>
+          <p v-else-if="documentDetailStatusMessage">{{ documentDetailStatusMessage }}</p>
+          <template v-else>
+            <p>{{ detailProfile?.summaryText || '-' }}</p>
+            <div class="document-profile-tags">
+              <span
+                v-for="term in detailProfile?.terms || []"
+                :key="term"
+              >
+                {{ term }}
+              </span>
+            </div>
+          </template>
+        </section>
+      </article>
+    </div>
   </div>
 </template>
 
@@ -2329,6 +2539,13 @@ select {
   letter-spacing: 0.02em;
 }
 
+.doc-select-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
 .doc-select {
   width: 100%;
   height: 42px;
@@ -2348,6 +2565,137 @@ select {
 .doc-select:focus {
   border-color: var(--doc-select-focus);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--doc-select-focus) 35%, transparent);
+}
+
+.doc-detail-button {
+  height: 42px;
+  padding: 0 14px;
+  color: #175cd3;
+  font-size: 13px;
+  font-weight: 650;
+  border: 1px solid #bcd7ff;
+  border-radius: 8px;
+  background: #eff6ff;
+  cursor: pointer;
+}
+
+.doc-detail-button:disabled {
+  color: #98a2b3;
+  border-color: #e4e7ec;
+  background: #f8fafc;
+  cursor: not-allowed;
+}
+
+.doc-context-hint {
+  margin: 8px 0 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.document-detail-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgb(15 23 42 / 38%);
+}
+
+.document-detail-modal {
+  width: min(720px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  padding: 20px;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 48px rgb(15 23 42 / 20%);
+}
+
+.document-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #eaecf0;
+}
+
+.document-detail-header h2 {
+  margin: 0;
+  color: #101828;
+  font-size: 18px;
+}
+
+.document-detail-header p {
+  margin: 6px 0 0;
+  color: #667085;
+  font-size: 13px;
+}
+
+.document-detail-close {
+  height: 34px;
+  padding: 0 14px;
+  color: #344054;
+  font-size: 13px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.document-detail-grid {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px 16px;
+  margin-top: 16px;
+  color: #344054;
+  font-size: 13px;
+}
+
+.document-detail-grid span {
+  color: #667085;
+}
+
+.document-detail-grid strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.document-profile-block {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #eaecf0;
+}
+
+.document-profile-block h3 {
+  margin: 0 0 8px;
+  color: #101828;
+  font-size: 15px;
+}
+
+.document-profile-block p {
+  margin: 0;
+  color: #475467;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.document-profile-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.document-profile-tags span {
+  padding: 4px 8px;
+  color: #175cd3;
+  font-size: 12px;
+  border-radius: 999px;
+  background: #eff6ff;
 }
 
 .input-panel {

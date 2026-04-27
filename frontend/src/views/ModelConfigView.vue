@@ -40,6 +40,9 @@ const isLoading = ref(false)
 const isSaving = ref(false)
 const deletingId = ref('')
 const togglingEnabledId = ref('')
+const movingConfigId = ref('')
+const draggingConfigId = ref('')
+const dragOverConfigId = ref('')
 const deleteConfirmConfigId = ref('')
 
 const isEditing = computed<boolean>(() => formMode.value === 'edit')
@@ -193,6 +196,64 @@ async function toggleConfigEnabled(config: ModelApiConfig): Promise<void> {
   }
 }
 
+function handleConfigDragStart(event: DragEvent, config: ModelApiConfig): void {
+  if (movingConfigId.value || deletingId.value || togglingEnabledId.value) {
+    event.preventDefault()
+    return
+  }
+
+  draggingConfigId.value = config.id
+  event.dataTransfer?.setData('text/plain', config.id)
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+  }
+}
+
+function handleConfigDragOver(event: DragEvent, config: ModelApiConfig): void {
+  if (!draggingConfigId.value || draggingConfigId.value === config.id) {
+    return
+  }
+
+  event.preventDefault()
+  dragOverConfigId.value = config.id
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+}
+
+async function handleConfigDrop(event: DragEvent, targetConfig: ModelApiConfig): Promise<void> {
+  event.preventDefault()
+  const sourceId = draggingConfigId.value || event.dataTransfer?.getData('text/plain') || ''
+  const sourceIndex = configs.value.findIndex((config) => config.id === sourceId)
+  const targetIndex = configs.value.findIndex((config) => config.id === targetConfig.id)
+  draggingConfigId.value = ''
+  dragOverConfigId.value = ''
+
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+    return
+  }
+
+  movingConfigId.value = sourceId
+  statusMessage.value = ''
+  try {
+    const direction: 'UP' | 'DOWN' = sourceIndex < targetIndex ? 'DOWN' : 'UP'
+    const moveCount = Math.abs(targetIndex - sourceIndex)
+    for (let index = 0; index < moveCount; index += 1) {
+      await chatApi.moveModelConfig(sourceId, direction)
+    }
+    await loadConfigs()
+  } catch (error) {
+    statusMessage.value = error instanceof Error ? error.message : '配置顺序更新失败'
+  } finally {
+    movingConfigId.value = ''
+  }
+}
+
+function handleConfigDragEnd(): void {
+  draggingConfigId.value = ''
+  dragOverConfigId.value = ''
+}
+
 onMounted(() => {
   void loadConfigs()
 })
@@ -248,17 +309,35 @@ onMounted(() => {
 
           <template v-else>
             <article
-              v-for="config in configs"
+              v-for="(config, index) in configs"
               :key="config.id"
               class="config-row"
-              :class="{ disabled: !config.enabled }"
+              :class="{
+                disabled: !config.enabled,
+                dragging: draggingConfigId === config.id,
+                'drag-over': dragOverConfigId === config.id
+              }"
+              draggable="true"
+              @dragstart="handleConfigDragStart($event, config)"
+              @dragover="handleConfigDragOver($event, config)"
+              @drop="handleConfigDrop($event, config)"
+              @dragend="handleConfigDragEnd"
             >
               <button
                 type="button"
                 class="config-row-main"
                 @click="startEdit(config)"
               >
-                <span class="config-name">{{ config.displayName }}</span>
+                <span class="config-title-row">
+                  <span class="drag-handle" aria-hidden="true">⋮⋮</span>
+                  <span class="config-name">{{ config.displayName }}</span>
+                  <span
+                    v-if="index === 0"
+                    class="config-default"
+                  >
+                    默认模型
+                  </span>
+                </span>
                 <span class="config-meta">{{ config.provider }} · {{ config.modelName }}</span>
                 <span class="config-url">{{ config.baseUrl }}</span>
               </button>
@@ -538,11 +617,22 @@ onMounted(() => {
   transition:
     border-color 0.18s ease,
     box-shadow 0.18s ease;
+  cursor: grab;
 }
 
 .config-row:hover {
   border-color: #cfd8e6;
   box-shadow: 0 8px 24px rgb(16 24 40 / 6%);
+}
+
+.config-row.dragging {
+  opacity: 0.52;
+  cursor: grabbing;
+}
+
+.config-row.drag-over {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
 }
 
 .config-row.disabled {
@@ -564,10 +654,26 @@ onMounted(() => {
   display: block;
 }
 
+.config-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.drag-handle {
+  color: #98a2b3;
+  font-size: 15px;
+  line-height: 1;
+  cursor: grab;
+}
+
 .config-name {
+  min-width: 0;
   color: #182230;
   font-size: 15px;
   font-weight: 650;
+  overflow-wrap: anywhere;
 }
 
 .config-meta {
@@ -589,6 +695,18 @@ onMounted(() => {
   flex-direction: column;
   align-items: flex-end;
   gap: 7px;
+}
+
+.config-default {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  color: #1849a9;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  border: 1px solid #b2ddff;
+  border-radius: 999px;
+  background: #eff8ff;
 }
 
 .config-badge {

@@ -13,6 +13,11 @@ import com.superagent.business.chat.chatagent.model.BusinessChatHistoryContext;
 import com.superagent.business.chat.chatagent.model.BusinessChatMode;
 import com.superagent.business.chat.chatagent.model.BusinessChatRecentExchange;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
+import com.superagent.business.chat.knowledge.dto.KnowledgeDocumentIdRequest;
+import com.superagent.business.chat.knowledge.graph.KnowledgeGraphClient;
+import com.superagent.business.chat.knowledge.model.KnowledgeRouteCandidate;
+import com.superagent.business.chat.knowledge.service.KnowledgeManageService;
+import com.superagent.business.chat.knowledge.vo.KnowledgeDocumentProfileVo;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,6 +38,10 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
 
     private final BusinessChatExchangeMapper businessChatExchangeMapper;
 
+    private final KnowledgeGraphClient knowledgeGraphClient;
+
+    private final KnowledgeManageService knowledgeManageService;
+
     @Override
     public BusinessChatExecutionPlan orchestrate(BusinessChatRuntimeContext runtimeContext) {
         BusinessChatHistoryContext historyContext = loadHistoryContext(runtimeContext);
@@ -40,7 +49,10 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         String rewrittenQuestion = rewriteQuestion(runtimeContext.getTaskInfo().question(), historyContext);
         BusinessChatFreshnessRequirement freshnessRequirement =
                 detectFreshnessRequirement(runtimeContext.getTaskInfo().question());
-        String knowledgeRoute = routeKnowledge(executionMode, freshnessRequirement);
+        List<KnowledgeRouteCandidate> knowledgeRouteCandidateList =
+                routeKnowledgeCandidates(executionMode, rewrittenQuestion);
+        String selectedDocumentContextText = buildSelectedDocumentContextText(runtimeContext, executionMode);
+        String knowledgeRoute = routeKnowledge(executionMode, freshnessRequirement, knowledgeRouteCandidateList);
         String executionModel = runtimeContext.getTaskInfo().modelConfig().modelName();
         String intentLabel = switch (executionMode) {
             case CURRENT_DOCUMENT -> "document_question_answer";
@@ -55,14 +67,23 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
                 historyContext.contextText(),
                 historyContext.memorySummary(),
                 historyContext.recentExchangeCount(),
+                selectedDocumentContextText,
                 freshnessRequirement,
                 knowledgeRoute,
+                knowledgeRouteCandidateList,
                 executionModel,
                 intentLabel,
                 intentReason,
                 agentType,
                 executionMode,
-                buildExecutionStepList(historyContext, rewrittenQuestion, freshnessRequirement, knowledgeRoute, executionModel));
+                buildExecutionStepList(
+                        historyContext,
+                        rewrittenQuestion,
+                        selectedDocumentContextText,
+                        freshnessRequirement,
+                        knowledgeRoute,
+                        knowledgeRouteCandidateList,
+                        executionModel));
     }
 
     private BusinessChatAgentType selectAgentType(BusinessChatMode executionMode) {
@@ -207,12 +228,69 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
                 "UNAVAILABLE");
     }
 
+    private List<KnowledgeRouteCandidate> routeKnowledgeCandidates(
+            BusinessChatMode executionMode,
+            String rewrittenQuestion) {
+        if (executionMode != BusinessChatMode.KNOWLEDGE_BASE) {
+            return List.of();
+        }
+        return knowledgeGraphClient.routeQuestion(rewrittenQuestion, 5);
+    }
+
+    private String buildSelectedDocumentContextText(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatMode executionMode) {
+        if (executionMode != BusinessChatMode.CURRENT_DOCUMENT) {
+            return null;
+        }
+        Long selectedDocumentId = runtimeContext.getTaskInfo().selectedDocumentId();
+        if (selectedDocumentId == null || selectedDocumentId <= 0) {
+            throw new IllegalStateException("selectedDocumentId is required for CURRENT_DOCUMENT");
+        }
+        KnowledgeDocumentIdRequest request = new KnowledgeDocumentIdRequest();
+        request.setDocumentId(String.valueOf(selectedDocumentId));
+        KnowledgeDocumentProfileVo profile = knowledgeManageService.queryDocumentProfile(request);
+        String parsedText = knowledgeManageService.queryDocumentParsedText(request);
+        StringBuilder builder = new StringBuilder()
+                .append("文档ID：").append(selectedDocumentId).append("\n")
+                .append("文档名称：").append(runtimeContext.getTaskInfo().selectedDocumentName()).append("\n");
+        if (StringUtils.hasText(profile.getSummaryText())) {
+            builder.append("画像摘要：").append(profile.getSummaryText()).append("\n");
+        }
+        appendListContext(builder, "可回答问题", profile.getAnswerableQuestions());
+        appendListContext(builder, "不可回答问题", profile.getUnanswerableQuestions());
+        appendListContext(builder, "业务实体", profile.getBusinessEntities());
+        appendListContext(builder, "术语", profile.getTerms());
+        appendListContext(builder, "问题模式", profile.getQuestionPatterns());
+        builder.append("文档正文：\n").append(parsedText).append("\n");
+        String contextText = builder.toString().strip();
+        if (!StringUtils.hasText(contextText)) {
+            throw new IllegalStateException("selected document context is empty: " + selectedDocumentId);
+        }
+        return contextText;
+    }
+
+    private void appendListContext(StringBuilder builder, String label, List<String> valueList) {
+        if (valueList == null || valueList.isEmpty()) {
+            return;
+        }
+        builder.append(label).append("：");
+        builder.append(String.join("、", valueList.stream()
+                .map(value -> value == null ? "" : value.strip())
+                .filter(StringUtils::hasText)
+                .toList()));
+        builder.append("\n");
+    }
+
     private String routeKnowledge(
             BusinessChatMode executionMode,
-            BusinessChatFreshnessRequirement freshnessRequirement) {
+            BusinessChatFreshnessRequirement freshnessRequirement,
+            List<KnowledgeRouteCandidate> knowledgeRouteCandidateList) {
         String baseRoute = switch (executionMode) {
             case CURRENT_DOCUMENT -> "CURRENT_DOCUMENT";
-            case KNOWLEDGE_BASE -> "KNOWLEDGE_BASE";
+            case KNOWLEDGE_BASE -> knowledgeRouteCandidateList.isEmpty()
+                    ? "KNOWLEDGE_BASE|NO_DOCUMENT_MATCH"
+                    : "KNOWLEDGE_BASE|DOCUMENT_MATCHED";
             case OPEN_ENDED -> "NOT_REQUIRED";
         };
         if (freshnessRequirement.required()) {
@@ -224,15 +302,19 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
     private List<String> buildExecutionStepList(
             BusinessChatHistoryContext historyContext,
             String rewrittenQuestion,
+            String selectedDocumentContextText,
             BusinessChatFreshnessRequirement freshnessRequirement,
             String knowledgeRoute,
+            List<KnowledgeRouteCandidate> knowledgeRouteCandidateList,
             String executionModel) {
         return List.of(
                 StringUtils.hasText(historyContext.memorySummary()) ? "加载长期摘要：已加载" : "加载长期摘要：无",
                 "加载最近对话窗口：%s轮".formatted(historyContext.recentExchangeCount()),
                 "问题改写：%s".formatted(rewrittenQuestion),
+                "当前文档上下文：%s".formatted(StringUtils.hasText(selectedDocumentContextText) ? "已加载" : "无"),
                 "时效性判断：%s".formatted(freshnessRequirement.required() ? "需要实时信息" : "不需要实时信息"),
                 "知识路由：%s".formatted(knowledgeRoute),
+                "路由候选文档：%s".formatted(knowledgeRouteCandidateList.size()),
                 "执行模型：%s".formatted(executionModel),
                 "按执行计划生成流式正文",
                 "补发执行补充信息与推荐追问");

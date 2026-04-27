@@ -7,6 +7,8 @@ public record BusinessChatStartPlan(
         String conversationId,
         BusinessChatMode chatMode,
         BusinessChatModelApiConfigSnapshot modelConfig,
+        Long selectedDocumentId,
+        String selectedDocumentName,
         String traceId,
         String leaseKey,
         String leaseOwnerToken,

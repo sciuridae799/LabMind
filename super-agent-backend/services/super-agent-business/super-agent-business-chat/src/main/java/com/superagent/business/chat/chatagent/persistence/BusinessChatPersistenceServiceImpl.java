@@ -59,6 +59,8 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
         BusinessChatDialogueData dialogueData = loadOrCreateDialogue(startPlan);
         dialogueData.setDialogueStage(BusinessChatDialogueStage.RUNNING.getDatabaseCode());
         dialogueData.setChatMode(startPlan.chatMode().getDatabaseCode());
+        dialogueData.setSelectedDocumentId(startPlan.selectedDocumentId());
+        dialogueData.setSelectedDocumentName(startPlan.selectedDocumentName());
         businessChatDialogueMapper.updateById(dialogueData);
 
         BusinessChatExchangeData exchangeData = new BusinessChatExchangeData();
@@ -82,6 +84,8 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
                 startPlan.conversationId(),
                 startPlan.chatMode(),
                 startPlan.modelConfig(),
+                startPlan.selectedDocumentId(),
+                startPlan.selectedDocumentName(),
                 startPlan.traceId(),
                 startPlan.leaseKey(),
                 startPlan.leaseOwnerToken(),
