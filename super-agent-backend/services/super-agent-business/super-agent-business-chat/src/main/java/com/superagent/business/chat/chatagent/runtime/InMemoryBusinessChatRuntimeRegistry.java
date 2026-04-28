@@ -8,6 +8,11 @@ import java.util.concurrent.ConcurrentMap;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Sinks;
 
+/**
+ * 基于内存的运行态注册表。
+ *
+ * <p>它只解决当前 JVM 内 conversationId 到 RuntimeContext 的定位和冲突检测，不能替代 Redis 租约的跨实例互斥。</p>
+ */
 @Service
 public class InMemoryBusinessChatRuntimeRegistry implements BusinessChatRuntimeRegistry {
 
@@ -15,6 +20,7 @@ public class InMemoryBusinessChatRuntimeRegistry implements BusinessChatRuntimeR
 
     @Override
     public BusinessChatRuntimeContext register(BusinessChatTaskInfo taskInfo) {
+        // JVM 内注册表只承载本进程执行期上下文；跨进程互斥由 Redis 会话租约保证。
         BusinessChatRuntimeContext runtimeContext =
                 new BusinessChatRuntimeContext(taskInfo, Sinks.many().unicast().onBackpressureBuffer());
         BusinessChatRuntimeContext existing = runtimeContextMap.putIfAbsent(taskInfo.conversationId(), runtimeContext);

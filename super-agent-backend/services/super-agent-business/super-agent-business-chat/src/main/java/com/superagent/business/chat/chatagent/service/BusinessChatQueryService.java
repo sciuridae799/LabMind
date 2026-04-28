@@ -34,4 +34,6 @@ public interface BusinessChatQueryService {
      * @return 会话详情和完整 exchange 列表
      */
     BusinessChatSessionDetailVo getSession(BusinessChatSessionDetailRequest request);
+
+    String getActiveConversationId();
 }

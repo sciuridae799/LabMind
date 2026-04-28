@@ -1,5 +1,8 @@
 package com.superagent.business.chat.chatagent.agent;
 
+import lombok.Getter;
+
+@Getter
 public enum BusinessChatAgentType {
 
     CLARIFICATION("CLARIFICATION", "歧义澄清执行器"),
@@ -20,11 +23,4 @@ public enum BusinessChatAgentType {
         this.displayName = displayName;
     }
 
-    public String getValue() {
-        return value;
-    }
-
-    public String getDisplayName() {
-        return displayName;
-    }
 }

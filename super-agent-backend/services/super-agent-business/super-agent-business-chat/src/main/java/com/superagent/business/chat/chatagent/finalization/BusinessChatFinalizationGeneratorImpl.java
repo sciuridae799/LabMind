@@ -9,6 +9,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+/**
+ * 对话收尾内容生成器。
+ *
+ * <p>基于已冻结的单轮快照生成会话标题和推荐追问，并对模型返回的 JSON 结构做强校验。</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class BusinessChatFinalizationGeneratorImpl implements BusinessChatFinalizationGenerator {
@@ -21,6 +26,7 @@ public class BusinessChatFinalizationGeneratorImpl implements BusinessChatFinali
 
     @Override
     public BusinessChatFinalizationResult generate(BusinessChatFinalizedTurn finalizedTurn, boolean titleRequired) {
+        // 收尾生成只依赖已冻结快照，避免归档过程中继续读取可变运行态。
         String userMessage = """
                 titleRequired: %s
 
@@ -87,6 +93,7 @@ public class BusinessChatFinalizationGeneratorImpl implements BusinessChatFinali
         if (followUpSuggestionList == null || followUpSuggestionList.size() != FOLLOW_UP_COUNT) {
             throw new IllegalStateException("followUpSuggestionList must contain exactly 3 items.");
         }
+        // 推荐追问必须固定三条且去重后仍为三条，前端可按稳定数量直接渲染。
         List<String> normalizedList = followUpSuggestionList.stream()
                 .map(item -> item == null ? "" : item.strip())
                 .filter(StringUtils::hasText)

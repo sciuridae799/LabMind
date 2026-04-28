@@ -12,6 +12,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+/**
+ * 知识文档对象存储适配器。
+ *
+ * <p>封装 MinIO 的原文上传、解析文本读取和对象删除，并在首次使用时校验存储配置完整性。</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class KnowledgeDocumentObjectStorage {

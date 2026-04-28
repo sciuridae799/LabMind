@@ -3,12 +3,16 @@ package com.superagent.business.chat.knowledge.controller;
 import com.superagent.business.chat.knowledge.dto.KnowledgeDocumentIdRequest;
 import com.superagent.business.chat.knowledge.dto.KnowledgeDocumentPageRequest;
 import com.superagent.business.chat.knowledge.dto.KnowledgeDocumentUploadMetaRequest;
+import com.superagent.business.chat.knowledge.dto.KnowledgeRouteAssetPageRequest;
 import com.superagent.business.chat.knowledge.dto.KnowledgeRoutePreviewRequest;
+import com.superagent.business.chat.knowledge.dto.KnowledgeRouteTracePageRequest;
 import com.superagent.business.chat.knowledge.service.KnowledgeManageService;
 import com.superagent.business.chat.knowledge.vo.KnowledgeDocumentPageVo;
 import com.superagent.business.chat.knowledge.vo.KnowledgeDocumentProfileVo;
 import com.superagent.business.chat.knowledge.vo.KnowledgeDocumentVo;
+import com.superagent.business.chat.knowledge.vo.KnowledgeRouteAssetPageVo;
 import com.superagent.business.chat.knowledge.vo.KnowledgeRouteCandidateVo;
+import com.superagent.business.chat.knowledge.vo.KnowledgeRouteTracePageVo;
 import com.superagent.common.frame.response.ApiResponse;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -21,6 +25,11 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * 知识管理 HTTP 入口。
+ *
+ * <p>面向管理端提供文档上传、文档查询、解析正文、画像、路由预览、路由资产和路由追踪能力。</p>
+ */
 @RestController
 @RequestMapping("/manage")
 @RequiredArgsConstructor
@@ -69,5 +78,17 @@ public class KnowledgeManageController {
     public ApiResponse<List<KnowledgeRouteCandidateVo>> previewRoute(
             @Valid @RequestBody KnowledgeRoutePreviewRequest request) {
         return ApiResponse.ok(knowledgeManageService.previewRoute(request));
+    }
+
+    @PostMapping("/knowledge/route/asset/page/query")
+    public ApiResponse<KnowledgeRouteAssetPageVo> queryRouteAssetPage(
+            @RequestBody KnowledgeRouteAssetPageRequest request) {
+        return ApiResponse.ok(knowledgeManageService.queryRouteAssetPage(request));
+    }
+
+    @PostMapping("/knowledge/route/trace/page/query")
+    public ApiResponse<KnowledgeRouteTracePageVo> queryRouteTracePage(
+            @RequestBody KnowledgeRouteTracePageRequest request) {
+        return ApiResponse.ok(knowledgeManageService.queryRouteTracePage(request));
     }
 }

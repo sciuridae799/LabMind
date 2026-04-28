@@ -18,6 +18,11 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 
+/**
+ * OpenAI 兼容协议的动态模型客户端。
+ *
+ * <p>每次调用根据模型配置快照构建 ChatClient，让后台配置变更在下一轮问答或元数据生成中直接生效。</p>
+ */
 @Service
 public class OpenAiCompatibleBusinessChatDynamicModelClient implements BusinessChatDynamicModelClient {
 
@@ -45,6 +50,7 @@ public class OpenAiCompatibleBusinessChatDynamicModelClient implements BusinessC
     }
 
     private ChatClient buildChatClient(BusinessChatModelApiConfigSnapshot modelConfig, boolean streaming) {
+        // 每次调用按模型配置创建客户端，保证后台切换 baseUrl/apiKey/model 后下一轮立即生效。
         OpenAiApi openAiApi = OpenAiApi.builder()
                 .baseUrl(modelConfig.baseUrl())
                 .apiKey(new SimpleApiKey(modelConfig.apiKey()))
@@ -66,6 +72,7 @@ public class OpenAiCompatibleBusinessChatDynamicModelClient implements BusinessC
         OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder()
                 .model(modelConfig.modelName());
         if (!streaming) {
+            // 收尾和画像生成要求稳定 JSON，非流式调用关闭 thinking，避免模型把思考内容混进结构化输出。
             builder.extraBody(Map.of("enable_thinking", false));
         }
         return builder.build();

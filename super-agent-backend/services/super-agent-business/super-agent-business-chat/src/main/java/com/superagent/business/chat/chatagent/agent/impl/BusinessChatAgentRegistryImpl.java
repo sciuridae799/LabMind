@@ -10,6 +10,11 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 
+/**
+ * Agent 注册表实现。
+ *
+ * <p>按 Agent 类型维护唯一实例，主服务根据编排计划选择 Agent，再由 Agent 继续委派到具体执行器。</p>
+ */
 @Service
 public class BusinessChatAgentRegistryImpl implements BusinessChatAgentRegistry {
 

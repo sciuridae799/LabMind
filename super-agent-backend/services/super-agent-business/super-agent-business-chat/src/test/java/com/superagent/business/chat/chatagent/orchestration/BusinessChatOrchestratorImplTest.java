@@ -93,6 +93,10 @@ class BusinessChatOrchestratorImplTest {
                         "audit_topic",
                         "审核专题",
                         1.0,
+                        1.0,
+                        0,
+                        List.of("订单审核"),
+                        List.of(),
                         "术语命中：订单审核")));
 
         var executionPlan = businessChatOrchestrator.orchestrate(createRuntimeContext(BusinessChatMode.KNOWLEDGE_BASE));

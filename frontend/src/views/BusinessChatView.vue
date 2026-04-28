@@ -68,37 +68,10 @@ const starterPrompts = [
   }
 ] as const
 
-const CHAT_MODE_STORAGE_KEY = 'super-agent.chat.mode'
-const SELECTED_DOCUMENT_STORAGE_KEY = 'super-agent.chat.selected-document-id'
-
-function readStoredChatMode(): BusinessChatMode {
-  const storedMode = localStorage.getItem(CHAT_MODE_STORAGE_KEY)
-  const matchedMode = businessChatModeOptions.find((mode) => mode.value === storedMode)
-  return matchedMode?.value ?? 'OPEN_ENDED'
-}
-
-function writeStoredChatMode(mode: BusinessChatMode): void {
-  localStorage.setItem(CHAT_MODE_STORAGE_KEY, mode)
-}
-
-function readStoredDocumentId(): string {
-  return String(localStorage.getItem(SELECTED_DOCUMENT_STORAGE_KEY) || '').trim()
-}
-
-function writeStoredDocumentId(documentId: string): void {
-  const normalizedDocumentId = String(documentId || '').trim()
-  if (!normalizedDocumentId) {
-    localStorage.removeItem(SELECTED_DOCUMENT_STORAGE_KEY)
-    return
-  }
-
-  localStorage.setItem(SELECTED_DOCUMENT_STORAGE_KEY, normalizedDocumentId)
-}
-
-const currentMode = ref<BusinessChatMode>(readStoredChatMode())
+const currentMode = ref<BusinessChatMode>('OPEN_ENDED')
 const currentModelConfigId = ref('')
 const availableModelConfigs = ref<ModelApiConfig[]>([])
-const selectedDoc = ref(readStoredDocumentId())
+const selectedDoc = ref('')
 const knowledgeDocumentOptions = ref<KnowledgeDocumentOption[]>([])
 const isDocumentOptionsLoading = ref(false)
 const documentOptionsStatusMessage = ref('')
@@ -106,7 +79,7 @@ const detailDocument = ref<KnowledgeDocumentOption | null>(null)
 const detailProfile = ref<DocumentProfile | null>(null)
 const isDocumentDetailLoading = ref(false)
 const documentDetailStatusMessage = ref('')
-const isDocContextVisible = ref(currentMode.value === 'CURRENT_DOCUMENT')
+const isDocContextVisible = ref(false)
 const conversationHistory = ref<ConversationHistoryItem[]>([])
 const activeConversationId = ref('')
 const activeConversationTitle = ref('')
@@ -167,14 +140,8 @@ function keepDocContextVisible(): void {
 
 function selectMode(mode: BusinessChatMode): void {
   currentMode.value = mode
-  writeStoredChatMode(mode)
   clearDocContextHideTimer()
   isDocContextVisible.value = mode === 'CURRENT_DOCUMENT'
-  applyLatestDocumentSelection()
-}
-
-function selectDocument(): void {
-  writeStoredDocumentId(selectedDoc.value)
 }
 
 function handleModePointerEnter(mode: BusinessChatMode): void {
@@ -432,21 +399,6 @@ const selectedDocumentOption = computed<KnowledgeDocumentOption | null>(() => {
   return knowledgeDocumentOptions.value.find((document) => document.documentId === selectedDoc.value) ?? null
 })
 
-function applyLatestDocumentSelection(): void {
-  if (currentMode.value !== 'CURRENT_DOCUMENT' || selectedDoc.value || hasConversation.value) {
-    return
-  }
-
-  const storedDocumentId = readStoredDocumentId()
-  if (storedDocumentId && knowledgeDocumentOptions.value.some((document) => document.documentId === storedDocumentId)) {
-    selectedDoc.value = storedDocumentId
-    return
-  }
-
-  selectedDoc.value = knowledgeDocumentOptions.value[0]?.documentId ?? ''
-  writeStoredDocumentId(selectedDoc.value)
-}
-
 const latestTurnId = computed<string>(() => {
   const turns = conversationTurns.value
   return turns.length > 0 ? turns[turns.length - 1].id : ''
@@ -613,13 +565,10 @@ async function loadKnowledgeDocumentOptions(): Promise<void> {
     knowledgeDocumentOptions.value = documents
     if (selectedDoc.value && !documents.some((document) => document.documentId === selectedDoc.value)) {
       selectedDoc.value = ''
-      writeStoredDocumentId('')
     }
-    applyLatestDocumentSelection()
   } catch (error) {
     knowledgeDocumentOptions.value = []
     selectedDoc.value = ''
-    writeStoredDocumentId('')
     documentOptionsStatusMessage.value = resolveErrorMessage(error)
   } finally {
     isDocumentOptionsLoading.value = false
@@ -710,7 +659,7 @@ async function openConversation(conversationIdToOpen: string): Promise<void> {
     conversationId.value = sessionDetail.conversationId
     currentMode.value = sessionDetail.chatMode
     selectedDoc.value = sessionDetail.selectedDocumentId == null ? '' : String(sessionDetail.selectedDocumentId)
-    isDocContextVisible.value = sessionDetail.chatMode === 'CURRENT_DOCUMENT'
+    isDocContextVisible.value = false
     messageList.value = buildMessageListFromSession(sessionDetail)
     resetThinkingExpansion()
     userQuestion.value = ''
@@ -837,10 +786,6 @@ async function handleSend(): Promise<void> {
     isDocContextVisible.value = true
     return
   }
-  if (currentMode.value === 'CURRENT_DOCUMENT') {
-    writeStoredDocumentId(selectedDoc.value)
-  }
-
   // 前端先把用户消息和占位助手消息放入本地消息流，随后用 SSE 事件持续填充这条助手消息。
   const currentConversationId = conversationId.value || createConversationId()
   conversationId.value = currentConversationId
@@ -917,10 +862,12 @@ function startNewConversation(): void {
   activeConversationId.value = ''
   activeConversationTitle.value = ''
   messageList.value = []
-  applyLatestDocumentSelection()
   shouldAutoScroll.value = true
   resetThinkingExpansion()
   conversationId.value = createConversationId()
+  void chatApi.clearActiveSession().catch((error) => {
+    historyStatusMessage.value = resolveErrorMessage(error)
+  })
 }
 
 function useFollowUpSuggestion(question: string): void {
@@ -952,10 +899,21 @@ function handleTextareaCompositionEnd(): void {
   isTextareaComposing.value = false
 }
 
+async function restoreChatPage(): Promise<void> {
+  await loadKnowledgeDocumentOptions()
+  await loadConversationHistory()
+  const activeSession = await chatApi.getActiveSession()
+  const activeConversationId = String(activeSession.conversationId || '').trim()
+  if (activeConversationId) {
+    await openConversation(activeConversationId)
+  }
+}
+
 onMounted(() => {
-  void loadConversationHistory()
+  void restoreChatPage().catch((error) => {
+    historyStatusMessage.value = resolveErrorMessage(error)
+  })
   void loadAvailableModelConfigs()
-  void loadKnowledgeDocumentOptions()
   document.addEventListener('click', handleDocumentClick)
 })
 
@@ -1284,7 +1242,6 @@ onBeforeUnmount(() => {
           >
             <div
               class="custom-mode-selector"
-              @mouseenter="keepDocContextVisible"
               @mouseleave="scheduleDocContextHide"
             >
               <div class="mode-tabs">
@@ -1305,6 +1262,7 @@ onBeforeUnmount(() => {
                 <div
                   v-if="currentMode === 'CURRENT_DOCUMENT' && isDocContextVisible"
                   class="doc-selector-wrapper"
+                  @mouseenter="keepDocContextVisible"
                 >
                   <div class="doc-context-panel">
                     <span class="doc-context-label">关联文档上下文</span>
@@ -1313,7 +1271,6 @@ onBeforeUnmount(() => {
                         v-model="selectedDoc"
                         class="doc-select"
                         :disabled="isDocumentOptionsLoading || knowledgeDocumentOptions.length === 0"
-                        @change="selectDocument"
                       >
                         <option
                           disabled

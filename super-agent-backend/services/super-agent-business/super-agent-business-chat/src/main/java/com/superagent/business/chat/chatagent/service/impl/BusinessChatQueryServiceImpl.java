@@ -18,17 +18,23 @@ import com.superagent.business.chat.chatagent.model.BusinessChatMode;
 import com.superagent.business.chat.chatagent.model.BusinessChatSessionListRow;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatQueryService;
+import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
 import com.superagent.business.chat.chatagent.vo.BusinessChatSessionDetailVo;
 import com.superagent.business.chat.chatagent.vo.BusinessChatSessionExchangeVo;
 import com.superagent.business.chat.chatagent.vo.BusinessChatSessionListItemVo;
 import com.superagent.business.chat.chatagent.vo.BusinessChatSessionListPageVo;
-import com.superagent.common.frame.enums.BaseCode;
+import com.superagent.business.chat.support.BusinessInputValidator;
 import com.superagent.common.frame.exception.BaseException;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+/**
+ * 会话查询服务。
+ *
+ * <p>面向管理端读取已归档会话，把 dialogue、exchange、摘要和当前会话游标组装成前端展示模型。</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
@@ -44,14 +50,16 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
 
     private final BusinessChatMemorySummaryMapper businessChatMemorySummaryMapper;
 
+    private final BusinessChatSessionStateService businessChatSessionStateService;
+
     private final ObjectMapper objectMapper;
 
     @Override
     public BusinessChatSessionListPageVo listSessionsPage(BusinessChatSessionListRequest request) {
         // 列表查询把前端筛选条件转成数据库枚举码，再由 Mapper 取每个会话的最新一轮摘要行。
-        long pageNo = parsePositiveLong(request.getPageNo(), "pageNo");
-        long pageSize = parsePositiveLong(request.getPageSize(), "pageSize");
-        String keyword = normalizeOptionalText(request.getKeyword());
+        long pageNo = BusinessInputValidator.parsePositiveLong(request.getPageNo(), "pageNo");
+        long pageSize = BusinessInputValidator.parsePositiveLong(request.getPageSize(), "pageSize");
+        String keyword = BusinessInputValidator.normalizeOptionalText(request.getKeyword());
         Integer chatModeCode = resolveChatModeCode(request.getChatMode());
         Integer turnStatusCode = resolveTurnStatusCode(request.getTurnStatus());
         long totalSize = businessChatDialogueMapper.countSessionPageRows(
@@ -85,7 +93,7 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
 
     @Override
     public BusinessChatSessionDetailVo getSession(BusinessChatSessionDetailRequest request) {
-        String conversationId = normalizeRequiredText(request.getConversationId(), "conversationId");
+        String conversationId = BusinessInputValidator.normalizeRequiredText(request.getConversationId(), "conversationId");
         // 详情页以 conversationId 为入口，先定位会话主记录，再拼接摘要和按时间排序的 exchange 明细。
         BusinessChatDialogueData dialogueData = businessChatDialogueMapper.selectOne(
                 Wrappers.<BusinessChatDialogueData>lambdaQuery()
@@ -97,6 +105,7 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
                     BusinessChatErrorCode.CHAT_SESSION_NOT_FOUND,
                     "conversationId was not found: " + conversationId);
         }
+        businessChatSessionStateService.activate(conversationId);
 
         BusinessChatMemorySummaryData summaryData = businessChatMemorySummaryMapper.selectOne(
                 Wrappers.<BusinessChatMemorySummaryData>lambdaQuery()
@@ -119,12 +128,19 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
         detailVo.setChatMode(BusinessChatMode.fromDatabaseCode(dialogueData.getChatMode()).getValue());
         detailVo.setDialogueStage(BusinessChatDialogueStage.fromDatabaseCode(dialogueData.getDialogueStage())
                 .getValue());
-        detailVo.setSelectedDocumentId(dialogueData.getSelectedDocumentId());
+        detailVo.setSelectedDocumentId(dialogueData.getSelectedDocumentId() == null
+                ? null
+                : String.valueOf(dialogueData.getSelectedDocumentId()));
         detailVo.setSelectedDocumentName(dialogueData.getSelectedDocumentName());
         detailVo.setSummaryText(summaryData == null ? null : summaryData.getSummaryText());
         detailVo.setSummaryJson(summaryData == null ? null : readNullableJson(summaryData.getSummaryJson()));
         detailVo.setExchanges(exchangeList);
         return detailVo;
+    }
+
+    @Override
+    public String getActiveConversationId() {
+        return businessChatSessionStateService.getActiveConversationId();
     }
 
     private BusinessChatSessionListItemVo buildSessionListItem(BusinessChatSessionListRow row) {
@@ -168,7 +184,7 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
     }
 
     private Integer resolveChatModeCode(String chatMode) {
-        String normalizedChatMode = normalizeRequiredText(chatMode, "chatMode");
+        String normalizedChatMode = BusinessInputValidator.normalizeRequiredText(chatMode, "chatMode");
         if ("ALL".equalsIgnoreCase(normalizedChatMode)) {
             return null;
         }
@@ -176,37 +192,11 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
     }
 
     private Integer resolveTurnStatusCode(String turnStatus) {
-        String normalizedTurnStatus = normalizeRequiredText(turnStatus, "turnStatus");
+        String normalizedTurnStatus = BusinessInputValidator.normalizeRequiredText(turnStatus, "turnStatus");
         if ("ALL".equalsIgnoreCase(normalizedTurnStatus)) {
             return null;
         }
         return BusinessChatExchangeState.fromValue(normalizedTurnStatus).getDatabaseCode();
-    }
-
-    private long parsePositiveLong(String value, String fieldName) {
-        String normalizedValue = normalizeRequiredText(value, fieldName);
-        try {
-            long parsedValue = Long.parseLong(normalizedValue);
-            if (parsedValue <= 0) {
-                throw new BaseException(BaseCode.INVALID_PARAMETER, fieldName + " must be a positive integer");
-            }
-            return parsedValue;
-        } catch (NumberFormatException exception) {
-            throw new BaseException(BaseCode.INVALID_PARAMETER, fieldName + " must be a positive integer");
-        }
-    }
-
-    private String normalizeOptionalText(String value) {
-        String normalizedValue = value == null ? null : value.strip();
-        return StringUtils.hasText(normalizedValue) ? normalizedValue : null;
-    }
-
-    private String normalizeRequiredText(String value, String fieldName) {
-        String normalizedValue = value == null ? null : value.strip();
-        if (!StringUtils.hasText(normalizedValue)) {
-            throw new BaseException(BaseCode.INVALID_PARAMETER, fieldName + " must not be blank");
-        }
-        return normalizedValue;
     }
 
     private String normalizeStoredTitle(String value) {

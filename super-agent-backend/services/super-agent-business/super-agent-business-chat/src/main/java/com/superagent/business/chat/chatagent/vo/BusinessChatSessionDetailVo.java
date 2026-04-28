@@ -14,7 +14,7 @@ public class BusinessChatSessionDetailVo {
 
     private String dialogueStage;
 
-    private Long selectedDocumentId;
+    private String selectedDocumentId;
 
     private String selectedDocumentName;
 

@@ -6,6 +6,11 @@ import java.util.List;
 import org.springframework.ai.chat.client.ChatClient;
 import reactor.core.publisher.Flux;
 
+/**
+ * ChatClient 模型调用基类。
+ *
+ * <p>统一把执行计划翻译成系统提示词和用户消息，供流式正文生成、收尾生成和知识画像生成复用。</p>
+ */
 abstract class AbstractChatClientBusinessChatModelClient {
 
     private final ChatClient chatClient;
@@ -15,6 +20,7 @@ abstract class AbstractChatClientBusinessChatModelClient {
     }
 
     public Flux<String> stream(BusinessChatExecutionPlan executionPlan) {
+        // 执行计划里的路由和上下文只作为模型输入边界，不向用户暴露内部编排细节。
         String systemPrompt = """
                 你是超级智能的对话助手。
                 当前执行模式：%s。
@@ -63,6 +69,7 @@ abstract class AbstractChatClientBusinessChatModelClient {
         if (candidateList == null || candidateList.isEmpty()) {
             return "无";
         }
+        // 候选文档只描述召回依据，不拼接正文，避免模型把“命中”误当成“证据已读取”。
         StringBuilder builder = new StringBuilder();
         for (KnowledgeRouteCandidate candidate : candidateList) {
             builder.append("- 文档：")

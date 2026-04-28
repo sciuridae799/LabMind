@@ -6,6 +6,11 @@ import com.superagent.business.chat.chatagent.model.BusinessChatExecutionPlan;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
 import reactor.core.publisher.Flux;
 
+/**
+ * 基于执行器的 Agent 抽象类。
+ *
+ * <p>Agent 层只表达业务角色，正文生成能力按 executionMode 委派给对应 BusinessChatExecutor。</p>
+ */
 abstract class AbstractExecutorBackedBusinessChatAgent implements BusinessChatAgent {
 
     private final BusinessChatExecutorRegistry executorRegistry;

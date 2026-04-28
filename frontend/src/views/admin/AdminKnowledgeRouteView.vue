@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { manageApi } from '../../shared/api/manage'
 
 interface RouteCandidate {
@@ -10,16 +10,96 @@ interface RouteCandidate {
   topicCode: string
   topicName: string
   score: number
+  termScore: number
+  patternScore: number
+  hitTerms: string[]
+  matchedPatterns: string[]
   hitReason: string
 }
 
+interface RouteAsset {
+  documentId: string
+  documentName: string
+  originalFileName: string
+  scopeCode: string
+  scopeName: string
+  topicCode: string
+  topicName: string
+  summaryText: string
+  terms: string[]
+  questionPatterns: string[]
+  routeStatus: string
+  updateTime: string
+}
+
+interface RouteAssetPage {
+  pageNo: number
+  pageSize: number
+  totalSize: number
+  totalPages: number
+  assets: RouteAsset[]
+}
+
 const question = ref('')
+const assetKeyword = ref('')
 const candidates = ref<RouteCandidate[]>([])
+const assets = ref<RouteAsset[]>([])
+const selectedAssetId = ref('')
+const pageNo = ref(1)
+const pageSize = 20
+const totalSize = ref(0)
 const statusMessage = ref('')
+const assetStatusMessage = ref('')
 const isRouting = ref(false)
+const isLoadingAssets = ref(false)
+
+const selectedAsset = computed(() => {
+  return assets.value.find((asset) => asset.documentId === selectedAssetId.value) || assets.value[0] || null
+})
 
 function normalizeError(error: unknown): string {
   return error instanceof Error ? error.message : '请求失败'
+}
+
+function normalizeAssetPage(payload: unknown): RouteAssetPage {
+  const page = payload as Partial<RouteAssetPage>
+  return {
+    pageNo: Number(page.pageNo || 1),
+    pageSize: Number(page.pageSize || pageSize),
+    totalSize: Number(page.totalSize || 0),
+    totalPages: Number(page.totalPages || 0),
+    assets: Array.isArray(page.assets) ? page.assets : []
+  }
+}
+
+async function loadRouteAssets(targetPage = pageNo.value): Promise<void> {
+  if (isLoadingAssets.value) {
+    return
+  }
+  isLoadingAssets.value = true
+  assetStatusMessage.value = ''
+  try {
+    const page = normalizeAssetPage(await manageApi.queryKnowledgeRouteAssetPage({
+      keyword: assetKeyword.value.trim(),
+      pageNo: String(targetPage),
+      pageSize: String(pageSize)
+    }))
+    pageNo.value = page.pageNo
+    totalSize.value = page.totalSize
+    assets.value = page.assets
+    if (!assets.value.some((asset) => asset.documentId === selectedAssetId.value)) {
+      selectedAssetId.value = assets.value[0]?.documentId || ''
+    }
+    if (assets.value.length === 0) {
+      assetStatusMessage.value = '当前没有可参与路由的文档资产'
+    }
+  } catch (error) {
+    assets.value = []
+    selectedAssetId.value = ''
+    assetStatusMessage.value = normalizeError(error)
+  } finally {
+    isLoadingAssets.value = false
+  }
 }
 
 async function previewRoute(): Promise<void> {
@@ -46,50 +126,64 @@ async function previewRoute(): Promise<void> {
     isRouting.value = false
   }
 }
+
+function selectAsset(asset: RouteAsset): void {
+  selectedAssetId.value = asset.documentId
+}
+
+onMounted(() => {
+  void loadRouteAssets(1)
+})
 </script>
 
 <template>
   <section class="route-page">
-    <article class="panel">
-      <h1 class="section-title">知识路由预览</h1>
-      <div class="route-input">
-        <input
-          v-model="question"
-          placeholder="例如：年假怎么申请？"
-          @keydown.enter="previewRoute"
-        >
+    <article class="panel route-preview-panel">
+      <div class="section-heading">
+        <div>
+          <h1 class="section-title">知识路由</h1>
+          <p class="section-subtitle">验证问题如何命中文档，并查看当前可参与路由的资产。</p>
+        </div>
+        <div class="metric-strip">
+          <div>
+            <span>资产</span>
+            <strong>{{ totalSize }}</strong>
+          </div>
+          <div>
+            <span>候选</span>
+            <strong>{{ candidates.length }}</strong>
+          </div>
+        </div>
+      </div>
+
+      <form
+        class="route-input"
+        @submit.prevent="previewRoute"
+      >
+        <label>
+          <span>路由试算</span>
+          <input
+            v-model="question"
+            placeholder="例如：差旅报销需要哪些材料？"
+          >
+        </label>
         <button
-          type="button"
+          type="submit"
           class="button primary"
           :disabled="isRouting"
-          @click="previewRoute"
         >
           {{ isRouting ? '路由中' : '预览路由' }}
         </button>
-      </div>
+      </form>
       <p
         v-if="statusMessage"
         class="status-message"
       >
         {{ statusMessage }}
       </p>
-    </article>
-
-    <article class="panel">
-      <div class="list-header">
-        <h2 class="list-title">候选文档</h2>
-        <span class="list-meta">{{ candidates.length }} 条候选</span>
-      </div>
 
       <div
-        v-if="candidates.length === 0"
-        class="empty-state"
-      >
-        输入问题后查看 Neo4j 路由候选
-      </div>
-
-      <div
-        v-else
+        v-if="candidates.length > 0"
         class="candidate-list"
       >
         <article
@@ -97,15 +191,121 @@ async function previewRoute(): Promise<void> {
           :key="candidate.documentId"
           class="candidate-item"
         >
-          <div>
+          <div class="candidate-main">
             <strong>{{ candidate.documentName }}</strong>
             <span>{{ candidate.scopeName }} / {{ candidate.topicName }}</span>
+            <div class="tag-line">
+              <span
+                v-for="term in candidate.hitTerms"
+                :key="term"
+              >{{ term }}</span>
+              <span
+                v-for="pattern in candidate.matchedPatterns"
+                :key="pattern"
+              >{{ pattern }}</span>
+            </div>
           </div>
-          <div class="candidate-meta">
-            <span>{{ candidate.hitReason }}</span>
+          <div class="candidate-score">
             <b>{{ candidate.score.toFixed(2) }}</b>
+            <small>术语 {{ candidate.termScore.toFixed(2) }} / 模式 {{ candidate.patternScore.toFixed(2) }}</small>
           </div>
         </article>
+      </div>
+    </article>
+
+    <article class="panel asset-panel">
+      <div class="list-header">
+        <div>
+          <h2 class="list-title">路由资产</h2>
+          <p class="list-subtitle">解析成功并生成画像后，文档会进入这里。</p>
+        </div>
+        <div class="asset-search">
+          <input
+            v-model="assetKeyword"
+            placeholder="搜索文档、标签"
+            @keydown.enter="loadRouteAssets(1)"
+          >
+          <button
+            type="button"
+            class="button"
+            :disabled="isLoadingAssets"
+            @click="loadRouteAssets(1)"
+          >
+            搜索
+          </button>
+        </div>
+      </div>
+
+      <p
+        v-if="assetStatusMessage"
+        class="status-message"
+      >
+        {{ assetStatusMessage }}
+      </p>
+
+      <div
+        v-if="assets.length > 0"
+        class="asset-layout"
+      >
+        <div class="asset-list">
+          <button
+            v-for="asset in assets"
+            :key="asset.documentId"
+            type="button"
+            class="asset-row"
+            :class="{ 'is-active': asset.documentId === selectedAsset?.documentId }"
+            @click="selectAsset(asset)"
+          >
+            <strong>{{ asset.documentName }}</strong>
+            <span>{{ asset.scopeName }} / {{ asset.topicName }}</span>
+          </button>
+        </div>
+
+        <section
+          v-if="selectedAsset"
+          class="asset-detail"
+        >
+          <div class="detail-head">
+            <div>
+              <h3>{{ selectedAsset.documentName }}</h3>
+              <p>{{ selectedAsset.originalFileName }}</p>
+            </div>
+            <span class="route-badge">{{ selectedAsset.routeStatus }}</span>
+          </div>
+          <p class="summary-text">{{ selectedAsset.summaryText }}</p>
+          <dl class="detail-grid">
+            <div>
+              <dt>知识域</dt>
+              <dd>{{ selectedAsset.scopeName }} / {{ selectedAsset.scopeCode }}</dd>
+            </div>
+            <div>
+              <dt>专题</dt>
+              <dd>{{ selectedAsset.topicName }} / {{ selectedAsset.topicCode }}</dd>
+            </div>
+            <div>
+              <dt>更新时间</dt>
+              <dd>{{ selectedAsset.updateTime || '-' }}</dd>
+            </div>
+          </dl>
+          <div class="tag-block">
+            <h4>路由术语</h4>
+            <div class="tag-line">
+              <span
+                v-for="term in selectedAsset.terms"
+                :key="term"
+              >{{ term }}</span>
+            </div>
+          </div>
+          <div class="tag-block">
+            <h4>问题模式</h4>
+            <div class="tag-line">
+              <span
+                v-for="pattern in selectedAsset.questionPatterns"
+                :key="pattern"
+              >{{ pattern }}</span>
+            </div>
+          </div>
+        </section>
       </div>
     </article>
   </section>
@@ -119,63 +319,160 @@ async function previewRoute(): Promise<void> {
 
 .route-page {
   display: grid;
-  gap: 16px;
+  gap: 14px;
+  color: #20242c;
 }
 
 .panel {
-  padding: 20px;
-  border: 1px solid #e5e5e5;
+  padding: 18px;
+  border: 1px solid #e6eaf0;
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 12px 30px rgba(32, 36, 44, 0.06);
+}
+
+.route-preview-panel {
+  border-color: #dbe6f4;
+  background:
+    linear-gradient(180deg, #f8fbff 0%, #ffffff 70%);
+}
+
+.section-heading,
+.list-header,
+.detail-head,
+.candidate-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .section-title,
-.list-title {
+.list-title,
+.asset-detail h3,
+.tag-block h4 {
   margin: 0;
   color: #222222;
-  font-size: 22px;
-  line-height: 1.2;
-  font-weight: 600;
+  font-weight: 700;
 }
 
-.route-input {
+.section-title {
+  font-size: 26px;
+  line-height: 1.15;
+}
+
+.section-subtitle,
+.list-subtitle,
+.status-message,
+.asset-row span,
+.candidate-main span,
+.candidate-score small,
+.detail-head p,
+.summary-text,
+dt,
+dd {
+  color: #777777;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.section-subtitle,
+.list-subtitle,
+.status-message,
+.detail-head p,
+.summary-text {
+  margin: 8px 0 0;
+}
+
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(76px, 1fr));
+  gap: 8px;
+  min-width: 170px;
+}
+
+.metric-strip div {
+  padding: 10px 12px;
+  border: 1px solid #e1e8f2;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.metric-strip span,
+.route-input label span {
+  display: block;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.metric-strip strong {
+  display: block;
+  margin-top: 4px;
+  color: #111827;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.route-input,
+.asset-search {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
+}
+
+.route-input {
+  align-items: end;
   margin-top: 16px;
+}
+
+.route-input label {
+  min-width: 0;
+}
+
+.asset-search {
+  width: min(420px, 100%);
 }
 
 input {
   width: 100%;
-  height: 44px;
+  height: 42px;
   padding: 0 12px;
-  border: 1px solid #dddddd;
+  border: 1px solid #d9dee7;
   border-radius: 8px;
   outline: none;
   background: #ffffff;
-  color: #222222;
+  color: #20242c;
   font-size: 13px;
 }
 
+.route-input label input {
+  margin-top: 6px;
+}
+
 input:focus {
-  border-color: #c5dcff;
-  box-shadow: 0 0 0 3px rgba(197, 220, 255, 0.35);
+  border-color: #8fb8ff;
+  box-shadow: 0 0 0 3px rgba(143, 184, 255, 0.2);
 }
 
 .button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 44px;
-  padding: 0 14px;
-  border: 1px solid #222222;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid #20242c;
   border-radius: 8px;
-  background: #222222;
-  color: #ffffff;
+  background: #ffffff;
+  color: #20242c;
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.button.primary {
+  background: #20242c;
+  color: #ffffff;
 }
 
 .button:disabled {
@@ -183,83 +480,182 @@ input:focus {
   opacity: 0.55;
 }
 
-.status-message,
-.list-meta {
-  margin: 8px 0 0;
-  color: #777777;
-  font-size: 13px;
-}
-
-.list-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.empty-state {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 140px;
+.candidate-list,
+.asset-layout {
   margin-top: 16px;
-  border: 1px dashed #e5e7eb;
-  border-radius: 8px;
-  color: #777777;
-  font-size: 13px;
 }
 
 .candidate-list {
   display: grid;
   gap: 10px;
-  margin-top: 16px;
 }
 
 .candidate-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
   padding: 14px;
-  border: 1px solid #eeeeee;
+  border: 1px solid #e6eaf0;
   border-radius: 8px;
+  background: #ffffff;
 }
 
-.candidate-item strong,
-.candidate-item span {
+.candidate-main strong,
+.asset-row strong {
   display: block;
+  color: #222222;
+  font-size: 15px;
 }
 
-.candidate-item span {
-  margin-top: 4px;
-  color: #777777;
-  font-size: 13px;
-}
-
-.candidate-meta {
-  min-width: 160px;
+.candidate-score {
+  min-width: 170px;
   text-align: right;
 }
 
-.candidate-meta b {
+.candidate-score b {
   display: block;
-  margin-top: 4px;
-  color: #222222;
+  color: #175cd3;
+  font-size: 22px;
 }
 
-@media (max-width: 760px) {
-  .route-input,
-  .candidate-item {
+.asset-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.85fr) minmax(0, 1.5fr);
+  gap: 16px;
+}
+
+.asset-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.asset-row {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e6eaf0;
+  border-radius: 8px;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.asset-row.is-active {
+  border-color: #9ec5fe;
+  background: #f5f9ff;
+  box-shadow: inset 3px 0 0 #2f80ed;
+}
+
+.asset-detail {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #e6eaf0;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.route-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid #b7e4c7;
+  border-radius: 999px;
+  background: #f0fff4;
+  color: #176b35;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0 0;
+}
+
+dt,
+dd {
+  margin: 0;
+}
+
+dt {
+  color: #999999;
+}
+
+dd {
+  color: #333333;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.tag-block {
+  margin-top: 16px;
+}
+
+.tag-block h4 {
+  font-size: 14px;
+}
+
+.tag-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tag-line span {
+  max-width: 100%;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f1f3f5;
+  color: #444444;
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  .list-header,
+  .candidate-item,
+  .asset-layout,
+  .detail-grid {
+    display: grid;
     grid-template-columns: 1fr;
   }
 
-  .route-input,
-  .candidate-item {
-    display: grid;
-  }
-
-  .candidate-meta {
+  .candidate-score {
     min-width: 0;
     text-align: left;
+  }
+
+  .asset-search {
+    width: 100%;
+  }
+
+  .section-heading {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .metric-strip {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .panel {
+    padding: 14px;
+  }
+
+  .section-title {
+    font-size: 24px;
+  }
+
+  .route-input,
+  .asset-search {
+    grid-template-columns: 1fr;
+  }
+
+  .button {
+    width: 100%;
   }
 }
 </style>

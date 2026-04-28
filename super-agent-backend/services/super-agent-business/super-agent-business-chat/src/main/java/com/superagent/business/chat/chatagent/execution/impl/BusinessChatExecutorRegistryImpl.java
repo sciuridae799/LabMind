@@ -10,6 +10,11 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 
+/**
+ * 问答执行器注册表实现。
+ *
+ * <p>启动时按 BusinessChatMode 建立唯一映射，编排计划确定模式后通过这里找到实际正文生成执行器。</p>
+ */
 @Service
 public class BusinessChatExecutorRegistryImpl implements BusinessChatExecutorRegistry {
 

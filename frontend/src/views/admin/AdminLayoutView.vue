@@ -256,19 +256,52 @@ function handleLogout(): void {
   .admin-sidebar {
     width: 100%;
     height: auto;
-    padding: 12px;
+    padding: 10px 12px;
     border-right: 0;
     border-bottom: 1px solid #eaeaea;
     overflow: visible;
   }
 
   .admin-nav {
-    overflow: visible;
+    flex-direction: row;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .admin-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .admin-nav-link {
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 8px 10px;
+    border: 1px solid #eceff3;
+    background: #ffffff;
+    white-space: nowrap;
+  }
+
+  .admin-nav-link.is-active {
+    border-color: #d8e4f8;
+    background: #f5f8fc;
+  }
+
+  .admin-sidebar-footer {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #f0f0f0;
+  }
+
+  .admin-logout-button {
+    min-height: 38px;
+    padding: 8px 10px;
   }
 
   .admin-content {
     height: auto;
-    padding: 16px;
+    padding: 12px;
     overflow: visible;
   }
 }

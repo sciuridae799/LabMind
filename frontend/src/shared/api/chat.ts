@@ -155,11 +155,15 @@ export interface BusinessChatSessionDetail {
   title: string
   chatMode: BusinessChatMode
   dialogueStage: string
-  selectedDocumentId: string | number | null
+  selectedDocumentId: string | null
   selectedDocumentName: string | null
   summaryText: string | null
   summaryJson: unknown
   exchanges: BusinessChatSessionExchange[]
+}
+
+export interface BusinessChatActiveSession {
+  conversationId: string | null
 }
 
 export interface ChatApi {
@@ -180,6 +184,18 @@ export interface ChatApi {
    * 用于回显完整对话内容、会话元信息和当前上下文状态。
    */
   getSession(conversationId: string): Promise<BusinessChatSessionDetail>
+
+  /**
+   * 查询聊天页刷新时应恢复的活动会话。
+   * 返回的 conversationId 是后端记录的权威入口，前端再用详情接口回填会话快照。
+   */
+  getActiveSession(): Promise<BusinessChatActiveSession>
+
+  /**
+   * 清空聊天页活动会话。
+   * 新建对话后刷新页面应停留在空白输入态，不恢复旧会话。
+   */
+  clearActiveSession(): Promise<void>
 
   /**
    * 查询单轮 exchange 详情。
@@ -263,6 +279,18 @@ const chatApiCatalogDefinitions = {
     requestMethod: 'POST',
     path: '/api/chat/session/detail',
     keyInputs: 'conversationId'
+  },
+  getActiveSession: {
+    summary: '查询聊天页刷新时应恢复的活动会话。',
+    requestMethod: 'POST',
+    path: '/api/chat/session/active',
+    keyInputs: '无'
+  },
+  clearActiveSession: {
+    summary: '清空聊天页活动会话，新建对话后刷新不恢复旧会话。',
+    requestMethod: 'POST',
+    path: '/api/chat/session/active/clear',
+    keyInputs: '无'
   },
   getExchangeDetail: {
     summary: '查询单轮 exchange 的输入、输出和关联明细。',
@@ -408,6 +436,20 @@ export const chatApi: ChatApi = {
         conversationId
       }
     }).then((data) => requireChatApiPayload(data, '会话详情响应为空'))
+  },
+
+  getActiveSession() {
+    return requestApiEnvelope<BusinessChatActiveSession>('/api/chat/session/active', {
+      method: 'POST',
+      body: {}
+    }).then((data) => requireChatApiPayload(data, '活动会话响应为空'))
+  },
+
+  clearActiveSession() {
+    return requestApiEnvelope<void>('/api/chat/session/active/clear', {
+      method: 'POST',
+      body: {}
+    }).then(() => undefined)
   },
 
   getExchangeDetail(conversationId, exchangeId) {

@@ -13,7 +13,8 @@ import com.superagent.business.chat.chatagent.mapper.BusinessChatMemorySummaryMa
 import com.superagent.business.chat.chatagent.model.BusinessChatConversationLeaseKeys;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionService;
-import com.superagent.common.frame.enums.BaseCode;
+import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
+import com.superagent.business.chat.support.BusinessInputValidator;
 import com.superagent.common.frame.exception.BaseException;
 import com.superagent.redisson.servicelease.lease.RedisLeaseManager;
 import java.time.Duration;
@@ -22,8 +23,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
+/**
+ * 会话生命周期管理服务。
+ *
+ * <p>当前只承载会话删除：删除前获取同一把会话租约，删除时按 conversationId 统一软删主表、轮次、摘要和 trace。</p>
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -44,6 +49,8 @@ public class BusinessChatSessionServiceImpl implements BusinessChatSessionServic
     private final BusinessChatMemorySummaryMapper businessChatMemorySummaryMapper;
 
     private final BusinessChatExchangeTraceStageMapper businessChatExchangeTraceStageMapper;
+
+    private final BusinessChatSessionStateService businessChatSessionStateService;
 
     @Override
     @Transactional
@@ -95,6 +102,7 @@ public class BusinessChatSessionServiceImpl implements BusinessChatSessionServic
                             .eq("dialogue_code", conversationId)
                             .eq("status", NORMAL_STATUS)
                             .set("status", DELETED_STATUS));
+            businessChatSessionStateService.clearIfActive(conversationId);
         } finally {
             boolean released = redisLeaseManager.release(leaseKey, ownerToken);
             if (!released) {
@@ -106,10 +114,6 @@ public class BusinessChatSessionServiceImpl implements BusinessChatSessionServic
     }
 
     private String normalizeConversationId(String conversationId) {
-        String normalizedConversationId = conversationId == null ? null : conversationId.strip();
-        if (!StringUtils.hasText(normalizedConversationId)) {
-            throw new BaseException(BaseCode.INVALID_PARAMETER, "conversationId must not be blank");
-        }
-        return normalizedConversationId;
+        return BusinessInputValidator.normalizeRequiredText(conversationId, "conversationId");
     }
 }

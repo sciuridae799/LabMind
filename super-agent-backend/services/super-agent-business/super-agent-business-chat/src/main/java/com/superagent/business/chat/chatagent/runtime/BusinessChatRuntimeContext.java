@@ -12,6 +12,22 @@ import lombok.Getter;
 import lombok.Setter;
 import reactor.core.publisher.Sinks;
 
+/**
+ * 单轮对话运行态工作台。
+ *
+ * <p>这是单轮对话在 JVM 内存中的工作台，只存在于一次流式回答执行期间。</p>
+ *
+ * <p>它承载四类运行中数据：</p>
+ * <ol>
+ *     <li>输入快照：{@link BusinessChatTaskInfo}，记录 conversation、exchange、model、lease 等入口事实。</li>
+ *     <li>输出通道：SSE 事件通过 outputChannel 推给前端。</li>
+ *     <li>回答缓冲：模型增量文本不断追加到 replyContentBuilder，最终用于归档完整回答。</li>
+ *     <li>伴随信息：reasoning、source、followUp、toolTrace 和执行计划，最终一起冻结为 FinalizedTurn。</li>
+ * </ol>
+ *
+ * <p>成功、失败和中止路径都会竞争 markFinalized；只有第一个成功的路径能冻结并归档，
+ * 防止同一轮 exchange 被重复写成不同终态。</p>
+ */
 public class BusinessChatRuntimeContext {
 
     // 输入快照：StartPlan -> TaskInfo -> RuntimeContext。
@@ -100,7 +116,14 @@ public class BusinessChatRuntimeContext {
         outputClosed.set(true);
     }
 
+    /**
+     * 冻结当前运行态为可归档快照。
+     *
+     * <p>冻结后得到的 {@link BusinessChatFinalizedTurn} 会被 SSE 补发、exchange 归档、debugTrace 和摘要刷新共同使用。
+     * 这样同一轮回答的正文、引用、推荐追问和延迟指标来自同一时刻。</p>
+     */
     public synchronized BusinessChatFinalizedTurn freezeFinalizedTurn() {
+        // 冻结点之后的 SSE 补发、归档和摘要刷新都读同一份快照，避免并发追加导致各处看到的回答不一致。
         return new BusinessChatFinalizedTurn(
                 taskInfo,
                 replyContentBuilder.toString(),

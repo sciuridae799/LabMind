@@ -26,6 +26,21 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+/**
+ * 对话执行计划编排器。
+ *
+ * <p>这是模型调用前的“计划生成层”。它不直接调用模型输出正文，而是把本轮回答需要的上下文
+ * 统一整理成 {@link BusinessChatExecutionPlan}，再交给 Agent 执行。</p>
+ *
+ * <p>输入来自 {@link BusinessChatRuntimeContext}：用户问题、会话模式、模型配置、当前文档选择。
+ * 编排时再补充长期摘要、最近完成轮次、当前文档正文、知识路由候选和时效性判断。</p>
+ *
+ * <p>输出的执行计划会同时进入两个下游：</p>
+ * <ol>
+ *     <li>Agent 使用它组织提示词和回答边界。</li>
+ *     <li>归档层把它写入 debugTraceJson，供后台追踪页复盘当时的执行计划。</li>
+ * </ol>
+ */
 @Service
 @RequiredArgsConstructor
 public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
@@ -44,6 +59,8 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
 
     @Override
     public BusinessChatExecutionPlan orchestrate(BusinessChatRuntimeContext runtimeContext) {
+        // 编排流：运行态快照 -> 历史上下文/知识路由/时效性判断 -> 单轮执行计划。
+        // Agent 不直接查数据库和图谱，只消费这里组装出的计划，避免执行层各自理解上下文。
         BusinessChatHistoryContext historyContext = loadHistoryContext(runtimeContext);
         BusinessChatMode executionMode = runtimeContext.getTaskInfo().chatMode();
         String rewrittenQuestion = rewriteQuestion(runtimeContext.getTaskInfo().question(), historyContext);
@@ -93,7 +110,14 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         };
     }
 
+    /**
+     * 加载本轮可用历史上下文。
+     *
+     * <p>长期摘要用于压缩多轮语义，最近窗口用于保留原始问答细节。
+     * 两者合并后只作为提示词上下文，不会改写数据库中的历史记录。</p>
+     */
     private BusinessChatHistoryContext loadHistoryContext(BusinessChatRuntimeContext runtimeContext) {
+        // 历史上下文由“长期摘要 + 最近完成轮次”组成：摘要给连续语义，最近窗口给原始问答细节。
         String memorySummary = loadConversationMemory(runtimeContext);
         List<BusinessChatRecentExchange> recentExchangeList = loadRecentExchangeList(runtimeContext);
         String contextText = buildHistoryContextText(memorySummary, recentExchangeList);
@@ -113,6 +137,7 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
     }
 
     private List<BusinessChatRecentExchange> loadRecentExchangeList(BusinessChatRuntimeContext runtimeContext) {
+        // 最近窗口先按倒序取最新 N 轮，再反转为自然时间序，保证提示词里的上下文阅读顺序稳定。
         List<BusinessChatExchangeData> exchangeDataList = businessChatExchangeMapper.selectList(
                 Wrappers.<BusinessChatExchangeData>lambdaQuery()
                         .eq(BusinessChatExchangeData::getDialogueCode, runtimeContext.getTaskInfo().conversationId())
@@ -190,10 +215,19 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         if (!StringUtils.hasText(historyContext.contextText())) {
             return originalQuestion;
         }
+        // 当前不做模型改写，只显式告诉执行模型本轮问题需要结合已加载历史理解。
+        // 这样不会引入第二次模型调用，也不会把原问题改写成不可追踪的新语义。
         return "结合历史上下文，回答当前问题：" + originalQuestion;
     }
 
+    /**
+     * 判断问题是否需要实时信息。
+     *
+     * <p>当前系统没有外部实时检索执行器，所以这里的作用是把“需要实时但不可用”的事实写进执行计划，
+     * 让 Agent 在回答时明确边界，而不是假装已经检索过。</p>
+     */
     private BusinessChatFreshnessRequirement detectFreshnessRequirement(String originalQuestion) {
+        // 时效性只识别明确实时词，或“相对时间 + 外部对象”的组合，避免把普通“最近聊过”误判为实时检索需求。
         String detectionText = originalQuestion;
         List<String> explicitSignalList = List.of("今天", "现在", "当前", "实时", "最新", "刚刚");
         List<String> relativeSignalList = List.of("最近", "本周", "今年");
@@ -234,9 +268,17 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         if (executionMode != BusinessChatMode.KNOWLEDGE_BASE) {
             return List.of();
         }
+        // 知识库模式在编排阶段只产出路由候选，不在这里读取正文。
+        // 正文证据由执行器按计划组织提示词，保持“召回”和“回答”两个职责分离。
         return knowledgeGraphClient.routeQuestion(rewrittenQuestion, 5);
     }
 
+    /**
+     * 构建当前文档模式的上下文文本。
+     *
+     * <p>当前文档问答必须同时加载画像和解析正文：画像约束可回答范围，正文提供事实依据。
+     * 如果任一环节缺失，会在知识管理服务中直接失败。</p>
+     */
     private String buildSelectedDocumentContextText(
             BusinessChatRuntimeContext runtimeContext,
             BusinessChatMode executionMode) {
@@ -247,6 +289,8 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         if (selectedDocumentId == null || selectedDocumentId <= 0) {
             throw new IllegalStateException("selectedDocumentId is required for CURRENT_DOCUMENT");
         }
+        // 当前文档模式必须把画像和解析正文一起装入上下文：
+        // 画像告诉模型文档能回答什么，正文提供可引用事实，二者共同限定回答边界。
         KnowledgeDocumentIdRequest request = new KnowledgeDocumentIdRequest();
         request.setDocumentId(String.valueOf(selectedDocumentId));
         KnowledgeDocumentProfileVo profile = knowledgeManageService.queryDocumentProfile(request);
@@ -282,6 +326,12 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         builder.append("\n");
     }
 
+    /**
+     * 生成路由摘要字符串。
+     *
+     * <p>这个字符串主要给 debugTrace 和前端追踪页阅读，用来快速判断本轮是否走知识库、
+     * 是否匹配到候选文档、是否存在实时信息缺口。</p>
+     */
     private String routeKnowledge(
             BusinessChatMode executionMode,
             BusinessChatFreshnessRequirement freshnessRequirement,
@@ -293,6 +343,8 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
                     : "KNOWLEDGE_BASE|DOCUMENT_MATCHED";
             case OPEN_ENDED -> "NOT_REQUIRED";
         };
+        // 路由字符串进入 debugTrace 和前端追踪页，是本轮是否走知识资产、是否缺实时能力的业务摘要。
+        // 它不是执行分支开关，真正的分支已经由 executionMode 和候选列表确定。
         if (freshnessRequirement.required()) {
             return baseRoute + "|FRESHNESS_REQUIRED";
         }

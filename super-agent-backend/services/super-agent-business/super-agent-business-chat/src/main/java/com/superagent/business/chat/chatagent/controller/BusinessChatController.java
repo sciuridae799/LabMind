@@ -10,7 +10,9 @@ import com.superagent.business.chat.chatagent.dto.BusinessChatStreamRequest;
 import com.superagent.business.chat.chatagent.service.BusinessChatModelApiConfigService;
 import com.superagent.business.chat.chatagent.service.BusinessChatQueryService;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionService;
+import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
 import com.superagent.business.chat.chatagent.service.BusinessChatService;
+import com.superagent.business.chat.chatagent.vo.BusinessChatActiveSessionVo;
 import com.superagent.business.chat.chatagent.vo.BusinessChatModelApiConfigVo;
 import com.superagent.business.chat.chatagent.vo.BusinessChatSessionDetailVo;
 import com.superagent.business.chat.chatagent.vo.BusinessChatSessionListPageVo;
@@ -29,6 +31,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 
+/**
+ * 对话模块 HTTP 入口。
+ *
+ * <p>这里只负责把前端请求分发到流式问答、会话查询、当前会话游标和模型配置服务，不承载执行编排逻辑。</p>
+ */
 @RestController
 @RequestMapping("/api/chat")
 @RequiredArgsConstructor
@@ -39,6 +46,8 @@ public class BusinessChatController {
     private final BusinessChatQueryService businessChatQueryService;
 
     private final BusinessChatSessionService businessChatSessionService;
+
+    private final BusinessChatSessionStateService businessChatSessionStateService;
 
     private final BusinessChatModelApiConfigService modelApiConfigService;
 
@@ -60,6 +69,19 @@ public class BusinessChatController {
     public ApiResponse<BusinessChatSessionDetailVo> getSession(
             @Valid @RequestBody BusinessChatSessionDetailRequest request) {
         return ApiResponse.ok(businessChatQueryService.getSession(request));
+    }
+
+    @PostMapping("/session/active")
+    public ApiResponse<BusinessChatActiveSessionVo> getActiveSession() {
+        BusinessChatActiveSessionVo vo = new BusinessChatActiveSessionVo();
+        vo.setConversationId(businessChatQueryService.getActiveConversationId());
+        return ApiResponse.ok(vo);
+    }
+
+    @PostMapping("/session/active/clear")
+    public ApiResponse<Void> clearActiveSession() {
+        businessChatSessionStateService.clearActive();
+        return ApiResponse.ok();
     }
 
     @PostMapping("/session/delete")

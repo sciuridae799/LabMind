@@ -118,6 +118,10 @@ export interface ManageApi {
    */
   queryDocumentProfile(payload: ManageObject): Promise<unknown>
 
+  /**
+   * 查询文档解析后的纯文本。
+   * 当前文档问答会把这份正文与画像一起作为模型上下文。
+   */
   queryDocumentParsedText(payload: ManageObject): Promise<unknown>
 
   /**
@@ -155,6 +159,12 @@ export interface ManageApi {
    * 用于回放问题命中了哪些范围、专题和文档，定位路由是否正确。
    */
   queryKnowledgeRouteTracePage(payload?: ManageObject): Promise<unknown>
+
+  /**
+   * 分页查询可路由知识资产。
+   * 只有解析成功且已生成画像的文档会出现在这条管理链路里。
+   */
+  queryKnowledgeRouteAssetPage(payload?: ManageObject): Promise<unknown>
 
   /**
    * 预览知识路由候选。
@@ -308,6 +318,12 @@ const manageApiCatalogDefinitions = {
     path: '/manage/knowledge/route/trace/page/query',
     keyInputs: 'payload（分页与路由筛选条件）'
   },
+  queryKnowledgeRouteAssetPage: {
+    summary: '分页查询可参与知识路由的文档资产。',
+    requestMethod: 'POST',
+    path: '/manage/knowledge/route/asset/page/query',
+    keyInputs: 'payload（keyword, knowledgeScopeCode, pageNo, pageSize）'
+  },
   previewKnowledgeRoute: {
     summary: '预览知识路由候选，用于验证问题会命中哪些文档。',
     requestMethod: 'POST',
@@ -381,14 +397,12 @@ export const manageApi: ManageApi = {
 
   queryDocumentPage(payload) {
     return requestApiEnvelope('/manage/document/page/query', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   queryDocumentDetail(documentId) {
     return requestApiEnvelope('/manage/document/detail/query', {
-      method: 'POST',
       body: stringifyManagePayload({
         documentId
       })
@@ -397,14 +411,12 @@ export const manageApi: ManageApi = {
 
   deleteDocument(payload) {
     return requestApiEnvelope('/manage/document/delete', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   queryStrategyPlan(documentId) {
     return requestApiEnvelope('/manage/document/strategy/plan/query', {
-      method: 'POST',
       body: stringifyManagePayload({
         documentId
       })
@@ -413,140 +425,126 @@ export const manageApi: ManageApi = {
 
   confirmStrategy(payload) {
     return requestApiEnvelope('/manage/document/strategy/confirm', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   buildIndex(payload) {
     return requestApiEnvelope('/manage/document/index/build', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   queryDocumentChunks(payload) {
     return requestApiEnvelope('/manage/document/chunk/query', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   queryDocumentChunkDetail(payload) {
     return requestApiEnvelope('/manage/document/chunk/detail/query', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   queryTaskLogs(payload) {
     return requestApiEnvelope('/manage/document/task/log/query', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   saveKnowledgeScope(payload) {
     return requestApiEnvelope('/manage/knowledge/scope/save', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   deleteKnowledgeScope(payload) {
     return requestApiEnvelope('/manage/knowledge/scope/delete', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   listKnowledgeScopes() {
     return requestApiEnvelope('/manage/knowledge/scope/list', {
-      method: 'POST',
       body: {}
     })
   },
 
   saveKnowledgeTopic(payload) {
     return requestApiEnvelope('/manage/knowledge/topic/save', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   deleteKnowledgeTopic(payload) {
     return requestApiEnvelope('/manage/knowledge/topic/delete', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   listKnowledgeTopics(payload = {}) {
     return requestApiEnvelope('/manage/knowledge/topic/list', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   queryDocumentProfile(payload) {
     return requestApiEnvelope('/manage/knowledge/document/profile/detail', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   queryDocumentParsedText(payload) {
     return requestApiEnvelope('/manage/knowledge/document/parsed-text/query', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   regenerateDocumentProfile(payload) {
     return requestApiEnvelope('/manage/knowledge/document/profile/regenerate', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   batchRegenerateDocumentProfiles(payload) {
     return requestApiEnvelope('/manage/knowledge/document/profile/batch/regenerate', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   listTopicDocuments(payload = {}) {
     return requestApiEnvelope('/manage/knowledge/topic/document/list', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   saveTopicDocumentRelation(payload) {
     return requestApiEnvelope('/manage/knowledge/topic/document/save', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   removeTopicDocumentRelation(payload) {
     return requestApiEnvelope('/manage/knowledge/topic/document/remove', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   },
 
   queryKnowledgeRouteTracePage(payload = {}) {
     return requestApiEnvelope('/manage/knowledge/route/trace/page/query', {
-      method: 'POST',
+      body: stringifyManagePayload(payload)
+    })
+  },
+
+  queryKnowledgeRouteAssetPage(payload = {}) {
+    return requestApiEnvelope('/manage/knowledge/route/asset/page/query', {
       body: stringifyManagePayload(payload)
     })
   },
 
   previewKnowledgeRoute(payload) {
     return requestApiEnvelope('/manage/knowledge/route/preview', {
-      method: 'POST',
       body: stringifyManagePayload(payload)
     })
   }

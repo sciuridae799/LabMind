@@ -1,15 +1,27 @@
 spring:
   datasource:
-    url: jdbc:mysql://43.139.223.137:3306/service_db?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
-    username: root
-    password: 123456
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${SUPER_AGENT_MYSQL_URL}
+    username: ${SUPER_AGENT_MYSQL_USERNAME}
+    password: ${SUPER_AGENT_MYSQL_PASSWORD}
+    driver-class-name: ${SUPER_AGENT_MYSQL_DRIVER_CLASS_NAME}
   data:
     redis:
-      host: 43.139.223.137
-      port: 6379
-      password: 123456
-      database: 0
+      host: ${SUPER_AGENT_REDIS_HOST}
+      port: ${SUPER_AGENT_REDIS_PORT}
+      password: ${SUPER_AGENT_REDIS_PASSWORD}
+      database: ${SUPER_AGENT_REDIS_DATABASE}
+  kafka:
+    bootstrap-servers: ${SUPER_AGENT_KAFKA_BOOTSTRAP_SERVERS}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+    consumer:
+      group-id: super-agent-business-chat
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
   ai:
     dashscope:
       # Shared by the chat and embedding model chain.
@@ -26,6 +38,12 @@ spring:
       protocol: redis
       local-lock-cache-ttl: 30s
 super-agent:
+  chat:
+    model-api-config:
+      api-key-aes-key-base64: ${SUPER_AGENT_MODEL_API_CONFIG_AES_KEY_BASE64}
+  kafka:
+    topics:
+      document-parse-requested: ${SUPER_AGENT_KAFKA_TOPIC_DOCUMENT_PARSE_REQUESTED:super-agent.document.parse.requested}
   knowledge:
     neo4j:
       uri: ${SUPER_AGENT_NEO4J_URI}

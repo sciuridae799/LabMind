@@ -14,7 +14,7 @@ import org.springframework.util.StringUtils;
 
 public class DateJsonDeserializer extends JsonDeserializer<Date> {
 
-    public static final String DATE_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss";
+    public static final String DATE_TIME_PATTERN = JacksonCustom.DATE_TIME_PATTERN;
 
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern(DATE_TIME_PATTERN);
 

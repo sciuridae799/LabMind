@@ -1,6 +1,8 @@
 package com.superagent.business.chat.chatagent.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.superagent.business.chat.chatagent.config.BusinessChatModelApiConfigProperties;
 import com.superagent.business.chat.chatagent.data.BusinessChatModelApiConfigData;
 import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigIdRequest;
 import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigMoveRequest;
@@ -11,17 +13,31 @@ import com.superagent.business.chat.chatagent.model.BusinessChatModelProvider;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatModelApiConfigService;
 import com.superagent.business.chat.chatagent.vo.BusinessChatModelApiConfigVo;
+import com.superagent.business.chat.support.BusinessInputValidator;
 import com.superagent.common.frame.enums.BaseCode;
 import com.superagent.common.frame.exception.BaseException;
 import com.superagent.idgenerator.toolkit.SnowflakeIdGenerator;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import java.util.Objects;
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+/**
+ * 模型 API 配置管理服务。
+ *
+ * <p>负责维护可选模型的 provider、baseUrl、modelName、启用状态和排序，并向执行链路提供可用配置快照。</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelApiConfigService {
@@ -36,13 +52,22 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
 
     private static final int SORT_ORDER_STEP = 1000;
 
+    private static final String AES_TRANSFORMATION = "AES/GCM/NoPadding";
+
+    private static final int GCM_IV_BYTES = 12;
+
+    private static final int GCM_TAG_BITS = 128;
+
     private final BusinessChatModelApiConfigMapper modelApiConfigMapper;
 
     private final SnowflakeIdGenerator snowflakeIdGenerator;
 
+    private final BusinessChatModelApiConfigProperties modelApiConfigProperties;
+
+    private final SecureRandom secureRandom = new SecureRandom();
+
     @Override
     public List<BusinessChatModelApiConfigVo> listAll() {
-        normalizeSortOrders();
         return modelApiConfigMapper.selectList(Wrappers.<BusinessChatModelApiConfigData>lambdaQuery()
                         .eq(BusinessChatModelApiConfigData::getStatus, NORMAL_STATUS)
                         .orderByAsc(BusinessChatModelApiConfigData::getSortOrder)
@@ -54,16 +79,7 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
 
     @Override
     public List<BusinessChatModelApiConfigVo> listAvailable() {
-        normalizeSortOrders();
-        return modelApiConfigMapper.selectList(Wrappers.<BusinessChatModelApiConfigData>lambdaQuery()
-                        .eq(BusinessChatModelApiConfigData::getStatus, NORMAL_STATUS)
-                        .eq(BusinessChatModelApiConfigData::getEnabled, ENABLED)
-                        .isNotNull(BusinessChatModelApiConfigData::getApiKeyCipher)
-                        .ne(BusinessChatModelApiConfigData::getApiKeyCipher, "")
-                        .isNotNull(BusinessChatModelApiConfigData::getBaseUrl)
-                        .ne(BusinessChatModelApiConfigData::getBaseUrl, "")
-                        .isNotNull(BusinessChatModelApiConfigData::getModelName)
-                        .ne(BusinessChatModelApiConfigData::getModelName, "")
+        return modelApiConfigMapper.selectList(availableConfigQuery()
                         .orderByAsc(BusinessChatModelApiConfigData::getSortOrder)
                         .orderByDesc(BusinessChatModelApiConfigData::getId))
                 .stream()
@@ -80,16 +96,17 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
                 ? new BusinessChatModelApiConfigData()
                 : loadExisting(id);
         if (id == null) {
+            normalizeSortOrders();
             data.setId(snowflakeIdGenerator.nextId());
             data.setStatus(NORMAL_STATUS);
             data.setSortOrder(nextSortOrder());
         }
         data.setProvider(provider.getValue());
-        data.setDisplayName(normalizeRequiredText(request.getDisplayName(), "displayName"));
+        data.setDisplayName(BusinessInputValidator.normalizeRequiredText(request.getDisplayName(), "displayName"));
         data.setBaseUrl(normalizeBaseUrl(request.getBaseUrl()));
-        data.setModelName(normalizeRequiredText(request.getModelName(), "modelName"));
+        data.setModelName(BusinessInputValidator.normalizeRequiredText(request.getModelName(), "modelName"));
         data.setEnabled(Boolean.TRUE.equals(request.getEnabled()) ? ENABLED : DISABLED);
-        String normalizedApiKey = normalizeOptionalText(request.getApiKey());
+        String normalizedApiKey = BusinessInputValidator.normalizeOptionalText(request.getApiKey());
         if (StringUtils.hasText(normalizedApiKey)) {
             data.setApiKeyCipher(encodeApiKey(normalizedApiKey));
         }
@@ -122,7 +139,7 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
     public void move(BusinessChatModelApiConfigMoveRequest request) {
         normalizeSortOrders();
         Long id = parseRequiredId(request.getId());
-        String direction = normalizeRequiredText(request.getDirection(), "direction");
+        String direction = BusinessInputValidator.normalizeRequiredText(request.getDirection(), "direction");
         List<BusinessChatModelApiConfigData> configList = loadOrderedConfigList();
         int currentIndex = -1;
         for (int index = 0; index < configList.size(); index++) {
@@ -172,16 +189,7 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
 
     @Override
     public BusinessChatModelApiConfigSnapshot getLatestAvailableSnapshot() {
-        normalizeSortOrders();
-        BusinessChatModelApiConfigData data = modelApiConfigMapper.selectOne(Wrappers.<BusinessChatModelApiConfigData>lambdaQuery()
-                .eq(BusinessChatModelApiConfigData::getStatus, NORMAL_STATUS)
-                .eq(BusinessChatModelApiConfigData::getEnabled, ENABLED)
-                .isNotNull(BusinessChatModelApiConfigData::getApiKeyCipher)
-                .ne(BusinessChatModelApiConfigData::getApiKeyCipher, "")
-                .isNotNull(BusinessChatModelApiConfigData::getBaseUrl)
-                .ne(BusinessChatModelApiConfigData::getBaseUrl, "")
-                .isNotNull(BusinessChatModelApiConfigData::getModelName)
-                .ne(BusinessChatModelApiConfigData::getModelName, "")
+        BusinessChatModelApiConfigData data = modelApiConfigMapper.selectOne(availableConfigQuery()
                 .orderByAsc(BusinessChatModelApiConfigData::getSortOrder)
                 .orderByDesc(BusinessChatModelApiConfigData::getId)
                 .last("limit 1"));
@@ -220,7 +228,7 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
                 data.getBaseUrl(),
                 data.getModelName(),
                 StringUtils.hasText(data.getApiKeyCipher()),
-                Integer.valueOf(ENABLED).equals(data.getEnabled()));
+                Objects.equals(ENABLED, data.getEnabled()));
     }
 
     private void normalizeSortOrders() {
@@ -230,21 +238,26 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
                         .orderByAsc(BusinessChatModelApiConfigData::getSortOrder)
                         .orderByDesc(BusinessChatModelApiConfigData::getEditTime)
                         .orderByDesc(BusinessChatModelApiConfigData::getId));
-        boolean changed = false;
         for (int index = 0; index < configList.size(); index++) {
             BusinessChatModelApiConfigData data = configList.get(index);
             int expectedSortOrder = (index + 1) * SORT_ORDER_STEP;
             if (!Integer.valueOf(expectedSortOrder).equals(data.getSortOrder())) {
                 data.setSortOrder(expectedSortOrder);
                 modelApiConfigMapper.updateById(data);
-                changed = true;
             }
         }
-        if (changed) {
-            modelApiConfigMapper.selectList(Wrappers.<BusinessChatModelApiConfigData>lambdaQuery()
-                    .eq(BusinessChatModelApiConfigData::getStatus, NORMAL_STATUS)
-                    .orderByAsc(BusinessChatModelApiConfigData::getSortOrder));
-        }
+    }
+
+    private LambdaQueryWrapper<BusinessChatModelApiConfigData> availableConfigQuery() {
+        return Wrappers.<BusinessChatModelApiConfigData>lambdaQuery()
+                .eq(BusinessChatModelApiConfigData::getStatus, NORMAL_STATUS)
+                .eq(BusinessChatModelApiConfigData::getEnabled, ENABLED)
+                .isNotNull(BusinessChatModelApiConfigData::getApiKeyCipher)
+                .ne(BusinessChatModelApiConfigData::getApiKeyCipher, "")
+                .isNotNull(BusinessChatModelApiConfigData::getBaseUrl)
+                .ne(BusinessChatModelApiConfigData::getBaseUrl, "")
+                .isNotNull(BusinessChatModelApiConfigData::getModelName)
+                .ne(BusinessChatModelApiConfigData::getModelName, "");
     }
 
     private List<BusinessChatModelApiConfigData> loadOrderedConfigList() {
@@ -267,19 +280,19 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
     }
 
     private boolean isAvailable(BusinessChatModelApiConfigData data) {
-        return Integer.valueOf(ENABLED).equals(data.getEnabled())
+        return Objects.equals(ENABLED, data.getEnabled())
                 && StringUtils.hasText(data.getApiKeyCipher())
                 && StringUtils.hasText(data.getBaseUrl())
                 && StringUtils.hasText(data.getModelName());
     }
 
     private Long parseOptionalId(String value) {
-        String normalizedValue = normalizeOptionalText(value);
+        String normalizedValue = BusinessInputValidator.normalizeOptionalText(value);
         return StringUtils.hasText(normalizedValue) ? parseRequiredId(normalizedValue) : null;
     }
 
     private Long parseRequiredId(String value) {
-        String normalizedValue = normalizeRequiredText(value, "id");
+        String normalizedValue = BusinessInputValidator.normalizeRequiredText(value, "id");
         try {
             return Long.parseLong(normalizedValue);
         } catch (NumberFormatException exception) {
@@ -287,16 +300,8 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
         }
     }
 
-    private String normalizeRequiredText(String value, String fieldName) {
-        String normalizedValue = normalizeOptionalText(value);
-        if (!StringUtils.hasText(normalizedValue)) {
-            throw new BaseException(BaseCode.INVALID_PARAMETER, fieldName + " must not be blank");
-        }
-        return normalizedValue;
-    }
-
     private String normalizeBaseUrl(String value) {
-        String normalizedValue = normalizeRequiredText(value, "baseUrl");
+        String normalizedValue = BusinessInputValidator.normalizeRequiredText(value, "baseUrl");
         while (normalizedValue.endsWith("/")) {
             normalizedValue = normalizedValue.substring(0, normalizedValue.length() - 1);
         }
@@ -312,15 +317,57 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
         return normalizedValue;
     }
 
-    private String normalizeOptionalText(String value) {
-        return value == null ? null : value.strip();
-    }
-
     private String encodeApiKey(String apiKey) {
-        return Base64.getEncoder().encodeToString(apiKey.getBytes(StandardCharsets.UTF_8));
+        try {
+            byte[] iv = new byte[GCM_IV_BYTES];
+            secureRandom.nextBytes(iv);
+            Cipher cipher = Cipher.getInstance(AES_TRANSFORMATION);
+            cipher.init(Cipher.ENCRYPT_MODE, apiKeySecretKey(), new GCMParameterSpec(GCM_TAG_BITS, iv));
+            byte[] encryptedBytes = cipher.doFinal(apiKey.getBytes(StandardCharsets.UTF_8));
+            return Base64.getEncoder()
+                    .encodeToString(ByteBuffer.allocate(iv.length + encryptedBytes.length)
+                            .put(iv)
+                            .put(encryptedBytes)
+                            .array());
+        } catch (GeneralSecurityException exception) {
+            throw new IllegalStateException("failed to encrypt model API key", exception);
+        }
     }
 
     private String decodeApiKey(String apiKeyCipher) {
-        return new String(Base64.getDecoder().decode(apiKeyCipher), StandardCharsets.UTF_8);
+        try {
+            byte[] encryptedPayload = Base64.getDecoder().decode(apiKeyCipher);
+            if (encryptedPayload.length <= GCM_IV_BYTES) {
+                throw new IllegalStateException("model API key cipher is invalid");
+            }
+            byte[] iv = Arrays.copyOfRange(encryptedPayload, 0, GCM_IV_BYTES);
+            byte[] encryptedBytes = Arrays.copyOfRange(encryptedPayload, GCM_IV_BYTES, encryptedPayload.length);
+            Cipher cipher = Cipher.getInstance(AES_TRANSFORMATION);
+            cipher.init(Cipher.DECRYPT_MODE, apiKeySecretKey(), new GCMParameterSpec(GCM_TAG_BITS, iv));
+            return new String(cipher.doFinal(encryptedBytes), StandardCharsets.UTF_8);
+        } catch (GeneralSecurityException | IllegalArgumentException exception) {
+            throw new IllegalStateException("failed to decrypt model API key", exception);
+        }
+    }
+
+    private SecretKeySpec apiKeySecretKey() {
+        String keyBase64 = modelApiConfigProperties.getApiKeyAesKeyBase64();
+        if (!StringUtils.hasText(keyBase64)) {
+            throw new IllegalStateException(
+                    "super-agent.chat.model-api-config.api-key-aes-key-base64 must not be blank");
+        }
+        byte[] keyBytes;
+        try {
+            keyBytes = Base64.getDecoder().decode(keyBase64.strip());
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalStateException(
+                    "super-agent.chat.model-api-config.api-key-aes-key-base64 must be base64 encoded",
+                    exception);
+        }
+        if (keyBytes.length != 16 && keyBytes.length != 24 && keyBytes.length != 32) {
+            throw new IllegalStateException(
+                    "super-agent.chat.model-api-config.api-key-aes-key-base64 must decode to 16, 24, or 32 bytes");
+        }
+        return new SecretKeySpec(keyBytes, "AES");
     }
 }

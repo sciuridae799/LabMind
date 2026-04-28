@@ -16,6 +16,7 @@ import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeMapper;
 import com.superagent.business.chat.chatagent.mapper.BusinessChatMemorySummaryMapper;
 import com.superagent.business.chat.chatagent.model.BusinessChatSessionListRow;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
+import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
 import com.superagent.common.frame.exception.BaseException;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -38,6 +39,9 @@ class BusinessChatQueryServiceImplTest {
     @Mock
     private BusinessChatMemorySummaryMapper businessChatMemorySummaryMapper;
 
+    @Mock
+    private BusinessChatSessionStateService businessChatSessionStateService;
+
     private BusinessChatQueryServiceImpl businessChatQueryService;
 
     @BeforeEach
@@ -46,6 +50,7 @@ class BusinessChatQueryServiceImplTest {
                 businessChatDialogueMapper,
                 businessChatExchangeMapper,
                 businessChatMemorySummaryMapper,
+                businessChatSessionStateService,
                 new ObjectMapper());
     }
 

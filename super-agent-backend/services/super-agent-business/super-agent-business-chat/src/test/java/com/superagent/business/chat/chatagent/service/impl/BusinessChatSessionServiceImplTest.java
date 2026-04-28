@@ -13,6 +13,7 @@ import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeMapper;
 import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeTraceStageMapper;
 import com.superagent.business.chat.chatagent.mapper.BusinessChatMemorySummaryMapper;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
+import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
 import com.superagent.common.frame.exception.BaseException;
 import com.superagent.redisson.servicelease.lease.RedisLeaseManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +40,9 @@ class BusinessChatSessionServiceImplTest {
     @Mock
     private BusinessChatExchangeTraceStageMapper businessChatExchangeTraceStageMapper;
 
+    @Mock
+    private BusinessChatSessionStateService businessChatSessionStateService;
+
     private BusinessChatSessionServiceImpl businessChatSessionService;
 
     @BeforeEach
@@ -48,7 +52,8 @@ class BusinessChatSessionServiceImplTest {
                 businessChatDialogueMapper,
                 businessChatExchangeMapper,
                 businessChatMemorySummaryMapper,
-                businessChatExchangeTraceStageMapper);
+                businessChatExchangeTraceStageMapper,
+                businessChatSessionStateService);
     }
 
     @Test
@@ -69,6 +74,7 @@ class BusinessChatSessionServiceImplTest {
         verify(businessChatExchangeMapper).update(any(), any());
         verify(businessChatMemorySummaryMapper).update(any(), any());
         verify(businessChatExchangeTraceStageMapper).update(any(), any());
+        verify(businessChatSessionStateService).clearIfActive("conversation-1");
         verify(redisLeaseManager).release(any(), any());
     }
 

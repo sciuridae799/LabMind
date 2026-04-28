@@ -9,6 +9,7 @@ import com.superagent.business.chat.chatagent.dto.BusinessChatSessionListRequest
 import com.superagent.business.chat.chatagent.service.BusinessChatModelApiConfigService;
 import com.superagent.business.chat.chatagent.service.BusinessChatQueryService;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionService;
+import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
 import com.superagent.business.chat.chatagent.service.BusinessChatService;
 import com.superagent.business.chat.chatagent.vo.BusinessChatSessionDetailVo;
 import com.superagent.business.chat.chatagent.vo.BusinessChatSessionListPageVo;
@@ -39,9 +40,16 @@ class BusinessChatControllerTest {
             public BusinessChatSessionDetailVo getSession(BusinessChatSessionDetailRequest request) {
                 return new BusinessChatSessionDetailVo();
             }
+
+            @Override
+            public String getActiveConversationId() {
+                return null;
+            }
         };
         BusinessChatSessionService businessChatSessionService = request -> {
         };
+        BusinessChatSessionStateService businessChatSessionStateService =
+                org.mockito.Mockito.mock(BusinessChatSessionStateService.class);
         BusinessChatModelApiConfigService modelApiConfigService = new BusinessChatModelApiConfigService() {
             @Override
             public List<com.superagent.business.chat.chatagent.vo.BusinessChatModelApiConfigVo> listAll() {
@@ -88,6 +96,7 @@ class BusinessChatControllerTest {
                         businessChatService,
                         businessChatQueryService,
                         businessChatSessionService,
+                        businessChatSessionStateService,
                         modelApiConfigService,
                         knowledgeManageService))
                 .setControllerAdvice(new DefaultExceptionHandler())
