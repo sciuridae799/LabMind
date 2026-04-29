@@ -1,13 +1,20 @@
 package com.superagent.business.chat.chatagent.execution.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.superagent.business.chat.chatagent.config.BusinessChatRuntimeProperties;
 import com.superagent.business.chat.chatagent.agent.BusinessChatAgentType;
+import com.superagent.business.chat.chatagent.model.BusinessChatClarificationPlan;
 import com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot;
 import com.superagent.business.chat.chatagent.model.BusinessChatExecutionPlan;
 import com.superagent.business.chat.chatagent.model.BusinessChatFreshnessRequirement;
 import com.superagent.business.chat.chatagent.model.BusinessChatMode;
 import com.superagent.business.chat.chatagent.model.BusinessChatModelProvider;
+import com.superagent.business.chat.chatagent.model.BusinessChatTaskInfo;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -15,10 +22,13 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import org.redisson.api.RAtomicLong;
+import org.redisson.api.RedissonClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.retry.support.RetryTemplate;
+import reactor.core.publisher.Sinks;
 
 class OpenAiCompatibleBusinessChatDynamicModelClientTest {
 
@@ -28,7 +38,9 @@ class OpenAiCompatibleBusinessChatDynamicModelClientTest {
     void setUp() {
         modelClient = new OpenAiCompatibleBusinessChatDynamicModelClient(
                 ToolCallingManager.builder().build(),
-                RetryTemplate.defaultInstance());
+                RetryTemplate.defaultInstance(),
+                new BusinessChatRuntimeProperties(),
+                mock(RedissonClient.class));
     }
 
     @Test
@@ -102,6 +114,44 @@ class OpenAiCompatibleBusinessChatDynamicModelClientTest {
         }
     }
 
+    @Test
+    void shouldRejectWhenRunModelCallLimitExceeded() {
+        BusinessChatRuntimeProperties properties = new BusinessChatRuntimeProperties();
+        properties.setMaxModelCallsPerRun(1);
+        OpenAiCompatibleBusinessChatDynamicModelClient limitedClient = new OpenAiCompatibleBusinessChatDynamicModelClient(
+                ToolCallingManager.builder().build(),
+                RetryTemplate.defaultInstance(),
+                properties,
+                mock(RedissonClient.class));
+        BusinessChatRuntimeContext runtimeContext = buildRuntimeContext();
+        runtimeContext.incrementModelCallCount();
+
+        assertThatThrownBy(() -> limitedClient.call(runtimeContext, runtimeContext.getTaskInfo().modelConfig(), "system", "user"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("model call limit exceeded for current run");
+    }
+
+    @Test
+    void shouldRejectWhenThreadModelCallLimitExceeded() {
+        BusinessChatRuntimeProperties properties = new BusinessChatRuntimeProperties();
+        properties.setMaxModelCallsPerThread(1);
+        RedissonClient redissonClient = mock(RedissonClient.class);
+        RAtomicLong atomicLong = mock(RAtomicLong.class);
+        when(redissonClient.getAtomicLong("super-agent:chat:model-calls:thread:conversation-1"))
+                .thenReturn(atomicLong);
+        when(atomicLong.incrementAndGet()).thenReturn(2L);
+        OpenAiCompatibleBusinessChatDynamicModelClient limitedClient = new OpenAiCompatibleBusinessChatDynamicModelClient(
+                ToolCallingManager.builder().build(),
+                RetryTemplate.defaultInstance(),
+                properties,
+                redissonClient);
+        BusinessChatRuntimeContext runtimeContext = buildRuntimeContext();
+
+        assertThatThrownBy(() -> limitedClient.call(runtimeContext, runtimeContext.getTaskInfo().modelConfig(), "system", "user"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("model call limit exceeded for conversation");
+    }
+
     private BusinessChatModelApiConfigSnapshot buildModelConfig(
             String baseUrl,
             BusinessChatModelProvider provider,
@@ -121,6 +171,7 @@ class OpenAiCompatibleBusinessChatDynamicModelClientTest {
                 "请回答",
                 null,
                 null,
+                null,
                 0,
                 null,
                 new BusinessChatFreshnessRequirement(false, "无需实时信息", List.of(), "NOT_REQUIRED"),
@@ -131,7 +182,28 @@ class OpenAiCompatibleBusinessChatDynamicModelClientTest {
                 "根据本轮输入生成执行计划。",
                 BusinessChatAgentType.THINK_ACT,
                 BusinessChatMode.OPEN_ENDED,
+                BusinessChatClarificationPlan.notRequired(),
                 List.of("执行模型：" + modelName));
+    }
+
+    private BusinessChatRuntimeContext buildRuntimeContext() {
+        BusinessChatModelApiConfigSnapshot modelConfig =
+                buildModelConfig("http://127.0.0.1:1", BusinessChatModelProvider.DASHSCOPE, "qwen-plus");
+        BusinessChatTaskInfo taskInfo = new BusinessChatTaskInfo(
+                1001L,
+                2001L,
+                "请回答",
+                "conversation-1",
+                BusinessChatMode.OPEN_ENDED,
+                modelConfig,
+                null,
+                null,
+                "trace-1",
+                "chat:conversation:running:conversation-1",
+                "owner-1",
+                Duration.ofSeconds(30),
+                System.currentTimeMillis());
+        return new BusinessChatRuntimeContext(taskInfo, Sinks.many().unicast().onBackpressureBuffer());
     }
 
     private record CapturingOpenAiServer(HttpServer server, List<String> requestBodies) {

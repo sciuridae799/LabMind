@@ -402,7 +402,7 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                     910);
             boolean titleRequired = !businessChatPersistenceService.dialogueTitleExists(frozenTurn);
             BusinessChatFinalizationResult finalizationResult =
-                    businessChatFinalizationGenerator.generate(frozenTurn, titleRequired);
+                    businessChatFinalizationGenerator.generate(runtimeContext, frozenTurn, titleRequired);
             if (titleRequired) {
                 // 标题只允许首轮补写，避免后续轮次覆盖用户已经看到的会话名称。
                 businessChatPersistenceService.updateDialogueTitleIfAbsent(
@@ -439,6 +439,7 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                 "replyLength", finalizedTurn.replyContent().length(),
                 "sourceCount", finalizedTurn.sourceSnapshotList().size(),
                 "followUpCount", finalizedTurn.followUpSuggestionList().size(),
+                "modelCallCount", finalizedTurn.modelCallCount(),
                 "totalLatencyMs", finalizedTurn.totalLatencyMs());
     }
 

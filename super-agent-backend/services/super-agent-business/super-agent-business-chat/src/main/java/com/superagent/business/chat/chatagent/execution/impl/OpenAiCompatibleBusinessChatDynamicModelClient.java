@@ -1,10 +1,13 @@
 package com.superagent.business.chat.chatagent.execution.impl;
 
+import com.superagent.business.chat.chatagent.config.BusinessChatRuntimeProperties;
 import com.superagent.business.chat.chatagent.execution.BusinessChatDynamicModelClient;
 import com.superagent.business.chat.chatagent.model.BusinessChatExecutionPlan;
 import com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
 import io.micrometer.observation.ObservationRegistry;
 import java.util.Map;
+import org.redisson.api.RedissonClient;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.model.SimpleApiKey;
 import org.springframework.ai.model.tool.DefaultToolExecutionEligibilityPredicate;
@@ -26,15 +29,25 @@ import reactor.core.publisher.Flux;
 @Service
 public class OpenAiCompatibleBusinessChatDynamicModelClient implements BusinessChatDynamicModelClient {
 
+    private static final String THREAD_MODEL_CALL_COUNTER_KEY_PREFIX = "super-agent:chat:model-calls:thread:";
+
     private final ToolCallingManager toolCallingManager;
 
     private final RetryTemplate retryTemplate;
 
+    private final BusinessChatRuntimeProperties runtimeProperties;
+
+    private final RedissonClient redissonClient;
+
     public OpenAiCompatibleBusinessChatDynamicModelClient(
             ToolCallingManager toolCallingManager,
-            RetryTemplate retryTemplate) {
+            RetryTemplate retryTemplate,
+            BusinessChatRuntimeProperties runtimeProperties,
+            RedissonClient redissonClient) {
         this.toolCallingManager = toolCallingManager;
         this.retryTemplate = retryTemplate;
+        this.runtimeProperties = runtimeProperties;
+        this.redissonClient = redissonClient;
     }
 
     @Override
@@ -44,9 +57,38 @@ public class OpenAiCompatibleBusinessChatDynamicModelClient implements BusinessC
     }
 
     @Override
+    public Flux<String> stream(BusinessChatRuntimeContext runtimeContext, BusinessChatExecutionPlan executionPlan) {
+        registerModelCall(runtimeContext);
+        return stream(runtimeContext.getTaskInfo().modelConfig(), executionPlan);
+    }
+
+    @Override
     public String call(BusinessChatModelApiConfigSnapshot modelConfig, String systemPrompt, String userMessage) {
         return new AbstractChatClientBusinessChatModelClient(buildChatClient(modelConfig, false)) {
         }.call(systemPrompt, userMessage);
+    }
+
+    @Override
+    public String call(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatModelApiConfigSnapshot modelConfig,
+            String systemPrompt,
+            String userMessage) {
+        registerModelCall(runtimeContext);
+        return call(modelConfig, systemPrompt, userMessage);
+    }
+
+    private void registerModelCall(BusinessChatRuntimeContext runtimeContext) {
+        long runCount = runtimeContext.incrementModelCallCount();
+        if (runCount > runtimeProperties.getMaxModelCallsPerRun()) {
+            throw new IllegalStateException("model call limit exceeded for current run: " + runCount);
+        }
+        String conversationId = runtimeContext.getTaskInfo().conversationId();
+        long threadCount = redissonClient.getAtomicLong(THREAD_MODEL_CALL_COUNTER_KEY_PREFIX + conversationId)
+                .incrementAndGet();
+        if (threadCount > runtimeProperties.getMaxModelCallsPerThread()) {
+            throw new IllegalStateException("model call limit exceeded for conversation: " + conversationId);
+        }
     }
 
     private ChatClient buildChatClient(BusinessChatModelApiConfigSnapshot modelConfig, boolean streaming) {

@@ -1,6 +1,7 @@
 package com.superagent.business.chat.knowledge.graph;
 
 import com.superagent.business.chat.knowledge.model.KnowledgeDocumentRouteAsset;
+import com.superagent.business.chat.knowledge.model.KnowledgeDocumentStructureGraphNode;
 import com.superagent.business.chat.knowledge.model.KnowledgeRouteCandidate;
 import java.util.List;
 
@@ -12,6 +13,8 @@ import java.util.List;
 public interface KnowledgeGraphClient {
 
     void upsertDocumentRouteAsset(KnowledgeDocumentRouteAsset asset);
+
+    void replaceDocumentStructure(long documentId, String documentName, List<KnowledgeDocumentStructureGraphNode> nodes);
 
     void deleteDocumentRouteAsset(long documentId);
 

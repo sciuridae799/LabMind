@@ -1,8 +1,12 @@
 package com.superagent.business.chat.chatagent.finalization;
 
 import com.superagent.business.chat.chatagent.runtime.BusinessChatFinalizedTurn;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
 
 public interface BusinessChatFinalizationGenerator {
 
-    BusinessChatFinalizationResult generate(BusinessChatFinalizedTurn finalizedTurn, boolean titleRequired);
+    BusinessChatFinalizationResult generate(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatFinalizedTurn finalizedTurn,
+            boolean titleRequired);
 }

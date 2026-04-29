@@ -6,12 +6,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superagent.business.chat.chatagent.execution.BusinessChatDynamicModelClient;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeMapper;
-import com.superagent.business.chat.chatagent.model.BusinessChatMode;
 import com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot;
 import com.superagent.business.chat.chatagent.service.BusinessChatModelApiConfigService;
 import com.superagent.business.chat.knowledge.data.KnowledgeDocumentData;
 import com.superagent.business.chat.knowledge.data.KnowledgeDocumentProfileData;
+import com.superagent.business.chat.knowledge.data.KnowledgeDocumentStructureNodeData;
 import com.superagent.business.chat.knowledge.data.KnowledgeDocumentTaskData;
 import com.superagent.business.chat.knowledge.data.KnowledgeDocumentTaskLogData;
 import com.superagent.business.chat.knowledge.data.KnowledgeScopeNodeData;
@@ -24,17 +23,22 @@ import com.superagent.business.chat.knowledge.dto.KnowledgeRoutePreviewRequest;
 import com.superagent.business.chat.knowledge.dto.KnowledgeRouteTracePageRequest;
 import com.superagent.business.chat.knowledge.graph.KnowledgeGraphClient;
 import com.superagent.business.chat.knowledge.mapper.KnowledgeDocumentTaskLogMapper;
+import com.superagent.business.chat.knowledge.mapper.KnowledgeDocumentStructureNodeMapper;
 import com.superagent.business.chat.knowledge.mapper.KnowledgeDocumentTaskMapper;
 import com.superagent.business.chat.knowledge.mapper.KnowledgeDocumentMapper;
 import com.superagent.business.chat.knowledge.mapper.KnowledgeDocumentProfileMapper;
 import com.superagent.business.chat.knowledge.mapper.KnowledgeScopeNodeMapper;
 import com.superagent.business.chat.knowledge.mapper.KnowledgeTopicNodeMapper;
+import com.superagent.business.chat.knowledge.mapper.KnowledgeRouteTraceMapper;
 import com.superagent.business.chat.knowledge.messaging.KnowledgeDocumentParseProducer;
 import com.superagent.business.chat.knowledge.model.KnowledgeDocumentRouteAsset;
+import com.superagent.business.chat.knowledge.model.KnowledgeDocumentStructureGraphNode;
 import com.superagent.business.chat.knowledge.model.KnowledgeRouteCandidate;
 import com.superagent.business.chat.knowledge.model.KnowledgeRouteTraceRow;
 import com.superagent.business.chat.knowledge.objectstore.KnowledgeDocumentObjectStorage;
 import com.superagent.business.chat.knowledge.service.KnowledgeManageService;
+import com.superagent.business.chat.knowledge.structure.DocumentStructureNodeDraft;
+import com.superagent.business.chat.knowledge.structure.DocumentStructureParser;
 import com.superagent.business.chat.knowledge.vo.KnowledgeDocumentPageVo;
 import com.superagent.business.chat.knowledge.vo.KnowledgeDocumentProfileVo;
 import com.superagent.business.chat.knowledge.vo.KnowledgeDocumentVo;
@@ -121,12 +125,13 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern(JacksonCustom.DATE_TIME_PATTERN);
 
     private final KnowledgeDocumentMapper documentMapper;
-    private final BusinessChatExchangeMapper businessChatExchangeMapper;
     private final KnowledgeDocumentTaskMapper taskMapper;
     private final KnowledgeDocumentTaskLogMapper taskLogMapper;
+    private final KnowledgeDocumentStructureNodeMapper structureNodeMapper;
     private final KnowledgeScopeNodeMapper scopeNodeMapper;
     private final KnowledgeTopicNodeMapper topicNodeMapper;
     private final KnowledgeDocumentProfileMapper profileMapper;
+    private final KnowledgeRouteTraceMapper routeTraceMapper;
     private final KnowledgeGraphClient knowledgeGraphClient;
     private final KnowledgeDocumentObjectStorage objectStorage;
     private final SnowflakeIdGenerator snowflakeIdGenerator;
@@ -135,6 +140,7 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
     private final BusinessChatModelApiConfigService modelApiConfigService;
     private final KnowledgeDocumentParseProducer documentParseProducer;
     private final TransactionTemplate transactionTemplate;
+    private final DocumentStructureParser documentStructureParser;
 
     @Override
     public KnowledgeDocumentVo uploadDocument(MultipartFile file, KnowledgeDocumentUploadMetaRequest meta) {
@@ -243,6 +249,11 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
                     parsedTextObjectName,
                     parsedText.getBytes(StandardCharsets.UTF_8),
                     "text/plain; charset=utf-8");
+            List<KnowledgeDocumentStructureNodeData> structureNodes = rebuildDocumentStructure(
+                    documentId,
+                    taskId,
+                    documentData.getDocumentName(),
+                    parsedText);
             insertTaskLog(taskId, documentId, TASK_STAGE_CONTENT_PARSE, TASK_EVENT_COMPLETED, TASK_LOG_INFO,
                     "文档正文解析完成。", null);
 
@@ -263,7 +274,8 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
                     documentData,
                     completedMetadata,
                     parsedText,
-                    parsedTextObjectName);
+                    parsedTextObjectName,
+                    structureNodes.size());
             documentMapper.updateById(completedDocumentData);
 
             KnowledgeDocumentProfileData profileData = buildProfile(completedDocumentData, completedMetadata);
@@ -271,6 +283,10 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
             // Neo4j 只保存“可路由资产”，不保存正文；正文仍在对象存储中，避免路由召回与回答证据混在一起。
             knowledgeGraphClient.upsertDocumentRouteAsset(
                     toRouteAsset(completedDocumentData, completedMetadata, profileData));
+            knowledgeGraphClient.replaceDocumentStructure(
+                    documentId,
+                    completedDocumentData.getDocumentName(),
+                    structureNodes.stream().map(this::toStructureGraphNode).toList());
 
             markTaskSucceeded(taskId, startTime);
             insertTaskLog(taskId, documentId, TASK_STAGE_ROUTE, TASK_EVENT_COMPLETED, TASK_LOG_INFO,
@@ -453,14 +469,10 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         String keyword = normalizeOptionalText(request.getKeyword());
         // 路由追踪读取归档时写入的 debugTrace，不重新计算路由。
         // 复盘页面要展示“当时执行过什么”，而不是用当前图谱状态推导一个新结果。
-        long totalSize = businessChatExchangeMapper.countKnowledgeRouteTraceRows(
-                keyword,
-                BusinessChatMode.KNOWLEDGE_BASE.getDatabaseCode(),
-                NORMAL_STATUS);
+        long totalSize = routeTraceMapper.countTraceRows(keyword, NORMAL_STATUS);
         long offset = (long) (pageNo - 1) * pageSize;
-        List<KnowledgeRouteTraceRow> traceRows = businessChatExchangeMapper.selectKnowledgeRouteTraceRows(
+        List<KnowledgeRouteTraceRow> traceRows = routeTraceMapper.selectTraceRows(
                 keyword,
-                BusinessChatMode.KNOWLEDGE_BASE.getDatabaseCode(),
                 NORMAL_STATUS,
                 offset,
                 pageSize);
@@ -571,7 +583,8 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
             KnowledgeDocumentData documentData,
             CompletedKnowledgeMetadata metadata,
             String parsedText,
-            String parsedTextObjectName) {
+            String parsedTextObjectName,
+            int structureNodeCount) {
         KnowledgeDocumentData completedDocumentData = new KnowledgeDocumentData();
         completedDocumentData.setId(documentData.getId());
         completedDocumentData.setDocumentName(documentData.getDocumentName());
@@ -581,7 +594,7 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         completedDocumentData.setIndexStatus(INDEX_PENDING);
         completedDocumentData.setCharCount(parsedText.length());
         completedDocumentData.setTokenCount(estimateTokenCount(parsedText));
-        completedDocumentData.setStructureLevel(0);
+        completedDocumentData.setStructureLevel(resolveStructureLevel(structureNodeCount));
         completedDocumentData.setContentQualityLevel(0);
         completedDocumentData.setParseTextPath(parsedTextObjectName);
         completedDocumentData.setParseErrorMsg(null);
@@ -589,9 +602,128 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         completedDocumentData.setKnowledgeScopeName(metadata.knowledgeScopeName());
         completedDocumentData.setBusinessCategory(metadata.businessCategory());
         completedDocumentData.setDocumentTags(String.join(",", metadata.documentTags()));
-        completedDocumentData.setStructureNodeCount(0);
+        completedDocumentData.setStructureNodeCount(structureNodeCount);
         completedDocumentData.setStatus(NORMAL_STATUS);
         return completedDocumentData;
+    }
+
+    private int resolveStructureLevel(int structureNodeCount) {
+        if (structureNodeCount >= 8) {
+            return 3;
+        }
+        if (structureNodeCount >= 3) {
+            return 2;
+        }
+        return 1;
+    }
+
+    /**
+     * 重建单个文档的结构节点。
+     *
+     * <p>结构节点是文档内部导航的事实来源。每次解析完成后，旧有效节点先失效，再用本次解析结果
+     * 生成新的父子关系和兄弟关系，保证 MySQL 与 Neo4j 后续同步的是同一棵树。</p>
+     */
+    private List<KnowledgeDocumentStructureNodeData> rebuildDocumentStructure(
+            long documentId,
+            long taskId,
+            String documentName,
+            String parsedText) {
+        structureNodeMapper.update(null, Wrappers.<KnowledgeDocumentStructureNodeData>lambdaUpdate()
+                .eq(KnowledgeDocumentStructureNodeData::getDocumentId, documentId)
+                .eq(KnowledgeDocumentStructureNodeData::getStatus, NORMAL_STATUS)
+                .set(KnowledgeDocumentStructureNodeData::getStatus, DELETED_STATUS));
+        List<DocumentStructureNodeDraft> drafts = documentStructureParser.parse(documentName, parsedText);
+        Map<Integer, Long> nodeIdMap = drafts.stream()
+                .collect(Collectors.toMap(DocumentStructureNodeDraft::nodeNo, ignored -> snowflakeIdGenerator.nextId()));
+        Map<Integer, List<DocumentStructureNodeDraft>> siblingGroups = drafts.stream()
+                .filter(draft -> draft.parentNodeNo() != null)
+                .collect(Collectors.groupingBy(DocumentStructureNodeDraft::parentNodeNo));
+        Map<Integer, Integer> prevSiblingMap = new java.util.HashMap<>();
+        Map<Integer, Integer> nextSiblingMap = new java.util.HashMap<>();
+        siblingGroups.values().forEach(group -> {
+            List<DocumentStructureNodeDraft> orderedGroup = group.stream()
+                    .sorted(java.util.Comparator.comparing(DocumentStructureNodeDraft::nodeNo))
+                    .toList();
+            for (int index = 0; index < orderedGroup.size(); index++) {
+                if (index > 0) {
+                    prevSiblingMap.put(orderedGroup.get(index).nodeNo(), orderedGroup.get(index - 1).nodeNo());
+                }
+                if (index + 1 < orderedGroup.size()) {
+                    nextSiblingMap.put(orderedGroup.get(index).nodeNo(), orderedGroup.get(index + 1).nodeNo());
+                }
+            }
+        });
+        List<KnowledgeDocumentStructureNodeData> nodes = drafts.stream()
+                .map(draft -> toStructureNodeData(
+                        documentId,
+                        taskId,
+                        draft,
+                        nodeIdMap,
+                        prevSiblingMap,
+                        nextSiblingMap))
+                .toList();
+        nodes.forEach(structureNodeMapper::insert);
+        return nodes;
+    }
+
+    /**
+     * 将解析草稿转换为可持久化结构节点。
+     *
+     * <p>草稿中的 nodeNo 是文档内稳定序号；这里统一映射为数据库主键，并补齐父节点和前后兄弟主键。</p>
+     */
+    private KnowledgeDocumentStructureNodeData toStructureNodeData(
+            long documentId,
+            long taskId,
+            DocumentStructureNodeDraft draft,
+            Map<Integer, Long> nodeIdMap,
+            Map<Integer, Integer> prevSiblingMap,
+            Map<Integer, Integer> nextSiblingMap) {
+        KnowledgeDocumentStructureNodeData nodeData = new KnowledgeDocumentStructureNodeData();
+        nodeData.setId(nodeIdMap.get(draft.nodeNo()));
+        nodeData.setDocumentId(documentId);
+        nodeData.setParseTaskId(taskId);
+        nodeData.setNodeNo(draft.nodeNo());
+        nodeData.setNodeType(draft.nodeType());
+        nodeData.setParentNodeId(draft.parentNodeNo() == null ? null : nodeIdMap.get(draft.parentNodeNo()));
+        nodeData.setPrevSiblingNodeId(prevSiblingMap.containsKey(draft.nodeNo())
+                ? nodeIdMap.get(prevSiblingMap.get(draft.nodeNo()))
+                : null);
+        nodeData.setNextSiblingNodeId(nextSiblingMap.containsKey(draft.nodeNo())
+                ? nodeIdMap.get(nextSiblingMap.get(draft.nodeNo()))
+                : null);
+        nodeData.setDepth(draft.depth());
+        nodeData.setNodeCode(draft.nodeCode());
+        nodeData.setTitle(draft.title());
+        nodeData.setAnchorText(draft.anchorText());
+        nodeData.setCanonicalPath(draft.canonicalPath());
+        nodeData.setSectionPath(draft.sectionPath());
+        nodeData.setContentText(draft.contentText());
+        nodeData.setItemIndex(draft.itemIndex());
+        nodeData.setStatus(NORMAL_STATUS);
+        return nodeData;
+    }
+
+    /**
+     * 转换为 Neo4j 写入快照。
+     *
+     * <p>图写入只消费已经落库的结构节点，避免图数据库和 MySQL 使用两套不同的结构解析结果。</p>
+     */
+    private KnowledgeDocumentStructureGraphNode toStructureGraphNode(KnowledgeDocumentStructureNodeData nodeData) {
+        return new KnowledgeDocumentStructureGraphNode(
+                nodeData.getId(),
+                nodeData.getNodeNo(),
+                nodeData.getNodeType(),
+                nodeData.getParentNodeId(),
+                nodeData.getPrevSiblingNodeId(),
+                nodeData.getNextSiblingNodeId(),
+                nodeData.getDepth(),
+                nodeData.getNodeCode(),
+                nodeData.getTitle(),
+                nodeData.getAnchorText(),
+                nodeData.getCanonicalPath(),
+                nodeData.getSectionPath(),
+                nodeData.getContentText(),
+                nodeData.getItemIndex());
     }
 
     private void markTaskSucceeded(long taskId, LocalDateTime startTime) {
@@ -1257,6 +1389,8 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         vo.setTopicCode(candidate.topicCode());
         vo.setTopicName(candidate.topicName());
         vo.setScore(candidate.score());
+        vo.setSemanticScore(candidate.semanticScore());
+        vo.setLexicalScore(candidate.lexicalScore());
         vo.setTermScore(candidate.termScore());
         vo.setPatternScore(candidate.patternScore());
         vo.setHitTerms(candidate.hitTerms() == null ? List.of() : candidate.hitTerms());
@@ -1266,26 +1400,27 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
     }
 
     private KnowledgeRouteTraceVo toRouteTraceVo(KnowledgeRouteTraceRow row) {
-        JsonNode executionPlan = readExecutionPlan(row.getDebugTraceJson(), row.getExchangeId());
         KnowledgeRouteTraceVo vo = new KnowledgeRouteTraceVo();
         vo.setConversationId(row.getConversationId());
         vo.setExchangeId(String.valueOf(row.getExchangeId()));
         vo.setQuestion(row.getQuestion());
-        // 前端路由追踪页只展示执行计划中的路由摘要和候选，不解析完整调试快照。
-        vo.setKnowledgeRoute(optionalJsonText(executionPlan, "knowledgeRoute"));
-        vo.setCandidates(readRouteCandidateVoList(executionPlan.get("knowledgeRouteCandidateList")));
+        vo.setKnowledgeRoute("%s|%s|confidence=%.4f|hit=%s".formatted(
+                row.getRouteMode(),
+                row.getRouteStatus(),
+                row.getConfidence() == null ? 0D : row.getConfidence(),
+                row.getHitSelectedDocument() == null ? "-" : row.getHitSelectedDocument()));
+        vo.setCandidates(readRouteCandidateVoList(readRouteCandidateJson(row.getRouteResultJson(), row.getExchangeId())));
         vo.setCreateTime(row.getCreateTime() == null ? "" : TIME_FORMATTER.format(row.getCreateTime()));
         return vo;
     }
 
-    private JsonNode readExecutionPlan(String debugTraceJson, Long exchangeId) {
+    private JsonNode readRouteCandidateJson(String routeResultJson, Long exchangeId) {
         try {
-            JsonNode root = objectMapper.readTree(normalizeRequiredText(debugTraceJson, "debugTraceJson"));
-            JsonNode executionPlan = root.get("executionPlan");
-            if (executionPlan == null || !executionPlan.isObject()) {
-                throw new IllegalStateException("executionPlan is missing for exchangeId=" + exchangeId);
+            JsonNode root = objectMapper.readTree(normalizeRequiredText(routeResultJson, "routeResultJson"));
+            if (!root.isArray()) {
+                throw new IllegalStateException("routeResultJson must be an array for exchangeId=" + exchangeId);
             }
-            return executionPlan;
+            return root;
         } catch (IOException error) {
             throw new IllegalStateException("failed to parse route trace for exchangeId=" + exchangeId, error);
         }
@@ -1305,6 +1440,8 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
             vo.setTopicCode(optionalJsonText(candidateNode, "topicCode"));
             vo.setTopicName(optionalJsonText(candidateNode, "topicName"));
             vo.setScore(optionalJsonDouble(candidateNode, "score"));
+            vo.setSemanticScore(optionalJsonDouble(candidateNode, "semanticScore"));
+            vo.setLexicalScore(optionalJsonDouble(candidateNode, "lexicalScore"));
             vo.setTermScore(optionalJsonDouble(candidateNode, "termScore"));
             vo.setPatternScore(optionalJsonDouble(candidateNode, "patternScore"));
             vo.setHitTerms(optionalJsonTextList(candidateNode.get("hitTerms")));

@@ -13,6 +13,8 @@ public record KnowledgeRouteCandidate(
         String topicCode,
         String topicName,
         double score,
+        double semanticScore,
+        double lexicalScore,
         double termScore,
         double patternScore,
         java.util.List<String> hitTerms,

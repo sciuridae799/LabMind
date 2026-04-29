@@ -6,7 +6,8 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @EnableConfigurationProperties({
         Neo4jKnowledgeGraphProperties.class,
-        KnowledgeDocumentStorageProperties.class
+        KnowledgeDocumentStorageProperties.class,
+        KnowledgeRouteProperties.class
 })
 public class Neo4jKnowledgeGraphConfiguration {
 }

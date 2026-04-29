@@ -62,6 +62,8 @@ public class BusinessChatRuntimeContext {
 
     private final AtomicLong firstTokenLatencyMs;
 
+    private final AtomicLong modelCallCount;
+
     @Getter
     @Setter
     private volatile BusinessChatIntentAnalysis intentAnalysis;
@@ -82,6 +84,7 @@ public class BusinessChatRuntimeContext {
         this.finalized = new AtomicBoolean(false);
         this.outputClosed = new AtomicBoolean(false);
         this.firstTokenLatencyMs = new AtomicLong(-1L);
+        this.modelCallCount = new AtomicLong(0L);
     }
 
     public synchronized void appendReplyContent(String textDelta) {
@@ -102,6 +105,14 @@ public class BusinessChatRuntimeContext {
 
     public void setFirstTokenLatencyMs(long latencyMs) {
         firstTokenLatencyMs.compareAndSet(-1L, latencyMs);
+    }
+
+    public long incrementModelCallCount() {
+        return modelCallCount.incrementAndGet();
+    }
+
+    public long getModelCallCount() {
+        return modelCallCount.get();
     }
 
     public boolean markFinalized() {
@@ -133,6 +144,7 @@ public class BusinessChatRuntimeContext {
                 List.copyOf(toolTraceList),
                 intentAnalysis,
                 executionPlan,
+                getModelCallCount(),
                 getFirstTokenLatencyMs(),
                 System.currentTimeMillis() - taskInfo.startAtEpochMillis());
     }

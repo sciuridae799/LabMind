@@ -6,7 +6,7 @@ import lombok.Data;
 /**
  * 知识路由追踪查询行。
  *
- * <p>Mapper 从已归档 exchange 中取出问题和 debugTraceJson，Service 再解析其中的执行计划供前端复盘。</p>
+ * <p>Mapper 从真实路由 trace 表中取出路由结果快照，Service 再转换为前端复盘视图。</p>
  */
 @Data
 public class KnowledgeRouteTraceRow {
@@ -17,7 +17,17 @@ public class KnowledgeRouteTraceRow {
 
     private String question;
 
-    private String debugTraceJson;
+    private String rewrittenQuestion;
+
+    private String routeResultJson;
+
+    private String routeMode;
+
+    private String routeStatus;
+
+    private Double confidence;
+
+    private Integer hitSelectedDocument;
 
     private LocalDateTime createTime;
 }

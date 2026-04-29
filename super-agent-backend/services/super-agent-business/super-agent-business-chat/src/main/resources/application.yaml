@@ -41,6 +41,35 @@ super-agent:
   chat:
     model-api-config:
       api-key-aes-key-base64: ${SUPER_AGENT_MODEL_API_CONFIG_AES_KEY_BASE64}
+    history-summary:
+      enabled: true
+      keep-recent-turns: 4
+      compression-batch-turns: 6
+      recent-transcript-max-chars: 2200
+      summary-max-chars: 1400
+    rewrite:
+      correction-retry-enabled: true
+    clarification:
+      enabled: true
+      max-options: 3
+      min-top-score: 1.0
+      ambiguous-score-gap: 0.8
+    runtime:
+      max-model-calls-per-run: 8
+      max-model-calls-per-thread: 40
+    recommendation:
+      enabled: true
+      count: 3
+      history-preview-turns: 4
+      prompt: |
+        你是推荐问题生成助手。
+        请根据用户问题和助手回答，生成 3 个适合继续追问的中文问题。
+
+        要求：
+        1. 返回 JSON 对象中的 followUpSuggestionList 字段。
+        2. 每个问题都要自然、具体、可继续追问。
+        3. 不要和当前问题重复。
+        4. 每个问题尽量控制在 28 个中文字符以内。
   kafka:
     topics:
       document-parse-requested: ${SUPER_AGENT_KAFKA_TOPIC_DOCUMENT_PARSE_REQUESTED:super-agent.document.parse.requested}
@@ -50,6 +79,15 @@ super-agent:
       username: ${SUPER_AGENT_NEO4J_USERNAME}
       password: ${SUPER_AGENT_NEO4J_PASSWORD}
       database: ${SUPER_AGENT_NEO4J_DATABASE}
+    route:
+      scope-top-k: 3
+      topic-top-k: 5
+      top-scope-topic-boost: 8
+      top-scope-document-boost: 15
+      top-topic-document-boost: 10
+      lexical-weight: 1.0
+      semantic-weight: 1.6
+      success-confidence: 0.55
     document-storage:
       endpoint: ${SUPER_AGENT_MINIO_ENDPOINT}
       access-key: ${SUPER_AGENT_MINIO_ACCESS_KEY}

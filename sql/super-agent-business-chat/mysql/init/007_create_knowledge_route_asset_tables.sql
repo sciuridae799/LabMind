@@ -33,13 +33,21 @@ CREATE TABLE IF NOT EXISTS super_agent_knowledge_route_trace (
     selected_topic_code VARCHAR(64) DEFAULT NULL COMMENT '选中知识专题',
     selected_document_ids JSON NOT NULL COMMENT '选中文档id列表',
     route_result_json JSON NOT NULL COMMENT '路由结果快照',
+    user_selected_document_id BIGINT DEFAULT NULL COMMENT '用户手动选择的文档id，影子路由使用',
+    route_top_document_id BIGINT DEFAULT NULL COMMENT '路由第一名文档id',
+    hit_selected_document TINYINT DEFAULT NULL COMMENT '影子路由是否命中用户手动选择 1:命中 0:未命中',
+    confidence DECIMAL(10, 6) NOT NULL DEFAULT '0.000000' COMMENT '路由置信度',
+    route_status VARCHAR(32) NOT NULL DEFAULT 'FAILED' COMMENT '路由状态 SUCCESS/LOW_CONFIDENCE/FAILED',
+    route_mode VARCHAR(32) NOT NULL DEFAULT 'AUTO' COMMENT '路由模式 AUTO/SHADOW',
     create_time DATETIME DEFAULT NULL COMMENT '创建时间',
     edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
     PRIMARY KEY (id),
     UNIQUE KEY uk_trace_id (trace_id),
     KEY idx_conversation_exchange (conversation_id, exchange_id),
-    KEY idx_scope_topic (selected_scope_code, selected_topic_code)
+    KEY idx_scope_topic (selected_scope_code, selected_topic_code),
+    KEY idx_route_status (route_status),
+    KEY idx_shadow_hit (route_mode, hit_selected_document)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识路由追踪表';
 
 CREATE TABLE IF NOT EXISTS super_agent_knowledge_route_trace_candidate (

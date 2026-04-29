@@ -16,6 +16,7 @@ import com.superagent.business.chat.chatagent.agent.BusinessChatAgentType;
 import com.superagent.business.chat.chatagent.dto.BusinessChatStreamRequest;
 import com.superagent.business.chat.chatagent.finalization.BusinessChatFinalizationGenerator;
 import com.superagent.business.chat.chatagent.finalization.BusinessChatFinalizationResult;
+import com.superagent.business.chat.chatagent.model.BusinessChatClarificationPlan;
 import com.superagent.business.chat.chatagent.model.BusinessChatExecutionPlan;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatFinalizedTurn;
 import com.superagent.business.chat.chatagent.model.BusinessChatFreshnessRequirement;
@@ -239,6 +240,7 @@ class BusinessChatServiceImplTest {
                             runtimeContext.getTaskInfo().question(),
                             null,
                             null,
+                            null,
                             0,
                             null,
                             new BusinessChatFreshnessRequirement(false, "用户问题未命中明确实时信息信号", List.of(), "NOT_REQUIRED"),
@@ -249,13 +251,14 @@ class BusinessChatServiceImplTest {
                             "根据会话模式、历史上下文、知识路由和时效性要求生成本轮执行计划。",
                             BusinessChatAgentType.THINK_ACT,
                             BusinessChatMode.OPEN_ENDED,
+                            BusinessChatClarificationPlan.notRequired(),
                             List.of("执行模型：" + runtimeContext.getTaskInfo().modelConfig().modelName()));
                 });
         when(businessChatAgentRegistry.getRequiredAgent(BusinessChatAgentType.THINK_ACT))
                 .thenReturn(businessChatAgent);
         when(businessChatAgent.execute(any(), any())).thenReturn(Flux.just("ok"));
         when(businessChatPersistenceService.dialogueTitleExists(any())).thenReturn(false);
-        when(businessChatFinalizationGenerator.generate(any(), anyBoolean())).thenReturn(
+        when(businessChatFinalizationGenerator.generate(any(), any(), anyBoolean())).thenReturn(
                 new BusinessChatFinalizationResult("模型验证", List.of("继续验证？", "查看追踪？", "检查归档？")));
 
         businessChatService.streamChat(createRequest()).collectList().block(Duration.ofSeconds(5));
@@ -293,6 +296,7 @@ class BusinessChatServiceImplTest {
                 "请帮我说明这条链路",
                 null,
                 null,
+                null,
                 0,
                 null,
                 new BusinessChatFreshnessRequirement(false, "用户问题未命中明确实时信息信号", List.of(), "NOT_REQUIRED"),
@@ -303,9 +307,11 @@ class BusinessChatServiceImplTest {
                 "根据会话模式、历史上下文、知识路由和时效性要求生成本轮执行计划。",
                 BusinessChatAgentType.THINK_ACT,
                 BusinessChatMode.OPEN_ENDED,
-                List.of(
+                BusinessChatClarificationPlan.notRequired(),
+                            List.of(
                         "加载长期摘要：无",
                         "加载最近对话窗口：0轮",
+                        "问题改写使用历史：否",
                         "问题改写：请帮我说明这条链路",
                         "时效性判断：不需要实时信息",
                         "知识路由：NOT_REQUIRED",
@@ -323,7 +329,7 @@ class BusinessChatServiceImplTest {
                 .thenReturn(businessChatAgent);
         lenient().when(businessChatAgent.execute(runtimeContext, executionPlan)).thenReturn(executionFlux);
         lenient().when(businessChatPersistenceService.dialogueTitleExists(any())).thenReturn(false);
-        lenient().when(businessChatFinalizationGenerator.generate(any(), anyBoolean())).thenReturn(
+        lenient().when(businessChatFinalizationGenerator.generate(any(), any(), anyBoolean())).thenReturn(
                 new BusinessChatFinalizationResult(
                         "链路说明",
                         List.of("如何继续拆解链路？", "有哪些关键风险？", "如何落地执行？")));

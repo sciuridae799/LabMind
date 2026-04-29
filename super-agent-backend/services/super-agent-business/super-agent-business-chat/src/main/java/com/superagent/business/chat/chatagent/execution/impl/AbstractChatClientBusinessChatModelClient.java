@@ -54,7 +54,7 @@ abstract class AbstractChatClientBusinessChatModelClient {
                 当前问题：
                 %s
                 """.formatted(
-                executionPlan.historyContextText() == null ? "无" : executionPlan.historyContextText(),
+                executionPlan.answerHistoryContextText() == null ? "无" : executionPlan.answerHistoryContextText(),
                 buildKnowledgeRouteCandidateText(executionPlan.knowledgeRouteCandidateList()),
                 executionPlan.selectedDocumentContextText() == null ? "无" : executionPlan.selectedDocumentContextText(),
                 executionPlan.rewrittenQuestion());

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { manageApi } from '../../shared/api/manage'
 
 interface DocumentRow {
@@ -46,6 +46,11 @@ const isDetailLoading = ref(false)
 const fullTextDocument = ref<DocumentRow | null>(null)
 const fullTextContent = ref('')
 const isFullTextLoading = ref(false)
+let refreshTimer: ReturnType<typeof window.setTimeout> | null = null
+
+const hasParsingDocuments = computed(() => documentRows.value.some((row) => {
+  return row.parseStatus === '1' || row.parseStatus === '2'
+}))
 
 function normalizeError(error: unknown): string {
   return error instanceof Error ? error.message : '请求失败'
@@ -73,9 +78,29 @@ function resetForm(): void {
   statusMessage.value = ''
 }
 
-async function loadDocuments(): Promise<void> {
-  isLoading.value = true
-  statusMessage.value = ''
+function clearRefreshTimer(): void {
+  if (refreshTimer === null) {
+    return
+  }
+  window.clearTimeout(refreshTimer)
+  refreshTimer = null
+}
+
+function scheduleDocumentRefresh(): void {
+  clearRefreshTimer()
+  if (!hasParsingDocuments.value) {
+    return
+  }
+  refreshTimer = window.setTimeout(() => {
+    void loadDocuments({ silent: true })
+  }, 2500)
+}
+
+async function loadDocuments(options: { silent?: boolean } = {}): Promise<void> {
+  if (!options.silent) {
+    isLoading.value = true
+    statusMessage.value = ''
+  }
   try {
     const response = await manageApi.queryDocumentPage({
       keyword: keyword.value,
@@ -84,10 +109,21 @@ async function loadDocuments(): Promise<void> {
     }) as { documents?: DocumentRow[]; totalSize?: string | number }
     documentRows.value = response.documents ?? []
     totalSize.value = Number(response.totalSize ?? 0)
+    if (detailDocument.value) {
+      const updatedDetailRow = documentRows.value.find((row) => row.documentId === detailDocument.value?.documentId)
+      if (updatedDetailRow) {
+        detailDocument.value = updatedDetailRow
+      }
+    }
+    scheduleDocumentRefresh()
   } catch (error) {
-    statusMessage.value = normalizeError(error)
+    if (!options.silent) {
+      statusMessage.value = normalizeError(error)
+    }
   } finally {
-    isLoading.value = false
+    if (!options.silent) {
+      isLoading.value = false
+    }
   }
 }
 
@@ -200,6 +236,10 @@ function documentStatusText(row: DocumentRow): string {
 
 onMounted(() => {
   void loadDocuments()
+})
+
+onUnmounted(() => {
+  clearRefreshTimer()
 })
 </script>
 
@@ -319,13 +359,13 @@ onMounted(() => {
           <input
             v-model="keyword"
             placeholder="搜索文档名称或原始文件名"
-            @keydown.enter="loadDocuments"
+            @keydown.enter="loadDocuments()"
           >
           <button
             type="button"
             class="button primary"
             :disabled="isLoading"
-            @click="loadDocuments"
+            @click="loadDocuments()"
           >
             搜索
           </button>

@@ -19,6 +19,7 @@ public record BusinessChatFinalizedTurn(
         List<String> toolTraceList,
         BusinessChatIntentAnalysis intentAnalysis,
         BusinessChatExecutionPlan executionPlan,
+        long modelCallCount,
         long firstTokenLatencyMs,
         long totalLatencyMs) {
 
@@ -32,6 +33,7 @@ public record BusinessChatFinalizedTurn(
                 toolTraceList,
                 intentAnalysis,
                 executionPlan,
+                modelCallCount,
                 firstTokenLatencyMs,
                 totalLatencyMs);
     }

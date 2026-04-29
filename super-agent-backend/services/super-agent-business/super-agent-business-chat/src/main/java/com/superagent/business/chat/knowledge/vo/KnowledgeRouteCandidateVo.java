@@ -20,6 +20,10 @@ public class KnowledgeRouteCandidateVo {
 
     private double score;
 
+    private double semanticScore;
+
+    private double lexicalScore;
+
     private double termScore;
 
     private double patternScore;

@@ -12,7 +12,8 @@ import java.util.List;
 public record BusinessChatExecutionPlan(
         String originalQuestion,
         String rewrittenQuestion,
-        String historyContextText,
+        String rewriteHistoryContextText,
+        String answerHistoryContextText,
         String memorySummary,
         int recentExchangeCount,
         String selectedDocumentContextText,
@@ -24,5 +25,6 @@ public record BusinessChatExecutionPlan(
         String intentReason,
         BusinessChatAgentType agentType,
         BusinessChatMode executionMode,
+        BusinessChatClarificationPlan clarificationPlan,
         List<String> executionStepList) {
 }

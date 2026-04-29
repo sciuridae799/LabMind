@@ -360,6 +360,7 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
         debugTrace.put("traceId", finalizedTurn.taskInfo().traceId());
         debugTrace.put("intentAnalysis", finalizedTurn.intentAnalysis());
         debugTrace.put("executionPlan", finalizedTurn.executionPlan());
+        debugTrace.put("modelCallCount", finalizedTurn.modelCallCount());
         debugTrace.put("leaseKey", finalizedTurn.taskInfo().leaseKey());
         return debugTrace;
     }

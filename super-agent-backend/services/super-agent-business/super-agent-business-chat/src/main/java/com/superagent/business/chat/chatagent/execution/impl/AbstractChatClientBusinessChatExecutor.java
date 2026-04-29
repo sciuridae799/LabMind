@@ -16,6 +16,6 @@ abstract class AbstractChatClientBusinessChatExecutor implements BusinessChatExe
 
     @Override
     public Flux<String> execute(BusinessChatRuntimeContext runtimeContext, BusinessChatExecutionPlan executionPlan) {
-        return modelClient.stream(runtimeContext.getTaskInfo().modelConfig(), executionPlan);
+        return modelClient.stream(runtimeContext, executionPlan);
     }
 }

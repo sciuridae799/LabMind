@@ -2,10 +2,15 @@ package com.superagent.business.chat.chatagent.orchestration;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.superagent.business.chat.chatagent.agent.BusinessChatAgentType;
+import com.superagent.business.chat.chatagent.config.BusinessChatClarificationProperties;
+import com.superagent.business.chat.chatagent.config.BusinessChatHistorySummaryProperties;
+import com.superagent.business.chat.knowledge.config.KnowledgeRouteProperties;
 import com.superagent.business.chat.chatagent.data.BusinessChatExchangeData;
 import com.superagent.business.chat.chatagent.data.BusinessChatMemorySummaryData;
 import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeMapper;
 import com.superagent.business.chat.chatagent.mapper.BusinessChatMemorySummaryMapper;
+import com.superagent.business.chat.chatagent.model.BusinessChatClarificationOption;
+import com.superagent.business.chat.chatagent.model.BusinessChatClarificationPlan;
 import com.superagent.business.chat.chatagent.model.BusinessChatExecutionPlan;
 import com.superagent.business.chat.chatagent.model.BusinessChatExchangeState;
 import com.superagent.business.chat.chatagent.model.BusinessChatFreshnessRequirement;
@@ -17,6 +22,7 @@ import com.superagent.business.chat.knowledge.dto.KnowledgeDocumentIdRequest;
 import com.superagent.business.chat.knowledge.graph.KnowledgeGraphClient;
 import com.superagent.business.chat.knowledge.model.KnowledgeRouteCandidate;
 import com.superagent.business.chat.knowledge.service.KnowledgeManageService;
+import com.superagent.business.chat.knowledge.service.KnowledgeRouteTraceService;
 import com.superagent.business.chat.knowledge.vo.KnowledgeDocumentProfileVo;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -47,8 +53,6 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
 
     private static final int NORMAL_STATUS = 1;
 
-    private static final int RECENT_EXCHANGE_WINDOW_SIZE = 6;
-
     private final BusinessChatMemorySummaryMapper businessChatMemorySummaryMapper;
 
     private final BusinessChatExchangeMapper businessChatExchangeMapper;
@@ -57,31 +61,51 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
 
     private final KnowledgeManageService knowledgeManageService;
 
+    private final KnowledgeRouteTraceService knowledgeRouteTraceService;
+
+    private final BusinessChatHistorySummaryProperties historySummaryProperties;
+
+    private final BusinessChatClarificationProperties clarificationProperties;
+
+    private final KnowledgeRouteProperties routeProperties;
+
+    private final BusinessChatQuestionRewriteService questionRewriteService;
+
     @Override
     public BusinessChatExecutionPlan orchestrate(BusinessChatRuntimeContext runtimeContext) {
         // 编排流：运行态快照 -> 历史上下文/知识路由/时效性判断 -> 单轮执行计划。
         // Agent 不直接查数据库和图谱，只消费这里组装出的计划，避免执行层各自理解上下文。
         BusinessChatHistoryContext historyContext = loadHistoryContext(runtimeContext);
         BusinessChatMode executionMode = runtimeContext.getTaskInfo().chatMode();
-        String rewrittenQuestion = rewriteQuestion(runtimeContext.getTaskInfo().question(), historyContext);
+        String rewrittenQuestion = questionRewriteService.rewrite(
+                runtimeContext,
+                runtimeContext.getTaskInfo().question(),
+                historyContext.rewriteContextText(),
+                runtimeContext.getTaskInfo().modelConfig());
         BusinessChatFreshnessRequirement freshnessRequirement =
                 detectFreshnessRequirement(runtimeContext.getTaskInfo().question());
         List<KnowledgeRouteCandidate> knowledgeRouteCandidateList =
                 routeKnowledgeCandidates(executionMode, rewrittenQuestion);
+        recordKnowledgeRouteTrace(runtimeContext, executionMode, rewrittenQuestion, knowledgeRouteCandidateList);
+        BusinessChatClarificationPlan clarificationPlan =
+                buildClarificationPlan(executionMode, knowledgeRouteCandidateList);
         String selectedDocumentContextText = buildSelectedDocumentContextText(runtimeContext, executionMode);
-        String knowledgeRoute = routeKnowledge(executionMode, freshnessRequirement, knowledgeRouteCandidateList);
+        String knowledgeRoute = routeKnowledge(
+                executionMode,
+                freshnessRequirement,
+                knowledgeRouteCandidateList,
+                clarificationPlan);
         String executionModel = runtimeContext.getTaskInfo().modelConfig().modelName();
-        String intentLabel = switch (executionMode) {
-            case CURRENT_DOCUMENT -> "document_question_answer";
-            case KNOWLEDGE_BASE -> "knowledge_question_answer";
-            case OPEN_ENDED -> "open_ended_question_answer";
-        };
-        String intentReason = "根据会话模式、历史上下文、知识路由和时效性要求生成本轮执行计划。";
-        BusinessChatAgentType agentType = selectAgentType(executionMode);
+        String intentLabel = buildIntentLabel(executionMode, clarificationPlan);
+        String intentReason = clarificationPlan.required()
+                ? clarificationPlan.reason()
+                : "根据会话模式、历史上下文、知识路由和时效性要求生成本轮执行计划。";
+        BusinessChatAgentType agentType = selectAgentType(executionMode, clarificationPlan);
         return new BusinessChatExecutionPlan(
                 runtimeContext.getTaskInfo().question(),
                 rewrittenQuestion,
-                historyContext.contextText(),
+                historyContext.rewriteContextText(),
+                historyContext.answerContextText(),
                 historyContext.memorySummary(),
                 historyContext.recentExchangeCount(),
                 selectedDocumentContextText,
@@ -93,6 +117,7 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
                 intentReason,
                 agentType,
                 executionMode,
+                clarificationPlan,
                 buildExecutionStepList(
                         historyContext,
                         rewrittenQuestion,
@@ -100,10 +125,27 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
                         freshnessRequirement,
                         knowledgeRoute,
                         knowledgeRouteCandidateList,
+                        clarificationPlan,
                         executionModel));
     }
 
-    private BusinessChatAgentType selectAgentType(BusinessChatMode executionMode) {
+    private String buildIntentLabel(BusinessChatMode executionMode, BusinessChatClarificationPlan clarificationPlan) {
+        if (clarificationPlan.required()) {
+            return "knowledge_route_clarification";
+        }
+        return switch (executionMode) {
+            case CURRENT_DOCUMENT -> "document_question_answer";
+            case KNOWLEDGE_BASE -> "knowledge_question_answer";
+            case OPEN_ENDED -> "open_ended_question_answer";
+        };
+    }
+
+    private BusinessChatAgentType selectAgentType(
+            BusinessChatMode executionMode,
+            BusinessChatClarificationPlan clarificationPlan) {
+        if (clarificationPlan.required()) {
+            return BusinessChatAgentType.CLARIFICATION;
+        }
         return switch (executionMode) {
             case KNOWLEDGE_BASE -> BusinessChatAgentType.KNOWLEDGE_QA;
             case CURRENT_DOCUMENT, OPEN_ENDED -> BusinessChatAgentType.THINK_ACT;
@@ -117,14 +159,19 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
      * 两者合并后只作为提示词上下文，不会改写数据库中的历史记录。</p>
      */
     private BusinessChatHistoryContext loadHistoryContext(BusinessChatRuntimeContext runtimeContext) {
+        if (!Boolean.TRUE.equals(historySummaryProperties.getEnabled())) {
+            return new BusinessChatHistoryContext(null, null, null, List.of());
+        }
         // 历史上下文由“长期摘要 + 最近完成轮次”组成：摘要给连续语义，最近窗口给原始问答细节。
         String memorySummary = loadConversationMemory(runtimeContext);
         List<BusinessChatRecentExchange> recentExchangeList = loadRecentExchangeList(runtimeContext);
-        String contextText = buildHistoryContextText(memorySummary, recentExchangeList);
+        String rewriteContextText = buildRewriteHistoryContextText(memorySummary, recentExchangeList);
+        String answerContextText = buildAnswerHistoryContextText(memorySummary, recentExchangeList);
         return new BusinessChatHistoryContext(
+                rewriteContextText,
+                answerContextText,
                 memorySummary,
-                recentExchangeList,
-                contextText);
+                recentExchangeList);
     }
 
     private String loadConversationMemory(BusinessChatRuntimeContext runtimeContext) {
@@ -145,10 +192,11 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
                         .eq(BusinessChatExchangeData::getExchangeState, BusinessChatExchangeState.COMPLETED.getDatabaseCode())
                         .orderByDesc(BusinessChatExchangeData::getCreateTime)
                         .orderByDesc(BusinessChatExchangeData::getId)
-                        .last("limit " + RECENT_EXCHANGE_WINDOW_SIZE));
+                        .last("limit " + historySummaryProperties.getKeepRecentTurns()));
         List<BusinessChatExchangeData> chronologicalList = new ArrayList<>(exchangeDataList);
         Collections.reverse(chronologicalList);
         return chronologicalList.stream()
+                .limit(historySummaryProperties.getKeepRecentTurns())
                 .map(this::buildRecentExchange)
                 .toList();
     }
@@ -174,7 +222,7 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
             throw new IllegalStateException(
                     "memory summary text is empty for conversation: " + summaryData.getDialogueCode());
         }
-        return summaryText;
+        return limitText(summaryText, historySummaryProperties.getSummaryMaxChars());
     }
 
     private LocalDateTime requireStoredCreateTime(BusinessChatExchangeData exchangeData) {
@@ -184,7 +232,32 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         return exchangeData.getCreateTime();
     }
 
-    private String buildHistoryContextText(
+    private String buildRewriteHistoryContextText(
+            String memorySummary,
+            List<BusinessChatRecentExchange> recentExchangeList) {
+        if (!StringUtils.hasText(memorySummary) && recentExchangeList.isEmpty()) {
+            return null;
+        }
+        StringBuilder contextBuilder = new StringBuilder();
+        if (StringUtils.hasText(memorySummary)) {
+            contextBuilder.append("长期摘要：\n")
+                    .append(memorySummary)
+                    .append("\n\n");
+        }
+        if (!recentExchangeList.isEmpty()) {
+            contextBuilder.append("最近对话：\n");
+            for (BusinessChatRecentExchange recentExchange : recentExchangeList) {
+                contextBuilder.append("时间：")
+                        .append(recentExchange.createTime())
+                        .append("\n用户：")
+                        .append(recentExchange.userPrompt())
+                        .append("\n\n");
+            }
+        }
+        return limitText(contextBuilder.toString().strip(), historySummaryProperties.getRecentTranscriptMaxChars());
+    }
+
+    private String buildAnswerHistoryContextText(
             String memorySummary,
             List<BusinessChatRecentExchange> recentExchangeList) {
         if (!StringUtils.hasText(memorySummary) && recentExchangeList.isEmpty()) {
@@ -208,16 +281,14 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
                         .append("\n\n");
             }
         }
-        return contextBuilder.toString().strip();
+        return limitText(contextBuilder.toString().strip(), historySummaryProperties.getRecentTranscriptMaxChars());
     }
 
-    private String rewriteQuestion(String originalQuestion, BusinessChatHistoryContext historyContext) {
-        if (!StringUtils.hasText(historyContext.contextText())) {
-            return originalQuestion;
+    private String limitText(String value, int maxChars) {
+        if (!StringUtils.hasText(value) || value.length() <= maxChars) {
+            return value;
         }
-        // 当前不做模型改写，只显式告诉执行模型本轮问题需要结合已加载历史理解。
-        // 这样不会引入第二次模型调用，也不会把原问题改写成不可追踪的新语义。
-        return "结合历史上下文，回答当前问题：" + originalQuestion;
+        return value.substring(0, maxChars).strip();
     }
 
     /**
@@ -271,6 +342,128 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         // 知识库模式在编排阶段只产出路由候选，不在这里读取正文。
         // 正文证据由执行器按计划组织提示词，保持“召回”和“回答”两个职责分离。
         return knowledgeGraphClient.routeQuestion(rewrittenQuestion, 5);
+    }
+
+    private void recordKnowledgeRouteTrace(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatMode executionMode,
+            String rewrittenQuestion,
+            List<KnowledgeRouteCandidate> routeCandidateList) {
+        if (executionMode != BusinessChatMode.KNOWLEDGE_BASE && executionMode != BusinessChatMode.CURRENT_DOCUMENT) {
+            return;
+        }
+        // 当前文档模式只跑影子路由做质量观测，不改变用户手动选择文档的回答路径。
+        List<KnowledgeRouteCandidate> traceCandidateList = executionMode == BusinessChatMode.CURRENT_DOCUMENT
+                ? knowledgeGraphClient.routeQuestion(rewrittenQuestion, 5)
+                : routeCandidateList;
+        knowledgeRouteTraceService.recordRouteTrace(
+                runtimeContext.getTaskInfo().traceId(),
+                runtimeContext.getTaskInfo().conversationId(),
+                runtimeContext.getTaskInfo().exchangeId(),
+                runtimeContext.getTaskInfo().question(),
+                rewrittenQuestion,
+                buildIntentLabel(executionMode, BusinessChatClarificationPlan.notRequired()),
+                executionMode == BusinessChatMode.CURRENT_DOCUMENT ? "SHADOW" : "AUTO",
+                executionMode == BusinessChatMode.CURRENT_DOCUMENT
+                        ? runtimeContext.getTaskInfo().selectedDocumentId()
+                        : null,
+                traceCandidateList);
+    }
+
+    private BusinessChatClarificationPlan buildClarificationPlan(
+            BusinessChatMode executionMode,
+            List<KnowledgeRouteCandidate> candidateList) {
+        if (executionMode != BusinessChatMode.KNOWLEDGE_BASE || !clarificationProperties.isEnabled()) {
+            return BusinessChatClarificationPlan.notRequired();
+        }
+        List<BusinessChatClarificationOption> optionList = buildClarificationOptionList(candidateList);
+        if (candidateList == null || candidateList.isEmpty()) {
+            return new BusinessChatClarificationPlan(
+                    true,
+                    "知识路由没有召回候选文档",
+                    "当前没有匹配到稳定的候选文档。请补充文档名、业务范围或更具体的关键词后再试。",
+                    optionList);
+        }
+        KnowledgeRouteCandidate topCandidate = candidateList.get(0);
+        double confidence = calculateRouteConfidence(candidateList);
+        if (confidence < routeProperties.getSuccessConfidence()) {
+            return new BusinessChatClarificationPlan(
+                    true,
+                    "知识路由置信度低于阈值：%s".formatted(confidence),
+                    buildClarificationReply(optionList),
+                    optionList);
+        }
+        if (topCandidate.score() < clarificationProperties.getMinTopScore()) {
+            return new BusinessChatClarificationPlan(
+                    true,
+                    "知识路由最高候选分数低于阈值：%s".formatted(topCandidate.score()),
+                    buildClarificationReply(optionList),
+                    optionList);
+        }
+        if (candidateList.size() < 2) {
+            return BusinessChatClarificationPlan.notRequired();
+        }
+        KnowledgeRouteCandidate secondCandidate = candidateList.get(1);
+        double scoreGap = topCandidate.score() - secondCandidate.score();
+        boolean crossScope = !java.util.Objects.equals(topCandidate.scopeCode(), secondCandidate.scopeCode());
+        if (crossScope && scoreGap <= clarificationProperties.getAmbiguousScoreGap()) {
+            return new BusinessChatClarificationPlan(
+                    true,
+                    "知识路由 Top1/Top2 跨知识域且分差过小：%s".formatted(scoreGap),
+                    buildClarificationReply(optionList),
+                    optionList);
+        }
+        return BusinessChatClarificationPlan.notRequired();
+    }
+
+    private double calculateRouteConfidence(List<KnowledgeRouteCandidate> candidateList) {
+        if (candidateList == null || candidateList.isEmpty()) {
+            return 0D;
+        }
+        double topScore = candidateList.get(0).score();
+        double secondScore = candidateList.size() > 1 ? candidateList.get(1).score() : 0D;
+        return topScore / Math.max(10D, topScore + secondScore + 5D);
+    }
+
+    private List<BusinessChatClarificationOption> buildClarificationOptionList(
+            List<KnowledgeRouteCandidate> candidateList) {
+        if (candidateList == null || candidateList.isEmpty()) {
+            return List.of();
+        }
+        return candidateList.stream()
+                .limit(clarificationProperties.getMaxOptions())
+                .map(this::toClarificationOption)
+                .toList();
+    }
+
+    private BusinessChatClarificationOption toClarificationOption(KnowledgeRouteCandidate candidate) {
+        String documentName = candidate.documentName() == null ? null : candidate.documentName().strip();
+        if (!StringUtils.hasText(documentName)) {
+            throw new IllegalStateException("knowledge route candidate documentName is empty: " + candidate.documentId());
+        }
+        return new BusinessChatClarificationOption(
+                candidate.documentId(),
+                documentName,
+                candidate.scopeCode(),
+                candidate.scopeName(),
+                candidate.topicCode(),
+                candidate.topicName(),
+                candidate.score());
+    }
+
+    private String buildClarificationReply(List<BusinessChatClarificationOption> optionList) {
+        if (optionList.isEmpty()) {
+            return "当前没有匹配到稳定的候选文档。请补充文档名、业务范围或更具体的关键词后再试。";
+        }
+        StringBuilder builder = new StringBuilder("这个问题目前存在文档范围歧义，我先确认你想问哪一份：\n");
+        for (int index = 0; index < optionList.size(); index++) {
+            builder.append(index + 1)
+                    .append(". 《")
+                    .append(optionList.get(index).documentName())
+                    .append("》\n");
+        }
+        builder.append("\n你可以直接回复文档名，或者切换到当前文档问答模式明确指定文档。");
+        return builder.toString();
     }
 
     /**
@@ -335,7 +528,8 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
     private String routeKnowledge(
             BusinessChatMode executionMode,
             BusinessChatFreshnessRequirement freshnessRequirement,
-            List<KnowledgeRouteCandidate> knowledgeRouteCandidateList) {
+            List<KnowledgeRouteCandidate> knowledgeRouteCandidateList,
+            BusinessChatClarificationPlan clarificationPlan) {
         String baseRoute = switch (executionMode) {
             case CURRENT_DOCUMENT -> "CURRENT_DOCUMENT";
             case KNOWLEDGE_BASE -> knowledgeRouteCandidateList.isEmpty()
@@ -346,7 +540,10 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         // 路由字符串进入 debugTrace 和前端追踪页，是本轮是否走知识资产、是否缺实时能力的业务摘要。
         // 它不是执行分支开关，真正的分支已经由 executionMode 和候选列表确定。
         if (freshnessRequirement.required()) {
-            return baseRoute + "|FRESHNESS_REQUIRED";
+            baseRoute = baseRoute + "|FRESHNESS_REQUIRED";
+        }
+        if (clarificationPlan.required()) {
+            baseRoute = baseRoute + "|CLARIFICATION_REQUIRED";
         }
         return baseRoute;
     }
@@ -358,15 +555,18 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
             BusinessChatFreshnessRequirement freshnessRequirement,
             String knowledgeRoute,
             List<KnowledgeRouteCandidate> knowledgeRouteCandidateList,
+            BusinessChatClarificationPlan clarificationPlan,
             String executionModel) {
         return List.of(
                 StringUtils.hasText(historyContext.memorySummary()) ? "加载长期摘要：已加载" : "加载长期摘要：无",
                 "加载最近对话窗口：%s轮".formatted(historyContext.recentExchangeCount()),
+                "问题改写历史上下文：%s".formatted(StringUtils.hasText(historyContext.rewriteContextText()) ? "有" : "无"),
                 "问题改写：%s".formatted(rewrittenQuestion),
                 "当前文档上下文：%s".formatted(StringUtils.hasText(selectedDocumentContextText) ? "已加载" : "无"),
                 "时效性判断：%s".formatted(freshnessRequirement.required() ? "需要实时信息" : "不需要实时信息"),
                 "知识路由：%s".formatted(knowledgeRoute),
                 "路由候选文档：%s".formatted(knowledgeRouteCandidateList.size()),
+                "歧义澄清：%s".formatted(clarificationPlan.required() ? clarificationPlan.reason() : "不需要"),
                 "执行模型：%s".formatted(executionModel),
                 "按执行计划生成流式正文",
                 "补发执行补充信息与推荐追问");
