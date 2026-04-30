@@ -1,6 +1,6 @@
 package com.superagent.business.chat.chatagent.execution.impl;
 
-import com.superagent.business.chat.chatagent.model.BusinessChatMode;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatMode;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.execution.BusinessChatExecutor;
 import com.superagent.business.chat.chatagent.execution.BusinessChatExecutorRegistry;

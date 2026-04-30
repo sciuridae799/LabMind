@@ -8,4 +8,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class KnowledgeKafkaTopicProperties {
 
     private String documentParseRequested;
+
+    private String documentIndexRequested;
+
+    private String shadowRouteRequested;
 }

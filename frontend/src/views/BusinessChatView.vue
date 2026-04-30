@@ -53,6 +53,14 @@ interface DocumentProfile {
   questionPatterns?: string[]
 }
 
+interface CitationPopover {
+  index: number
+  content: string
+  top: number
+  left: number
+  placement: 'above' | 'below'
+}
+
 const starterPrompts = [
   {
     icon: 'write',
@@ -102,10 +110,14 @@ const isTextareaComposing = ref(false)
 const modelPickerElement = ref<HTMLElement | null>(null)
 const isModelPickerOpen = ref(false)
 const modelPickerPlacement = ref<'up' | 'down'>('up')
+const activeCitationPopover = ref<CitationPopover | null>(null)
 let docContextHideTimer: ReturnType<typeof setTimeout> | null = null
 let scrollAnimationFrame: number | null = null
+let citationPopoverHideTimer: ReturnType<typeof setTimeout> | null = null
 
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 80
+const CITATION_POPOVER_WIDTH = 360
+const CITATION_POPOVER_MAX_HEIGHT = 280
 
 function clearDocContextHideTimer(): void {
   if (!docContextHideTimer) {
@@ -128,6 +140,28 @@ function scheduleDocContextHide(): void {
     isDocContextVisible.value = false
     docContextHideTimer = null
   }, 200)
+}
+
+function clearCitationPopoverHideTimer(): void {
+  if (!citationPopoverHideTimer) {
+    return
+  }
+
+  clearTimeout(citationPopoverHideTimer)
+  citationPopoverHideTimer = null
+}
+
+function hideCitationPopover(): void {
+  clearCitationPopoverHideTimer()
+  activeCitationPopover.value = null
+}
+
+function scheduleCitationPopoverHide(): void {
+  clearCitationPopoverHideTimer()
+  citationPopoverHideTimer = setTimeout(() => {
+    activeCitationPopover.value = null
+    citationPopoverHideTimer = null
+  }, 120)
 }
 
 function keepDocContextVisible(): void {
@@ -404,7 +438,7 @@ const latestTurnId = computed<string>(() => {
   return turns.length > 0 ? turns[turns.length - 1].id : ''
 })
 
-function renderMarkdown(value: string): string {
+function renderMarkdown(value: string, sourceSnapshotList: string[] = []): string {
   const html = marked.parse(value, {
     async: false,
     breaks: true,
@@ -428,7 +462,87 @@ function renderMarkdown(value: string): string {
     wrapper.append(copyButton, preElement)
   })
 
+  wrapCitationReferences(template, sourceSnapshotList)
+
   return template.innerHTML
+}
+
+function wrapCitationReferences(template: HTMLTemplateElement, sourceSnapshotList: string[]): void {
+  if (sourceSnapshotList.length === 0) {
+    return
+  }
+
+  const textNodes: Text[] = []
+  const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT)
+  let currentNode = walker.nextNode()
+  while (currentNode) {
+    if (currentNode instanceof Text && shouldWrapCitationTextNode(currentNode)) {
+      textNodes.push(currentNode)
+    }
+    currentNode = walker.nextNode()
+  }
+
+  textNodes.forEach((textNode) => {
+    const fragment = buildCitationTextFragment(textNode.data, sourceSnapshotList)
+    if (fragment) {
+      textNode.replaceWith(fragment)
+    }
+  })
+}
+
+function shouldWrapCitationTextNode(textNode: Text): boolean {
+  if (!/\[\d+]/.test(textNode.data)) {
+    return false
+  }
+
+  const parentElement = textNode.parentElement
+  if (!parentElement) {
+    return false
+  }
+
+  return !parentElement.closest('pre, code, a, button, .citation-ref')
+}
+
+function buildCitationTextFragment(value: string, sourceSnapshotList: string[]): DocumentFragment | null {
+  const citationPattern = /\[(\d+)]/g
+  const fragment = document.createDocumentFragment()
+  let lastIndex = 0
+  let hasCitation = false
+  let match = citationPattern.exec(value)
+
+  while (match) {
+    const citationNumber = Number(match[1])
+    const sourceIndex = citationNumber - 1
+    const sourceSnapshot = sourceSnapshotList[sourceIndex]
+    if (!sourceSnapshot) {
+      match = citationPattern.exec(value)
+      continue
+    }
+
+    if (match.index > lastIndex) {
+      fragment.append(document.createTextNode(value.slice(lastIndex, match.index)))
+    }
+
+    const citationElement = document.createElement('span')
+    citationElement.className = 'citation-ref'
+    citationElement.dataset.citationIndex = String(citationNumber)
+    citationElement.tabIndex = 0
+    citationElement.textContent = match[0]
+    fragment.append(citationElement)
+    lastIndex = match.index + match[0].length
+    hasCitation = true
+    match = citationPattern.exec(value)
+  }
+
+  if (!hasCitation) {
+    return null
+  }
+
+  if (lastIndex < value.length) {
+    fragment.append(document.createTextNode(value.slice(lastIndex)))
+  }
+
+  return fragment
 }
 
 function handleMarkdownClick(event: MouseEvent): void {
@@ -454,6 +568,58 @@ function handleMarkdownClick(event: MouseEvent): void {
       copyButton.textContent = '复制'
     }, 1200)
   })
+}
+
+function handleMarkdownCitationEnter(event: MouseEvent | FocusEvent, sourceSnapshotList: string[]): void {
+  const target = event.target
+  if (!(target instanceof Element)) {
+    return
+  }
+
+  const citationElement = target.closest<HTMLElement>('.citation-ref')
+  if (!citationElement) {
+    return
+  }
+
+  const citationIndex = Number(citationElement.dataset.citationIndex || '0')
+  const sourceSnapshot = sourceSnapshotList[citationIndex - 1]
+  if (!sourceSnapshot) {
+    hideCitationPopover()
+    return
+  }
+
+  clearCitationPopoverHideTimer()
+  const rect = citationElement.getBoundingClientRect()
+  const left = Math.min(
+    Math.max(12, rect.left + rect.width / 2 - CITATION_POPOVER_WIDTH / 2),
+    Math.max(12, window.innerWidth - CITATION_POPOVER_WIDTH - 12)
+  )
+  const shouldPlaceAbove = rect.bottom + CITATION_POPOVER_MAX_HEIGHT + 16 > window.innerHeight &&
+    rect.top > CITATION_POPOVER_MAX_HEIGHT
+
+  activeCitationPopover.value = {
+    index: citationIndex,
+    content: formatCitationPopoverContent(sourceSnapshot),
+    top: shouldPlaceAbove ? rect.top - 10 : rect.bottom + 10,
+    left,
+    placement: shouldPlaceAbove ? 'above' : 'below'
+  }
+}
+
+function formatCitationPopoverContent(sourceSnapshot: string): string {
+  return sourceSnapshot.replace(/^\[\d+]\s*\n?/, '').trim()
+}
+
+function handleMarkdownCitationLeave(event: MouseEvent | FocusEvent): void {
+  const target = event.target
+  if (!(target instanceof Element)) {
+    return
+  }
+
+  const citationElement = target.closest('.citation-ref')
+  if (citationElement) {
+    scheduleCitationPopoverHide()
+  }
 }
 
 function isThinkingExpanded(turnId: string): boolean {
@@ -919,6 +1085,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearDocContextHideTimer()
+  clearCitationPopoverHideTimer()
   if (scrollAnimationFrame !== null) {
     cancelAnimationFrame(scrollAnimationFrame)
   }
@@ -1187,8 +1354,12 @@ onBeforeUnmount(() => {
                   <div
                     v-if="turn.assistantMessage.text"
                     class="assistant-text markdown-body"
-                    v-html="renderMarkdown(turn.assistantMessage.text)"
+                    v-html="renderMarkdown(turn.assistantMessage.text, turn.assistantMessage.sourceSnapshotList)"
                     @click="handleMarkdownClick"
+                    @mouseover="handleMarkdownCitationEnter($event, turn.assistantMessage.sourceSnapshotList)"
+                    @mouseout="handleMarkdownCitationLeave"
+                    @focusin="handleMarkdownCitationEnter($event, turn.assistantMessage.sourceSnapshotList)"
+                    @focusout="handleMarkdownCitationLeave"
                   />
 
                   <p
@@ -1495,6 +1666,21 @@ onBeforeUnmount(() => {
           </template>
         </section>
       </article>
+    </div>
+
+    <div
+      v-if="activeCitationPopover"
+      class="citation-popover"
+      :class="`citation-popover-${activeCitationPopover.placement}`"
+      :style="{
+        top: `${activeCitationPopover.top}px`,
+        left: `${activeCitationPopover.left}px`
+      }"
+      @mouseenter="clearCitationPopoverHideTimer"
+      @mouseleave="scheduleCitationPopoverHide"
+    >
+      <strong>引用 [{{ activeCitationPopover.index }}]</strong>
+      <p>{{ activeCitationPopover.content }}</p>
     </div>
   </div>
 </template>
@@ -2197,6 +2383,68 @@ select {
 
 .markdown-body :deep(a:hover) {
   text-decoration: underline;
+}
+
+.markdown-body :deep(.citation-ref) {
+  display: inline-flex;
+  min-width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  margin: 0 1px;
+  padding: 0 5px;
+  color: #175cd3;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  border: 1px solid #b2ccff;
+  border-radius: 6px;
+  background: #eff6ff;
+  cursor: default;
+  vertical-align: baseline;
+}
+
+.markdown-body :deep(.citation-ref:hover),
+.markdown-body :deep(.citation-ref:focus-visible) {
+  color: #1849a9;
+  border-color: #84adff;
+  background: #dbeafe;
+  outline: none;
+}
+
+.citation-popover {
+  position: fixed;
+  z-index: 80;
+  width: 360px;
+  max-width: calc(100vw - 24px);
+  max-height: 280px;
+  padding: 12px 14px;
+  overflow-y: auto;
+  color: #344054;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 42px rgb(16 24 40 / 18%);
+}
+
+.citation-popover-above {
+  transform: translateY(-100%);
+}
+
+.citation-popover strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #1d2939;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.citation-popover p {
+  margin: 0;
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
 }
 
 .follow-up-list {

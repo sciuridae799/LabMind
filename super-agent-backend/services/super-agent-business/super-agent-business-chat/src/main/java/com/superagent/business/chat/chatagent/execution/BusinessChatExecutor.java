@@ -1,7 +1,7 @@
 package com.superagent.business.chat.chatagent.execution;
 
-import com.superagent.business.chat.chatagent.model.BusinessChatExecutionPlan;
-import com.superagent.business.chat.chatagent.model.BusinessChatMode;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatMode;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
 import reactor.core.publisher.Flux;
 

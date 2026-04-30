@@ -1,16 +1,16 @@
 package com.superagent.business.chat.chatagent.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.superagent.business.chat.chatagent.data.BusinessChatDialogueData;
-import com.superagent.business.chat.chatagent.data.BusinessChatExchangeData;
-import com.superagent.business.chat.chatagent.data.BusinessChatExchangeTraceStageData;
-import com.superagent.business.chat.chatagent.data.BusinessChatMemorySummaryData;
-import com.superagent.business.chat.chatagent.dto.BusinessChatDeleteSessionRequest;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatDialogueMapper;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeMapper;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeTraceStageMapper;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatMemorySummaryMapper;
-import com.superagent.business.chat.chatagent.model.BusinessChatConversationLeaseKeys;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatDialogueData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatExchangeData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatExchangeTraceStageData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatMemorySummaryData;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatDeleteSessionRequest;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatDialogueMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExchangeMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExchangeTraceStageMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatMemorySummaryMapper;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatConversationLeaseKeys;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionService;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;

@@ -1,6 +1,6 @@
 package com.superagent.business.chat.chatagent.service;
 
-import com.superagent.business.chat.chatagent.dto.BusinessChatDeleteSessionRequest;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatDeleteSessionRequest;
 
 /**
  * 会话生命周期服务。

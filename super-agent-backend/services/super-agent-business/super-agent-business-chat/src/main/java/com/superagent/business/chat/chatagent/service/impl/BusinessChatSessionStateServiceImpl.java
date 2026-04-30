@@ -1,10 +1,10 @@
 package com.superagent.business.chat.chatagent.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.superagent.business.chat.chatagent.data.BusinessChatDialogueData;
-import com.superagent.business.chat.chatagent.data.BusinessChatSessionStateData;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatDialogueMapper;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatSessionStateMapper;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatDialogueData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatSessionStateData;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatDialogueMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatSessionStateMapper;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
 import com.superagent.common.frame.enums.BaseCode;
 import com.superagent.common.frame.exception.BaseException;

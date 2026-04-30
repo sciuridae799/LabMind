@@ -1,6 +1,6 @@
 package com.superagent.business.chat.chatagent.runtime;
 
-import com.superagent.business.chat.chatagent.model.BusinessChatTaskInfo;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatTaskInfo;
 
 /**
  * 运行中会话注册表。

@@ -1,9 +1,9 @@
 package com.superagent.business.chat.chatagent.runtime;
 
-import com.superagent.business.chat.chatagent.model.BusinessChatExecutionPlan;
-import com.superagent.business.chat.chatagent.model.BusinessChatIntentAnalysis;
-import com.superagent.business.chat.chatagent.model.BusinessChatTaskInfo;
-import com.superagent.business.chat.chatagent.vo.BusinessChatStreamEvent;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatIntentAnalysis;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatTaskInfo;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatStreamEvent;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;

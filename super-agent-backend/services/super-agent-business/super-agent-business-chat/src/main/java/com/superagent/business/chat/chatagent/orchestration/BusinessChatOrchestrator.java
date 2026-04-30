@@ -1,6 +1,6 @@
 package com.superagent.business.chat.chatagent.orchestration;
 
-import com.superagent.business.chat.chatagent.model.BusinessChatExecutionPlan;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
 
 /**

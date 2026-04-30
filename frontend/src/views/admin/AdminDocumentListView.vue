@@ -305,7 +305,7 @@ onUnmounted(() => {
             <input
               class="file-input"
               type="file"
-              accept=".txt,.md,.html,.htm"
+              accept=".pdf,.doc,.docx,.txt,.md,.html,.htm,.ppt,.pptx"
               @change="handleFileChange"
             >
             <span class="file-button">选择文件</span>
@@ -316,7 +316,7 @@ onUnmounted(() => {
 
       <div class="upload-summary">
         <div class="summary-copy">
-          <p class="summary-label">支持 TXT / MD / HTML</p>
+          <p class="summary-label">支持 PDF / Word / TXT / MD / HTML / PPT</p>
           <strong class="summary-name">{{ selectedFile?.name || '尚未选择文件' }}</strong>
         </div>
 

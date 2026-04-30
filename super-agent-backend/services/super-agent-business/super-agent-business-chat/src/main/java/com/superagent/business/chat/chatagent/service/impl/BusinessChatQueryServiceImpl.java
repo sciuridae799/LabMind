@@ -4,27 +4,41 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.superagent.business.chat.chatagent.data.BusinessChatDialogueData;
-import com.superagent.business.chat.chatagent.data.BusinessChatExchangeData;
-import com.superagent.business.chat.chatagent.data.BusinessChatMemorySummaryData;
-import com.superagent.business.chat.chatagent.dto.BusinessChatSessionDetailRequest;
-import com.superagent.business.chat.chatagent.dto.BusinessChatSessionListRequest;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatDialogueMapper;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeMapper;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatMemorySummaryMapper;
-import com.superagent.business.chat.chatagent.model.BusinessChatDialogueStage;
-import com.superagent.business.chat.chatagent.model.BusinessChatExchangeState;
-import com.superagent.business.chat.chatagent.model.BusinessChatMode;
-import com.superagent.business.chat.chatagent.model.BusinessChatSessionListRow;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatDialogueData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatExchangeData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatExchangeTraceStageData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatModelCallTraceData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatMemorySummaryData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatToolCallTraceData;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatExchangeDetailRequest;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatSessionDetailRequest;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatSessionListRequest;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatDialogueMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExchangeMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExchangeTraceStageMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatModelCallTraceMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatMemorySummaryMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatToolCallTraceMapper;
+import com.superagent.business.chat.chatagent.config.BusinessChatRuntimeProperties;
+import com.superagent.business.chat.chatagent.persistence.model.BusinessChatDialogueStage;
+import com.superagent.business.chat.chatagent.persistence.model.BusinessChatExchangeState;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatMode;
+import com.superagent.business.chat.chatagent.persistence.model.BusinessChatSessionListRow;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatQueryService;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
-import com.superagent.business.chat.chatagent.vo.BusinessChatSessionDetailVo;
-import com.superagent.business.chat.chatagent.vo.BusinessChatSessionExchangeVo;
-import com.superagent.business.chat.chatagent.vo.BusinessChatSessionListItemVo;
-import com.superagent.business.chat.chatagent.vo.BusinessChatSessionListPageVo;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatSessionDetailVo;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatSessionExchangeVo;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatSessionListItemVo;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatSessionListPageVo;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatExchangeDetailVo;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatExchangeTraceStageVo;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatExchangeUsageSummaryVo;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatModelCallTraceVo;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatToolCallTraceVo;
 import com.superagent.business.chat.support.BusinessInputValidator;
 import com.superagent.common.frame.exception.BaseException;
+import java.math.BigDecimal;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -50,7 +64,15 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
 
     private final BusinessChatMemorySummaryMapper businessChatMemorySummaryMapper;
 
+    private final BusinessChatExchangeTraceStageMapper businessChatExchangeTraceStageMapper;
+
+    private final BusinessChatModelCallTraceMapper businessChatModelCallTraceMapper;
+
+    private final BusinessChatToolCallTraceMapper businessChatToolCallTraceMapper;
+
     private final BusinessChatSessionStateService businessChatSessionStateService;
+
+    private final BusinessChatRuntimeProperties runtimeProperties;
 
     private final ObjectMapper objectMapper;
 
@@ -143,23 +165,164 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
         return businessChatSessionStateService.getActiveConversationId();
     }
 
+    @Override
+    public BusinessChatExchangeDetailVo getExchangeDetail(BusinessChatExchangeDetailRequest request) {
+        String conversationId = BusinessInputValidator.normalizeRequiredText(request.getConversationId(), "conversationId");
+        long exchangeId = BusinessInputValidator.parsePositiveLong(request.getExchangeId(), "exchangeId");
+        BusinessChatExchangeData exchangeData = businessChatExchangeMapper.selectOne(
+                Wrappers.<BusinessChatExchangeData>lambdaQuery()
+                        .eq(BusinessChatExchangeData::getDialogueCode, conversationId)
+                        .eq(BusinessChatExchangeData::getId, exchangeId)
+                        .eq(BusinessChatExchangeData::getStatus, NORMAL_STATUS)
+                        .last("limit 1"));
+        if (exchangeData == null) {
+            throw new BaseException(
+                    BusinessChatErrorCode.CHAT_SESSION_NOT_FOUND,
+                    "exchange was not found: " + exchangeId);
+        }
+        List<BusinessChatExchangeTraceStageData> stageDataList = businessChatExchangeTraceStageMapper.selectList(
+                Wrappers.<BusinessChatExchangeTraceStageData>lambdaQuery()
+                        .eq(BusinessChatExchangeTraceStageData::getDialogueCode, conversationId)
+                        .eq(BusinessChatExchangeTraceStageData::getExchangeId, exchangeId)
+                        .eq(BusinessChatExchangeTraceStageData::getStatus, NORMAL_STATUS)
+                        .orderByAsc(BusinessChatExchangeTraceStageData::getStageOrder)
+                        .orderByAsc(BusinessChatExchangeTraceStageData::getStartTime)
+                        .orderByAsc(BusinessChatExchangeTraceStageData::getId));
+        List<BusinessChatModelCallTraceData> modelCallDataList = businessChatModelCallTraceMapper.selectList(
+                Wrappers.<BusinessChatModelCallTraceData>lambdaQuery()
+                        .eq(BusinessChatModelCallTraceData::getDialogueCode, conversationId)
+                        .eq(BusinessChatModelCallTraceData::getExchangeId, exchangeId)
+                        .eq(BusinessChatModelCallTraceData::getStatus, NORMAL_STATUS)
+                        .orderByAsc(BusinessChatModelCallTraceData::getStartTime)
+                        .orderByAsc(BusinessChatModelCallTraceData::getId));
+        List<BusinessChatToolCallTraceData> toolCallDataList = businessChatToolCallTraceMapper.selectList(
+                Wrappers.<BusinessChatToolCallTraceData>lambdaQuery()
+                        .eq(BusinessChatToolCallTraceData::getDialogueCode, conversationId)
+                        .eq(BusinessChatToolCallTraceData::getExchangeId, exchangeId)
+                        .eq(BusinessChatToolCallTraceData::getStatus, NORMAL_STATUS)
+                        .orderByAsc(BusinessChatToolCallTraceData::getStartTime)
+                        .orderByAsc(BusinessChatToolCallTraceData::getId));
+
+        BusinessChatExchangeDetailVo detailVo = new BusinessChatExchangeDetailVo();
+        detailVo.setConversationId(conversationId);
+        detailVo.setExchangeId(String.valueOf(exchangeId));
+        detailVo.setUserPrompt(exchangeData.getUserPrompt());
+        detailVo.setReplyContent(exchangeData.getReplyContent());
+        detailVo.setExchangeState(BusinessChatExchangeState.fromDatabaseCode(exchangeData.getExchangeState()).getValue());
+        detailVo.setFinishNote(exchangeData.getFinishNote());
+        detailVo.setFirstTokenLatencyMs(exchangeData.getFirstTokenLatencyMs());
+        detailVo.setTotalLatencyMs(exchangeData.getTotalLatencyMs());
+        detailVo.setUsageSummary(buildUsageSummary(modelCallDataList, toolCallDataList));
+        detailVo.setStages(stageDataList.stream().map(this::toTraceStageVo).toList());
+        detailVo.setModelCalls(modelCallDataList.stream().map(this::toModelCallTraceVo).toList());
+        detailVo.setToolCalls(toolCallDataList.stream().map(this::toToolCallTraceVo).toList());
+        return detailVo;
+    }
+
     private BusinessChatSessionListItemVo buildSessionListItem(BusinessChatSessionListRow row) {
         BusinessChatSessionListItemVo itemVo = new BusinessChatSessionListItemVo();
         itemVo.setConversationId(row.getConversationId());
         itemVo.setTitle(normalizeStoredTitle(row.getTitle()));
         itemVo.setChatMode(BusinessChatMode.fromDatabaseCode(row.getChatModeCode()).getValue());
         itemVo.setTurnStatus(BusinessChatExchangeState.fromDatabaseCode(row.getTurnStatusCode()).getValue());
-        itemVo.setLastExchangeId(row.getLastExchangeId());
+        itemVo.setLastExchangeId(String.valueOf(row.getLastExchangeId()));
         itemVo.setLastQuestion(row.getLastQuestion());
         itemVo.setLastReply(row.getLastReply());
         itemVo.setUpdateTime(row.getUpdateTime());
         return itemVo;
     }
 
+    private BusinessChatExchangeUsageSummaryVo buildUsageSummary(
+            List<BusinessChatModelCallTraceData> modelCallDataList,
+            List<BusinessChatToolCallTraceData> toolCallDataList) {
+        BusinessChatExchangeUsageSummaryVo summaryVo = new BusinessChatExchangeUsageSummaryVo();
+        int inputTokens = modelCallDataList.stream()
+                .map(BusinessChatModelCallTraceData::getInputTokens)
+                .mapToInt(value -> value == null ? 0 : value)
+                .sum();
+        int outputTokens = modelCallDataList.stream()
+                .map(BusinessChatModelCallTraceData::getOutputTokens)
+                .mapToInt(value -> value == null ? 0 : value)
+                .sum();
+        int totalTokens = modelCallDataList.stream()
+                .map(BusinessChatModelCallTraceData::getTotalTokens)
+                .mapToInt(value -> value == null ? 0 : value)
+                .sum();
+        BigDecimal estimatedCost = modelCallDataList.stream()
+                .map(BusinessChatModelCallTraceData::getEstimatedCost)
+                .filter(value -> value != null)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        summaryVo.setInputTokens(inputTokens);
+        summaryVo.setOutputTokens(outputTokens);
+        summaryVo.setTotalTokens(totalTokens);
+        summaryVo.setEstimatedCost(estimatedCost);
+        summaryVo.setCurrency(modelCallDataList.stream()
+                .map(BusinessChatModelCallTraceData::getCurrency)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse("CNY"));
+        summaryVo.setModelCallCount(modelCallDataList.size());
+        summaryVo.setModelCallLimit(runtimeProperties.getMaxModelCallsPerRun());
+        summaryVo.setToolCallCount(toolCallDataList.size());
+        summaryVo.setToolCallLimit(runtimeProperties.getMaxTavilyToolCallsPerRun());
+        modelCallDataList.stream()
+                .filter(data -> Integer.valueOf(3).equals(data.getCallState()))
+                .map(BusinessChatModelCallTraceData::getErrorMessage)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .ifPresent(errorMessage -> {
+                    summaryVo.setLimitTriggered(errorMessage.contains("limit exceeded"));
+                    summaryVo.setLimitTriggerReason(errorMessage);
+                });
+        return summaryVo;
+    }
+
+    private BusinessChatExchangeTraceStageVo toTraceStageVo(BusinessChatExchangeTraceStageData data) {
+        BusinessChatExchangeTraceStageVo vo = new BusinessChatExchangeTraceStageVo();
+        vo.setStageCode(data.getStageCode());
+        vo.setStageName(data.getStageName());
+        vo.setStageOrder(data.getStageOrder());
+        vo.setStageState(toTraceState(data.getStageState()));
+        vo.setDurationMs(data.getDurationMs());
+        vo.setSummaryText(data.getSummaryText());
+        vo.setErrorMessage(data.getErrorMessage());
+        vo.setSnapshot(readNullableJson(data.getSnapshotJson()));
+        vo.setStartTime(data.getStartTime());
+        vo.setEndTime(data.getEndTime());
+        return vo;
+    }
+
+    private BusinessChatModelCallTraceVo toModelCallTraceVo(BusinessChatModelCallTraceData data) {
+        BusinessChatModelCallTraceVo vo = new BusinessChatModelCallTraceVo();
+        vo.setStageCode(data.getStageCode());
+        vo.setStageName(data.getStageName());
+        vo.setProvider(data.getProvider());
+        vo.setModelName(data.getModelName());
+        vo.setCallType(data.getCallType());
+        vo.setInputTokens(data.getInputTokens());
+        vo.setOutputTokens(data.getOutputTokens());
+        vo.setTotalTokens(data.getTotalTokens());
+        vo.setEstimatedCost(data.getEstimatedCost());
+        vo.setCurrency(data.getCurrency());
+        vo.setDurationMs(data.getDurationMs());
+        vo.setCallState(toCallState(data.getCallState()));
+        vo.setErrorMessage(data.getErrorMessage());
+        return vo;
+    }
+
+    private BusinessChatToolCallTraceVo toToolCallTraceVo(BusinessChatToolCallTraceData data) {
+        BusinessChatToolCallTraceVo vo = new BusinessChatToolCallTraceVo();
+        vo.setToolName(data.getToolName());
+        vo.setCallState(toCallState(data.getCallState()));
+        vo.setDurationMs(data.getDurationMs());
+        vo.setErrorMessage(data.getErrorMessage());
+        return vo;
+    }
+
     private BusinessChatSessionExchangeVo buildSessionExchange(BusinessChatExchangeData exchangeData) {
         // exchange 落库时 JSON 化的追问和工具痕迹，在这里还原成前端可直接渲染的数组。
         BusinessChatSessionExchangeVo exchangeVo = new BusinessChatSessionExchangeVo();
-        exchangeVo.setExchangeId(exchangeData.getId());
+        exchangeVo.setExchangeId(String.valueOf(exchangeData.getId()));
         exchangeVo.setUserPrompt(exchangeData.getUserPrompt());
         exchangeVo.setReplyContent(exchangeData.getReplyContent());
         exchangeVo.setSourceSnapshotList(readRequiredStringList(
@@ -197,6 +360,35 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
             return null;
         }
         return BusinessChatExchangeState.fromValue(normalizedTurnStatus).getDatabaseCode();
+    }
+
+    private String toTraceState(Integer state) {
+        if (Integer.valueOf(1).equals(state)) {
+            return "RUNNING";
+        }
+        if (Integer.valueOf(2).equals(state)) {
+            return "COMPLETED";
+        }
+        if (Integer.valueOf(3).equals(state)) {
+            return "FAILED";
+        }
+        if (Integer.valueOf(4).equals(state)) {
+            return "SKIPPED";
+        }
+        return "UNKNOWN";
+    }
+
+    private String toCallState(Integer state) {
+        if (Integer.valueOf(1).equals(state)) {
+            return "RUNNING";
+        }
+        if (Integer.valueOf(2).equals(state)) {
+            return "COMPLETED";
+        }
+        if (Integer.valueOf(3).equals(state)) {
+            return "FAILED";
+        }
+        return "UNKNOWN";
     }
 
     private String normalizeStoredTitle(String value) {

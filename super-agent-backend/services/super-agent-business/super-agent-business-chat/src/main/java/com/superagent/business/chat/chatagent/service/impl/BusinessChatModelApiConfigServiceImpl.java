@@ -3,22 +3,24 @@ package com.superagent.business.chat.chatagent.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.superagent.business.chat.chatagent.config.BusinessChatModelApiConfigProperties;
-import com.superagent.business.chat.chatagent.data.BusinessChatModelApiConfigData;
-import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigIdRequest;
-import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigMoveRequest;
-import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigSaveRequest;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatModelApiConfigMapper;
-import com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot;
-import com.superagent.business.chat.chatagent.model.BusinessChatModelProvider;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatModelApiConfigData;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatModelApiConfigIdRequest;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatModelApiConfigMoveRequest;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatModelApiConfigSaveRequest;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatModelApiConfigMapper;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelApiConfigSnapshot;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelPricing;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelProvider;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatModelApiConfigService;
-import com.superagent.business.chat.chatagent.vo.BusinessChatModelApiConfigVo;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatModelApiConfigVo;
 import com.superagent.business.chat.support.BusinessInputValidator;
 import com.superagent.common.frame.enums.BaseCode;
 import com.superagent.common.frame.exception.BaseException;
 import com.superagent.idgenerator.toolkit.SnowflakeIdGenerator;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Arrays;
@@ -51,6 +53,10 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
     private static final int DISABLED = 0;
 
     private static final int SORT_ORDER_STEP = 1000;
+
+    private static final int DEFAULT_PRICE_UNIT_TOKENS = 1000;
+
+    private static final String DEFAULT_CURRENCY = "CNY";
 
     private static final String AES_TRANSFORMATION = "AES/GCM/NoPadding";
 
@@ -105,6 +111,12 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
         data.setDisplayName(BusinessInputValidator.normalizeRequiredText(request.getDisplayName(), "displayName"));
         data.setBaseUrl(normalizeBaseUrl(request.getBaseUrl()));
         data.setModelName(BusinessInputValidator.normalizeRequiredText(request.getModelName(), "modelName"));
+        BusinessChatModelPricing.UnitPrice unitPrice =
+                BusinessChatModelPricing.configUnitPrice(provider, data.getBaseUrl(), data.getModelName());
+        data.setInputTokenUnitPrice(unitPrice.inputTokenUnitPrice());
+        data.setOutputTokenUnitPrice(unitPrice.outputTokenUnitPrice());
+        data.setPriceUnitTokens(unitPrice.priceUnitTokens());
+        data.setCurrency(unitPrice.currency());
         data.setEnabled(Boolean.TRUE.equals(request.getEnabled()) ? ENABLED : DISABLED);
         String normalizedApiKey = BusinessInputValidator.normalizeOptionalText(request.getApiKey());
         if (StringUtils.hasText(normalizedApiKey)) {
@@ -178,13 +190,7 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
                     BusinessChatErrorCode.CHAT_MODEL_CONFIG_UNAVAILABLE,
                     "model config is unavailable: " + id);
         }
-        return new BusinessChatModelApiConfigSnapshot(
-                data.getId(),
-                BusinessChatModelProvider.fromValue(data.getProvider()),
-                data.getDisplayName(),
-                normalizeBaseUrl(data.getBaseUrl()),
-                data.getModelName(),
-                decodeApiKey(data.getApiKeyCipher()));
+        return toSnapshot(data);
     }
 
     @Override
@@ -198,13 +204,7 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
                     BusinessChatErrorCode.CHAT_MODEL_CONFIG_UNAVAILABLE,
                     "available model config is required before auto completing knowledge metadata");
         }
-        return new BusinessChatModelApiConfigSnapshot(
-                data.getId(),
-                BusinessChatModelProvider.fromValue(data.getProvider()),
-                data.getDisplayName(),
-                normalizeBaseUrl(data.getBaseUrl()),
-                data.getModelName(),
-                decodeApiKey(data.getApiKeyCipher()));
+        return toSnapshot(data);
     }
 
     private BusinessChatModelApiConfigData loadExisting(Long id) {
@@ -221,14 +221,38 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
     }
 
     private BusinessChatModelApiConfigVo toVo(BusinessChatModelApiConfigData data) {
+        BusinessChatModelProvider provider = BusinessChatModelProvider.fromValue(data.getProvider());
+        BusinessChatModelPricing.UnitPrice unitPrice =
+                BusinessChatModelPricing.configUnitPrice(provider, data.getBaseUrl(), data.getModelName());
         return new BusinessChatModelApiConfigVo(
                 String.valueOf(data.getId()),
                 data.getProvider(),
                 data.getDisplayName(),
                 data.getBaseUrl(),
                 data.getModelName(),
+                unitPrice.inputTokenUnitPrice(),
+                unitPrice.outputTokenUnitPrice(),
+                unitPrice.priceUnitTokens(),
+                unitPrice.currency(),
                 StringUtils.hasText(data.getApiKeyCipher()),
                 Objects.equals(ENABLED, data.getEnabled()));
+    }
+
+    private BusinessChatModelApiConfigSnapshot toSnapshot(BusinessChatModelApiConfigData data) {
+        BusinessChatModelProvider provider = BusinessChatModelProvider.fromValue(data.getProvider());
+        BusinessChatModelPricing.UnitPrice unitPrice =
+                BusinessChatModelPricing.configUnitPrice(provider, data.getBaseUrl(), data.getModelName());
+        return new BusinessChatModelApiConfigSnapshot(
+                data.getId(),
+                provider,
+                data.getDisplayName(),
+                normalizeBaseUrl(data.getBaseUrl()),
+                data.getModelName(),
+                decodeApiKey(data.getApiKeyCipher()),
+                unitPrice.inputTokenUnitPrice(),
+                unitPrice.outputTokenUnitPrice(),
+                unitPrice.priceUnitTokens(),
+                unitPrice.currency());
     }
 
     private void normalizeSortOrders() {
@@ -315,6 +339,31 @@ public class BusinessChatModelApiConfigServiceImpl implements BusinessChatModelA
             }
         }
         return normalizedValue;
+    }
+
+    private BigDecimal normalizePrice(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private BigDecimal normalizePrice(BigDecimal value, String fieldName) {
+        BigDecimal normalizedValue = normalizePrice(value);
+        if (normalizedValue.signum() < 0) {
+            throw new BaseException(BaseCode.INVALID_PARAMETER, fieldName + " must be greater than or equal to 0");
+        }
+        return normalizedValue;
+    }
+
+    private int normalizePriceUnitTokens(Integer value) {
+        int normalizedValue = value == null ? DEFAULT_PRICE_UNIT_TOKENS : value;
+        if (normalizedValue <= 0) {
+            throw new BaseException(BaseCode.INVALID_PARAMETER, "priceUnitTokens must be greater than 0");
+        }
+        return normalizedValue;
+    }
+
+    private String normalizeCurrency(String value) {
+        String normalizedValue = BusinessInputValidator.normalizeOptionalText(value);
+        return StringUtils.hasText(normalizedValue) ? normalizedValue : DEFAULT_CURRENCY;
     }
 
     private String encodeApiKey(String apiKey) {

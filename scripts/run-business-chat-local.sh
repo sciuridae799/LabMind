@@ -48,9 +48,16 @@ then
 fi
 
 cd "${ROOT_DIR}/super-agent-backend"
-exec "${MAVEN_BIN}" \
+"${MAVEN_BIN}" \
   -s "${MAVEN_SETTINGS}" \
   -Dmaven.repo.local="${ROOT_DIR}/.m2" \
   -pl services/super-agent-business/super-agent-business-chat \
   -am \
+  -DskipTests \
+  install
+
+exec "${MAVEN_BIN}" \
+  -s "${MAVEN_SETTINGS}" \
+  -Dmaven.repo.local="${ROOT_DIR}/.m2" \
+  -f services/super-agent-business/super-agent-business-chat/pom.xml \
   spring-boot:run

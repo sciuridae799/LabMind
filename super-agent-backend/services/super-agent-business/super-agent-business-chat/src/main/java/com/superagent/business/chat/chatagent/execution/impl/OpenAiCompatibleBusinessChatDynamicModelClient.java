@@ -2,11 +2,15 @@ package com.superagent.business.chat.chatagent.execution.impl;
 
 import com.superagent.business.chat.chatagent.config.BusinessChatRuntimeProperties;
 import com.superagent.business.chat.chatagent.execution.BusinessChatDynamicModelClient;
-import com.superagent.business.chat.chatagent.model.BusinessChatExecutionPlan;
-import com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelApiConfigSnapshot;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelProvider;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
+import com.superagent.business.chat.chatagent.trace.BusinessChatUsageTraceService;
 import io.micrometer.observation.ObservationRegistry;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+import org.springframework.ai.chat.metadata.Usage;
 import org.redisson.api.RedissonClient;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.model.SimpleApiKey;
@@ -31,6 +35,16 @@ public class OpenAiCompatibleBusinessChatDynamicModelClient implements BusinessC
 
     private static final String THREAD_MODEL_CALL_COUNTER_KEY_PREFIX = "super-agent:chat:model-calls:thread:";
 
+    private static final String ZHIPU_CHAT_COMPLETIONS_PATH = "/chat/completions";
+
+    private static final String DEEPSEEK_CHAT_COMPLETIONS_PATH = "/chat/completions";
+
+    private static final String DEEPSEEK_NON_THINKING_TOOL_MODEL = "deepseek-chat";
+
+    private static final String CALL_TYPE_STREAM = "STREAM";
+
+    private static final String CALL_TYPE_NON_STREAM = "NON_STREAM";
+
     private final ToolCallingManager toolCallingManager;
 
     private final RetryTemplate retryTemplate;
@@ -39,32 +53,50 @@ public class OpenAiCompatibleBusinessChatDynamicModelClient implements BusinessC
 
     private final RedissonClient redissonClient;
 
+    private final BusinessChatUsageTraceService usageTraceService;
+
     public OpenAiCompatibleBusinessChatDynamicModelClient(
             ToolCallingManager toolCallingManager,
             RetryTemplate retryTemplate,
             BusinessChatRuntimeProperties runtimeProperties,
-            RedissonClient redissonClient) {
+            RedissonClient redissonClient,
+            BusinessChatUsageTraceService usageTraceService) {
         this.toolCallingManager = toolCallingManager;
         this.retryTemplate = retryTemplate;
         this.runtimeProperties = runtimeProperties;
         this.redissonClient = redissonClient;
+        this.usageTraceService = usageTraceService;
     }
 
     @Override
     public Flux<String> stream(BusinessChatModelApiConfigSnapshot modelConfig, BusinessChatExecutionPlan executionPlan) {
-        return new AbstractChatClientBusinessChatModelClient(buildChatClient(modelConfig, true)) {
+        return new AbstractChatClientBusinessChatModelClient(buildChatClient(modelConfig, true, modelConfig.modelName())) {
         }.stream(executionPlan);
     }
 
     @Override
     public Flux<String> stream(BusinessChatRuntimeContext runtimeContext, BusinessChatExecutionPlan executionPlan) {
         registerModelCall(runtimeContext);
-        return stream(runtimeContext.getTaskInfo().modelConfig(), executionPlan);
+        BusinessChatModelApiConfigSnapshot modelConfig = runtimeContext.getTaskInfo().modelConfig();
+        Long traceId = usageTraceService.startModelCall(runtimeContext, modelConfig, CALL_TYPE_STREAM);
+        AbstractChatClientBusinessChatModelClient client =
+                new AbstractChatClientBusinessChatModelClient(buildChatClient(modelConfig, true, modelConfig.modelName())) {
+                };
+        AtomicReference<Usage> usageRef = new AtomicReference<>();
+        return client.streamResponse(executionPlan)
+                .doOnNext(response -> {
+                    if (response.getMetadata() != null && response.getMetadata().getUsage() != null) {
+                        usageRef.set(response.getMetadata().getUsage());
+                    }
+                })
+                .map(client::extractText)
+                .doOnComplete(() -> usageTraceService.completeModelCall(traceId, usageRef.get()))
+                .doOnError(error -> usageTraceService.failModelCall(traceId, error));
     }
 
     @Override
     public String call(BusinessChatModelApiConfigSnapshot modelConfig, String systemPrompt, String userMessage) {
-        return new AbstractChatClientBusinessChatModelClient(buildChatClient(modelConfig, false)) {
+        return new AbstractChatClientBusinessChatModelClient(buildChatClient(modelConfig, false, modelConfig.modelName())) {
         }.call(systemPrompt, userMessage);
     }
 
@@ -75,7 +107,20 @@ public class OpenAiCompatibleBusinessChatDynamicModelClient implements BusinessC
             String systemPrompt,
             String userMessage) {
         registerModelCall(runtimeContext);
-        return call(modelConfig, systemPrompt, userMessage);
+        Long traceId = usageTraceService.startModelCall(runtimeContext, modelConfig, CALL_TYPE_NON_STREAM);
+        try {
+            AbstractChatClientBusinessChatModelClient client =
+                    new AbstractChatClientBusinessChatModelClient(buildChatClient(modelConfig, false, modelConfig.modelName())) {
+                    };
+            var response = client.callResponse(systemPrompt, userMessage);
+            usageTraceService.completeModelCall(
+                    traceId,
+                    response.getMetadata() == null ? null : response.getMetadata().getUsage());
+            return client.extractText(response);
+        } catch (RuntimeException error) {
+            usageTraceService.failModelCall(traceId, error);
+            throw error;
+        }
     }
 
     private void registerModelCall(BusinessChatRuntimeContext runtimeContext) {
@@ -91,17 +136,25 @@ public class OpenAiCompatibleBusinessChatDynamicModelClient implements BusinessC
         }
     }
 
-    private ChatClient buildChatClient(BusinessChatModelApiConfigSnapshot modelConfig, boolean streaming) {
+    private ChatClient buildChatClient(
+            BusinessChatModelApiConfigSnapshot modelConfig,
+            boolean streaming,
+            String modelName) {
         // 每次调用按模型配置创建客户端，保证后台切换 baseUrl/apiKey/model 后下一轮立即生效。
-        OpenAiApi openAiApi = OpenAiApi.builder()
+        OpenAiApi.Builder openAiApiBuilder = OpenAiApi.builder()
                 .baseUrl(modelConfig.baseUrl())
                 .apiKey(new SimpleApiKey(modelConfig.apiKey()))
                 .restClientBuilder(RestClient.builder())
-                .webClientBuilder(WebClient.builder())
-                .build();
+                .webClientBuilder(WebClient.builder());
+        if (modelConfig.provider() == BusinessChatModelProvider.ZHIPU) {
+            openAiApiBuilder.completionsPath(ZHIPU_CHAT_COMPLETIONS_PATH);
+        } else if (modelConfig.provider() == BusinessChatModelProvider.DEEPSEEK) {
+            openAiApiBuilder.completionsPath(DEEPSEEK_CHAT_COMPLETIONS_PATH);
+        }
+        OpenAiApi openAiApi = openAiApiBuilder.build();
         OpenAiChatModel chatModel = OpenAiChatModel.builder()
                 .openAiApi(openAiApi)
-                .defaultOptions(buildChatOptions(modelConfig, streaming))
+                .defaultOptions(buildChatOptions(modelConfig, streaming, modelName))
                 .toolCallingManager(toolCallingManager)
                 .retryTemplate(retryTemplate)
                 .observationRegistry(ObservationRegistry.NOOP)
@@ -110,13 +163,37 @@ public class OpenAiCompatibleBusinessChatDynamicModelClient implements BusinessC
         return ChatClient.builder(chatModel).build();
     }
 
+    ChatClient buildToolCallingStreamingChatClient(BusinessChatModelApiConfigSnapshot modelConfig) {
+        return buildChatClient(modelConfig, true, resolveToolCallingModelName(modelConfig));
+    }
+
     OpenAiChatOptions buildChatOptions(BusinessChatModelApiConfigSnapshot modelConfig, boolean streaming) {
+        return buildChatOptions(modelConfig, streaming, modelConfig.modelName());
+    }
+
+    OpenAiChatOptions buildChatOptions(
+            BusinessChatModelApiConfigSnapshot modelConfig,
+            boolean streaming,
+            String modelName) {
         OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder()
-                .model(modelConfig.modelName());
-        if (!streaming) {
+                .model(modelName);
+        if (streaming) {
+            builder.streamUsage(true);
+        }
+        if (modelConfig.provider() == BusinessChatModelProvider.DEEPSEEK
+                && !DEEPSEEK_NON_THINKING_TOOL_MODEL.equals(modelName)) {
+            builder.extraBody(Map.of("thinking", Map.of("type", "disabled")));
+        } else if (!streaming) {
             // 收尾和画像生成要求稳定 JSON，非流式调用关闭 thinking，避免模型把思考内容混进结构化输出。
             builder.extraBody(Map.of("enable_thinking", false));
         }
         return builder.build();
+    }
+
+    private String resolveToolCallingModelName(BusinessChatModelApiConfigSnapshot modelConfig) {
+        if (modelConfig.provider() == BusinessChatModelProvider.DEEPSEEK) {
+            return DEEPSEEK_NON_THINKING_TOOL_MODEL;
+        }
+        return modelConfig.modelName();
     }
 }

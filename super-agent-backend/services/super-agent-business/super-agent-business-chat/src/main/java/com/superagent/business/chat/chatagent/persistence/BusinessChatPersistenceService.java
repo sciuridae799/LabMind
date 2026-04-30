@@ -1,7 +1,7 @@
 package com.superagent.business.chat.chatagent.persistence;
 
-import com.superagent.business.chat.chatagent.model.BusinessChatStartPlan;
-import com.superagent.business.chat.chatagent.model.BusinessChatTaskInfo;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatStartPlan;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatTaskInfo;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatFinalizedTurn;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
 

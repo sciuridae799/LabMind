@@ -14,7 +14,8 @@ export type BusinessChatMode = (typeof businessChatModeOptions)[number]['value']
 
 export const modelApiProviderOptions = [
   { value: 'DASHSCOPE', label: 'DASHSCOPE' },
-  { value: 'DEEPSEEK', label: 'DeepSeek' }
+  { value: 'DEEPSEEK', label: 'DeepSeek' },
+  { value: 'ZHIPU', label: '智谱AI' }
 ] as const
 
 export type ModelApiProvider = (typeof modelApiProviderOptions)[number]['value']
@@ -28,6 +29,9 @@ export const modelApiBaseUrlOptions: Record<ModelApiProvider, Array<{ value: str
   ],
   DEEPSEEK: [
     { value: 'https://api.deepseek.com', label: 'OpenAI compatible' }
+  ],
+  ZHIPU: [
+    { value: 'https://open.bigmodel.cn/api/paas/v4', label: '通用 OpenAI compatible' }
   ]
 }
 
@@ -39,7 +43,6 @@ export const modelApiModelOptions: Record<ModelApiProvider, Array<{ value: strin
     { value: 'qwen-turbo-latest', label: 'qwen-turbo-latest' },
     { value: 'qwen-max', label: 'qwen-max' },
     { value: 'qwen-max-latest', label: 'qwen-max-latest' },
-    { value: 'qwq-32b', label: 'qwq-32b' },
     { value: 'qwen3-235b-a22b', label: 'qwen3-235b-a22b' },
     { value: 'qwen3-32b', label: 'qwen3-32b' }
   ],
@@ -48,6 +51,10 @@ export const modelApiModelOptions: Record<ModelApiProvider, Array<{ value: strin
     { value: 'deepseek-v4-pro', label: 'deepseek-v4-pro' },
     { value: 'deepseek-chat', label: 'deepseek-chat' },
     { value: 'deepseek-reasoner', label: 'deepseek-reasoner' }
+  ],
+  ZHIPU: [
+    { value: 'glm-5', label: 'glm-5' },
+    { value: 'glm-5.1', label: 'glm-5.1' }
   ]
 }
 
@@ -79,6 +86,10 @@ export interface ModelApiConfig {
   displayName: string
   baseUrl: string
   modelName: string
+  inputTokenUnitPrice: string | number
+  outputTokenUnitPrice: string | number
+  priceUnitTokens: string | number
+  currency: string
   apiKeyConfigured: boolean
   enabled: boolean
 }
@@ -90,13 +101,17 @@ export interface SaveModelApiConfigPayload extends JsonObject {
   baseUrl: string
   modelName: string
   apiKey?: string
+  inputTokenUnitPrice?: string | number
+  outputTokenUnitPrice?: string | number
+  priceUnitTokens?: string | number
+  currency?: string
   enabled: boolean
 }
 
 export interface BusinessChatStreamEvent {
   eventType?: string
   conversationId?: string
-  exchangeId?: string | number | null
+  exchangeId?: string | null
   chatMode?: string | null
   textDelta?: string | null
   functionSupplement?: string | null
@@ -122,7 +137,7 @@ export interface BusinessChatSessionListItem {
   title: string
   chatMode: BusinessChatMode
   turnStatus: string
-  lastExchangeId: string | number | null
+  lastExchangeId: string | null
   lastQuestion: string
   lastReply: string
   updateTime: string
@@ -137,7 +152,7 @@ export interface SessionListPage {
 }
 
 export interface BusinessChatSessionExchange {
-  exchangeId: string | number
+  exchangeId: string
   userPrompt: string
   replyContent: string
   sourceSnapshotList: string[]
@@ -160,6 +175,71 @@ export interface BusinessChatSessionDetail {
   summaryText: string | null
   summaryJson: unknown
   exchanges: BusinessChatSessionExchange[]
+}
+
+export interface ExchangeUsageSummary {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  estimatedCost: string | number
+  currency: string
+  modelCallCount: number
+  modelCallLimit: number
+  toolCallCount: number
+  toolCallLimit: number
+  limitTriggered: boolean
+  limitTriggerReason: string | null
+}
+
+export interface ExchangeTraceStage {
+  stageCode: string
+  stageName: string
+  stageOrder: number
+  stageState: string
+  durationMs: string | number | null
+  summaryText: string | null
+  errorMessage: string | null
+  snapshot: unknown
+  startTime: string | null
+  endTime: string | null
+}
+
+export interface ExchangeModelCallTrace {
+  stageCode: string
+  stageName: string
+  provider: string
+  modelName: string
+  callType: string
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  estimatedCost: string | number
+  currency: string
+  durationMs: string | number | null
+  callState: string
+  errorMessage: string | null
+}
+
+export interface ExchangeToolCallTrace {
+  toolName: string
+  callState: string
+  durationMs: string | number | null
+  errorMessage: string | null
+}
+
+export interface BusinessChatExchangeDetail {
+  conversationId: string
+  exchangeId: string
+  userPrompt: string
+  replyContent: string
+  exchangeState: string
+  finishNote: string | null
+  firstTokenLatencyMs: string | number | null
+  totalLatencyMs: string | number | null
+  usageSummary: ExchangeUsageSummary
+  stages: ExchangeTraceStage[]
+  modelCalls: ExchangeModelCallTrace[]
+  toolCalls: ExchangeToolCallTrace[]
 }
 
 export interface BusinessChatActiveSession {
@@ -201,7 +281,7 @@ export interface ChatApi {
    * 查询单轮 exchange 详情。
    * 适合查看某一问答轮次的输入、输出和关联明细。
    */
-  getExchangeDetail(conversationId: string, exchangeId: ExchangeId): Promise<unknown>
+  getExchangeDetail(conversationId: string, exchangeId: ExchangeId): Promise<BusinessChatExchangeDetail>
 
   /**
    * 删除会话。
@@ -453,13 +533,13 @@ export const chatApi: ChatApi = {
   },
 
   getExchangeDetail(conversationId, exchangeId) {
-    return requestApiEnvelope('/api/chat/exchange/detail', {
+    return requestApiEnvelope<BusinessChatExchangeDetail, JsonObject>('/api/chat/exchange/detail', {
       method: 'POST',
       body: {
         conversationId,
         exchangeId: String(exchangeId)
       }
-    })
+    }).then((data) => requireChatApiPayload(data, '轮次详情响应为空'))
   },
 
   deleteSession(conversationId) {

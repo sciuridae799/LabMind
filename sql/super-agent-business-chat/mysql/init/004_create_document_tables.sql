@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS super_agent_document (
     id BIGINT NOT NULL COMMENT '主键id',
     document_name VARCHAR(255) NOT NULL COMMENT '文档名称',
     original_file_name VARCHAR(255) NOT NULL COMMENT '原始文件名',
-    file_type TINYINT NOT NULL COMMENT '文件类型 1:PDF 2:DOC 3:DOCX 4:TXT 5:MD 6:HTML',
+    file_type TINYINT NOT NULL COMMENT '文件类型 1:PDF 2:DOC 3:DOCX 4:TXT 5:MD 6:HTML 7:PPT 8:PPTX',
     mime_type VARCHAR(128) DEFAULT NULL COMMENT 'MIME类型',
     file_size BIGINT DEFAULT '0' COMMENT '文件大小(byte)',
     storage_type TINYINT NOT NULL DEFAULT '1' COMMENT '存储类型 1:MinIO',

@@ -1,10 +1,10 @@
 package com.superagent.business.chat.chatagent.service;
 
-import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigIdRequest;
-import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigMoveRequest;
-import com.superagent.business.chat.chatagent.dto.BusinessChatModelApiConfigSaveRequest;
-import com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot;
-import com.superagent.business.chat.chatagent.vo.BusinessChatModelApiConfigVo;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatModelApiConfigIdRequest;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatModelApiConfigMoveRequest;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatModelApiConfigSaveRequest;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelApiConfigSnapshot;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatModelApiConfigVo;
 import java.util.List;
 
 public interface BusinessChatModelApiConfigService {

@@ -15,4 +15,14 @@ public class KnowledgeKafkaConfiguration {
     public NewTopic documentParseRequestedTopic(KnowledgeKafkaTopicProperties topicProperties) {
         return new NewTopic(topicProperties.getDocumentParseRequested(), 1, (short) 1);
     }
+
+    @Bean
+    public NewTopic documentIndexRequestedTopic(KnowledgeKafkaTopicProperties topicProperties) {
+        return new NewTopic(topicProperties.getDocumentIndexRequested(), 1, (short) 1);
+    }
+
+    @Bean
+    public NewTopic shadowRouteRequestedTopic(KnowledgeKafkaTopicProperties topicProperties) {
+        return new NewTopic(topicProperties.getShadowRouteRequested(), 1, (short) 1);
+    }
 }

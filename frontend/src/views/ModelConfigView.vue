@@ -23,9 +23,9 @@ interface ModelConfigForm {
 
 const emptyForm = (): ModelConfigForm => ({
   id: '',
-  provider: 'DEEPSEEK',
+  provider: 'ZHIPU',
   displayName: '',
-  baseUrl: 'https://api.deepseek.com',
+  baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
   modelName: '',
   apiKey: '',
   enabled: true

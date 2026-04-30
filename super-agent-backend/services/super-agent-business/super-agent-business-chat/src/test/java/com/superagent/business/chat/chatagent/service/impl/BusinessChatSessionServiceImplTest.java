@@ -6,12 +6,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.superagent.business.chat.chatagent.data.BusinessChatDialogueData;
-import com.superagent.business.chat.chatagent.dto.BusinessChatDeleteSessionRequest;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatDialogueMapper;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeMapper;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeTraceStageMapper;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatMemorySummaryMapper;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatDialogueData;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatDeleteSessionRequest;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatDialogueMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExchangeMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExchangeTraceStageMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatMemorySummaryMapper;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
 import com.superagent.common.frame.exception.BaseException;

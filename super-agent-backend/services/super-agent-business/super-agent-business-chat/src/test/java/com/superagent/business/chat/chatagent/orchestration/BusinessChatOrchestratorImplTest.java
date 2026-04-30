@@ -7,25 +7,34 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.inOrder;
 
-import com.superagent.business.chat.chatagent.agent.BusinessChatAgentType;
+import com.superagent.business.chat.chatagent.execution.agent.BusinessChatAgentType;
 import com.superagent.business.chat.chatagent.config.BusinessChatClarificationProperties;
 import com.superagent.business.chat.chatagent.config.BusinessChatHistorySummaryProperties;
-import com.superagent.business.chat.chatagent.data.BusinessChatExchangeData;
-import com.superagent.business.chat.chatagent.data.BusinessChatMemorySummaryData;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeMapper;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatMemorySummaryMapper;
-import com.superagent.business.chat.chatagent.model.BusinessChatMode;
-import com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot;
-import com.superagent.business.chat.chatagent.model.BusinessChatModelProvider;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatExchangeData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatMemorySummaryData;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExchangeMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatMemorySummaryMapper;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatMode;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelApiConfigSnapshot;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelProvider;
+import com.superagent.business.chat.chatagent.persistence.BusinessChatPersistenceService;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
-import com.superagent.business.chat.chatagent.model.BusinessChatTaskInfo;
-import com.superagent.business.chat.knowledge.config.KnowledgeRouteProperties;
-import com.superagent.business.chat.knowledge.graph.KnowledgeGraphClient;
-import com.superagent.business.chat.knowledge.model.KnowledgeRouteCandidate;
-import com.superagent.business.chat.knowledge.service.KnowledgeManageService;
-import com.superagent.business.chat.knowledge.service.KnowledgeRouteTraceService;
-import com.superagent.business.chat.knowledge.vo.KnowledgeDocumentProfileVo;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatTaskInfo;
+import com.superagent.business.chat.chatagent.trace.BusinessChatTraceStageRunner;
+import com.superagent.business.chat.knowledge.route.config.KnowledgeRouteProperties;
+import com.superagent.business.chat.knowledge.route.graph.KnowledgeGraphClient;
+import com.superagent.business.chat.knowledge.route.messaging.KnowledgeShadowRouteProducer;
+import com.superagent.business.chat.knowledge.route.model.KnowledgeRouteCandidate;
+import com.superagent.business.chat.knowledge.route.model.KnowledgeRouteDecision;
+import com.superagent.business.chat.knowledge.document.service.KnowledgeManageService;
+import com.superagent.business.chat.knowledge.route.service.KnowledgeRouteTraceService;
+import com.superagent.business.chat.knowledge.retrieval.KnowledgeRetrievalResult;
+import com.superagent.business.chat.knowledge.retrieval.KnowledgeRetrievalParentEvidence;
+import com.superagent.business.chat.knowledge.retrieval.KnowledgeRetrievalService;
+import com.superagent.business.chat.knowledge.api.vo.KnowledgeDocumentProfileVo;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -33,6 +42,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Sinks;
 
@@ -55,7 +65,16 @@ class BusinessChatOrchestratorImplTest {
     private KnowledgeRouteTraceService knowledgeRouteTraceService;
 
     @Mock
+    private KnowledgeShadowRouteProducer shadowRouteProducer;
+
+    @Mock
     private BusinessChatQuestionRewriteService questionRewriteService;
+
+    @Mock
+    private KnowledgeRetrievalService knowledgeRetrievalService;
+
+    @Mock
+    private BusinessChatPersistenceService businessChatPersistenceService;
 
     private BusinessChatHistorySummaryProperties historySummaryProperties;
 
@@ -70,16 +89,21 @@ class BusinessChatOrchestratorImplTest {
         historySummaryProperties = buildHistorySummaryProperties(true, 4, 2200, 1400);
         clarificationProperties = buildClarificationProperties();
         routeProperties = buildRouteProperties();
+        BusinessChatTraceStageRunner traceStageRunner = new BusinessChatTraceStageRunner(businessChatPersistenceService);
         businessChatOrchestrator = new BusinessChatOrchestratorImpl(
                 businessChatMemorySummaryMapper,
                 businessChatExchangeMapper,
                 knowledgeGraphClient,
                 knowledgeManageService,
                 knowledgeRouteTraceService,
+                shadowRouteProducer,
                 historySummaryProperties,
                 clarificationProperties,
                 routeProperties,
-                questionRewriteService);
+                questionRewriteService,
+                knowledgeRetrievalService,
+                traceStageRunner);
+        lenient().when(knowledgeRetrievalService.retrieve(any())).thenReturn(KnowledgeRetrievalResult.empty());
     }
 
     @Test
@@ -104,6 +128,54 @@ class BusinessChatOrchestratorImplTest {
     }
 
     @Test
+    void shouldRecordOrchestrationTraceStagesInExecutionOrder() {
+        when(businessChatMemorySummaryMapper.selectOne(any())).thenReturn(null);
+        when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of());
+        when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("请说明这条链路");
+
+        businessChatOrchestrator.orchestrate(createRuntimeContext(BusinessChatMode.OPEN_ENDED));
+
+        InOrder inOrder = inOrder(businessChatPersistenceService);
+        inOrder.verify(businessChatPersistenceService).startTraceStage(any(), org.mockito.ArgumentMatchers.eq("MEMORY_LOAD"), org.mockito.ArgumentMatchers.eq("会话记忆加载"), org.mockito.ArgumentMatchers.eq(100));
+        inOrder.verify(businessChatPersistenceService).completeTraceStage(any(), org.mockito.ArgumentMatchers.eq("会话记忆加载完成，最近对话窗口 0 轮"), any());
+        inOrder.verify(businessChatPersistenceService).startTraceStage(any(), org.mockito.ArgumentMatchers.eq("QUESTION_REWRITE"), org.mockito.ArgumentMatchers.eq("问题改写"), org.mockito.ArgumentMatchers.eq(200));
+        inOrder.verify(businessChatPersistenceService).completeTraceStage(any(), org.mockito.ArgumentMatchers.eq("问题改写完成"), any());
+        inOrder.verify(businessChatPersistenceService).startTraceStage(any(), org.mockito.ArgumentMatchers.eq("FRESHNESS_DETECTION"), org.mockito.ArgumentMatchers.eq("时效性判断"), org.mockito.ArgumentMatchers.eq(250));
+        inOrder.verify(businessChatPersistenceService).completeTraceStage(any(), org.mockito.ArgumentMatchers.eq("未命中实时信息信号"), any());
+        inOrder.verify(businessChatPersistenceService).startTraceStage(any(), org.mockito.ArgumentMatchers.eq("ROUTE_DECISION"), org.mockito.ArgumentMatchers.eq("路由判定"), org.mockito.ArgumentMatchers.eq(300));
+        inOrder.verify(businessChatPersistenceService).completeTraceStage(any(), org.mockito.ArgumentMatchers.eq("路由判定完成，本轮模式为 OPEN_ENDED"), any());
+        inOrder.verify(businessChatPersistenceService).startTraceStage(any(), org.mockito.ArgumentMatchers.eq("GRAPH_QUERY"), org.mockito.ArgumentMatchers.eq("结构图查询"), org.mockito.ArgumentMatchers.eq(400));
+        inOrder.verify(businessChatPersistenceService).completeTraceStage(any(), org.mockito.ArgumentMatchers.eq("开放问答模式不查询结构图"), any());
+        inOrder.verify(businessChatPersistenceService).startTraceStage(any(), org.mockito.ArgumentMatchers.eq("DOCUMENT_CONTEXT"), org.mockito.ArgumentMatchers.eq("文档画像加载"), org.mockito.ArgumentMatchers.eq(450));
+        inOrder.verify(businessChatPersistenceService).completeTraceStage(any(), org.mockito.ArgumentMatchers.eq("当前模式不需要文档画像"), any());
+        inOrder.verify(businessChatPersistenceService).startTraceStage(any(), org.mockito.ArgumentMatchers.eq("EVIDENCE_RETRIEVAL"), org.mockito.ArgumentMatchers.eq("证据检索"), org.mockito.ArgumentMatchers.eq(500));
+        inOrder.verify(businessChatPersistenceService).completeTraceStage(any(), org.mockito.ArgumentMatchers.eq("没有检索到可注入回答的正文证据"), any());
+    }
+
+    @Test
+    void shouldRecordGraphQueryFailureWhenKnowledgeGraphThrows() {
+        when(businessChatMemorySummaryMapper.selectOne(any())).thenReturn(null);
+        when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of());
+        when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("订单审核怎么配置？");
+        when(knowledgeGraphClient.routeQuestion("订单审核怎么配置？", 5))
+                .thenThrow(new IllegalStateException("graph query failed"));
+
+        assertThatThrownBy(() -> businessChatOrchestrator.orchestrate(
+                createRuntimeContext(BusinessChatMode.KNOWLEDGE_BASE, "订单审核怎么配置？")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("graph query failed");
+
+        verify(businessChatPersistenceService).startTraceStage(
+                any(),
+                org.mockito.ArgumentMatchers.eq("GRAPH_QUERY"),
+                org.mockito.ArgumentMatchers.eq("结构图查询"),
+                org.mockito.ArgumentMatchers.eq(400));
+        verify(businessChatPersistenceService).failTraceStage(
+                any(),
+                org.mockito.ArgumentMatchers.isA(IllegalStateException.class));
+    }
+
+    @Test
     void shouldBuildKnowledgePlanWithLoadedMemoryAndRewrittenQuestion() {
         BusinessChatMemorySummaryData summaryData = new BusinessChatMemorySummaryData();
         summaryData.setDialogueCode("conversation-1");
@@ -117,7 +189,7 @@ class BusinessChatOrchestratorImplTest {
         when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of(latestExchangeData));
         when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("订单审核链路有哪些风险？");
         when(knowledgeGraphClient.routeQuestion("订单审核链路有哪些风险？", 5))
-                .thenReturn(List.of(new KnowledgeRouteCandidate(
+                .thenReturn(routeDecision(List.of(new KnowledgeRouteCandidate(
                         9001L,
                         "订单审核手册",
                         "order_scope",
@@ -131,7 +203,7 @@ class BusinessChatOrchestratorImplTest {
                         0,
                         List.of("订单审核"),
                         List.of(),
-                        "术语命中：订单审核")));
+                        "术语命中：订单审核"))));
 
         var executionPlan = businessChatOrchestrator.orchestrate(
                 createRuntimeContext(BusinessChatMode.KNOWLEDGE_BASE, "这个有哪些风险？"));
@@ -169,7 +241,7 @@ class BusinessChatOrchestratorImplTest {
         when(businessChatMemorySummaryMapper.selectOne(any())).thenReturn(null);
         when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of());
         when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("订单审核怎么配置？");
-        when(knowledgeGraphClient.routeQuestion("订单审核怎么配置？", 5)).thenReturn(List.of());
+        when(knowledgeGraphClient.routeQuestion("订单审核怎么配置？", 5)).thenReturn(KnowledgeRouteDecision.empty());
 
         var executionPlan = businessChatOrchestrator.orchestrate(
                 createRuntimeContext(BusinessChatMode.KNOWLEDGE_BASE, "订单审核怎么配置？"));
@@ -188,10 +260,10 @@ class BusinessChatOrchestratorImplTest {
         when(businessChatMemorySummaryMapper.selectOne(any())).thenReturn(null);
         when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of());
         when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("流程怎么配置？");
-        when(knowledgeGraphClient.routeQuestion("流程怎么配置？", 5)).thenReturn(List.of(
+        when(knowledgeGraphClient.routeQuestion("流程怎么配置？", 5)).thenReturn(routeDecision(List.of(
                 routeCandidate(9001L, "订单审核手册", "order_scope", "订单知识域", 5.0),
                 routeCandidate(9002L, "合同审批手册", "contract_scope", "合同知识域", 4.4),
-                routeCandidate(9003L, "费用报销手册", "expense_scope", "费用知识域", 3.0)));
+                routeCandidate(9003L, "费用报销手册", "expense_scope", "费用知识域", 3.0))));
 
         var executionPlan = businessChatOrchestrator.orchestrate(
                 createRuntimeContext(BusinessChatMode.KNOWLEDGE_BASE, "流程怎么配置？"));
@@ -213,9 +285,9 @@ class BusinessChatOrchestratorImplTest {
         when(businessChatMemorySummaryMapper.selectOne(any())).thenReturn(null);
         when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of());
         when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("订单审核流程怎么配置？");
-        when(knowledgeGraphClient.routeQuestion("订单审核流程怎么配置？", 5)).thenReturn(List.of(
+        when(knowledgeGraphClient.routeQuestion("订单审核流程怎么配置？", 5)).thenReturn(routeDecision(List.of(
                 routeCandidate(9001L, "订单审核手册", "order_scope", "订单知识域", 5.0),
-                routeCandidate(9002L, "订单风控手册", "order_scope", "订单知识域", 4.4)));
+                routeCandidate(9002L, "订单风控手册", "order_scope", "订单知识域", 4.4))));
 
         var executionPlan = businessChatOrchestrator.orchestrate(
                 createRuntimeContext(BusinessChatMode.KNOWLEDGE_BASE, "订单审核流程怎么配置？"));
@@ -284,7 +356,10 @@ class BusinessChatOrchestratorImplTest {
         profileVo.setTerms(List.of("订单审核", "风控"));
         profileVo.setAnswerableQuestions(List.of("订单审核有哪些节点？"));
         when(knowledgeManageService.queryDocumentProfile(any())).thenReturn(profileVo);
-        when(knowledgeManageService.queryDocumentParsedText(any())).thenReturn("正文说明：订单审核包括提交、风控、人工审核和归档。");
+        when(knowledgeRetrievalService.retrieve(any())).thenReturn(
+                new KnowledgeRetrievalResult(
+                        "[1]\nParent正文：\n订单审核包括提交、风控、人工审核和归档。",
+                        List.of(parentEvidence())));
 
         var executionPlan = businessChatOrchestrator.orchestrate(
                 createRuntimeContext(BusinessChatMode.CURRENT_DOCUMENT, "订单审核有哪些节点？"));
@@ -295,10 +370,56 @@ class BusinessChatOrchestratorImplTest {
                 "文档名称：订单审核规范.pdf",
                 "画像摘要：这是一份订单审核规范。",
                 "可回答问题：订单审核有哪些节点？",
-                "术语：订单审核、风控",
-                "文档正文：",
+                "术语：订单审核、风控");
+        assertThat(executionPlan.retrievalEvidenceContextText()).contains(
+                "Parent正文：",
                 "订单审核包括提交、风控、人工审核和归档。");
-        assertThat(executionPlan.executionStepList()).contains("当前文档上下文：已加载");
+        assertThat(executionPlan.shortCircuit()).isFalse();
+        assertThat(executionPlan.executionStepList()).contains("当前文档画像上下文：已加载");
+        verify(knowledgeGraphClient, never()).routeQuestion(any(), anyInt());
+        verify(knowledgeManageService, never()).queryDocumentParsedText(any());
+        verify(knowledgeRetrievalService).retrieve(any());
+        verify(shadowRouteProducer).publish(any());
+    }
+
+    @Test
+    void shouldShortCircuitCurrentDocumentWhenRetrievalHasNoEvidence() {
+        when(businessChatMemorySummaryMapper.selectOne(any())).thenReturn(null);
+        when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of());
+        when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("订单审核有哪些节点？");
+        KnowledgeDocumentProfileVo profileVo = new KnowledgeDocumentProfileVo();
+        profileVo.setDocumentId("9001");
+        profileVo.setSummaryText("这是一份订单审核规范。");
+        when(knowledgeManageService.queryDocumentProfile(any())).thenReturn(profileVo);
+        when(knowledgeRetrievalService.retrieve(any())).thenReturn(KnowledgeRetrievalResult.empty());
+
+        var executionPlan = businessChatOrchestrator.orchestrate(
+                createRuntimeContext(BusinessChatMode.CURRENT_DOCUMENT, "订单审核有哪些节点？"));
+
+        assertThat(executionPlan.shortCircuit()).isTrue();
+        assertThat(executionPlan.shortCircuitReply())
+                .isEqualTo("当前文档中没有检索到足够证据，无法基于当前文档回答该问题。");
+        assertThat(executionPlan.intentLabel()).isEqualTo("evidence_short_circuit");
+        assertThat(executionPlan.executionStepList()).contains("证据短路：未调用模型生成");
+    }
+
+    @Test
+    void shouldShortCircuitKnowledgeBaseWhenRouteMatchedButRetrievalHasNoEvidence() {
+        when(businessChatMemorySummaryMapper.selectOne(any())).thenReturn(null);
+        when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of());
+        when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("订单审核有哪些节点？");
+        when(knowledgeGraphClient.routeQuestion("订单审核有哪些节点？", 5))
+                .thenReturn(routeDecision(List.of(routeCandidate(9001L, "订单审核手册", "order_scope", "订单知识域", 5.0))));
+        when(knowledgeRetrievalService.retrieve(any())).thenReturn(KnowledgeRetrievalResult.empty());
+
+        var executionPlan = businessChatOrchestrator.orchestrate(
+                createRuntimeContext(BusinessChatMode.KNOWLEDGE_BASE, "订单审核有哪些节点？"));
+
+        assertThat(executionPlan.shortCircuit()).isTrue();
+        assertThat(executionPlan.shortCircuitReply())
+                .isEqualTo("知识库中没有检索到足够证据，无法基于知识库回答该问题。");
+        assertThat(executionPlan.agentType()).isEqualTo(BusinessChatAgentType.KNOWLEDGE_QA);
+        assertThat(executionPlan.executionStepList()).contains("证据短路：未调用模型生成");
     }
 
     @Test
@@ -384,7 +505,7 @@ class BusinessChatOrchestratorImplTest {
                         "DASHSCOPE",
                         "https://dashscope.aliyuncs.com/compatible-mode",
                         modelName,
-                        "api-key"),
+                        "api-key", java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, 1000, "CNY"),
                 chatMode == BusinessChatMode.CURRENT_DOCUMENT ? 9001L : null,
                 chatMode == BusinessChatMode.CURRENT_DOCUMENT ? "订单审核规范.pdf" : null,
                 "trace-1",
@@ -447,6 +568,22 @@ class BusinessChatOrchestratorImplTest {
                 List.of(documentName),
                 List.of(),
                 "术语命中：" + documentName);
+    }
+
+    private KnowledgeRouteDecision routeDecision(List<KnowledgeRouteCandidate> candidates) {
+        return new KnowledgeRouteDecision(List.of(), List.of(), candidates);
+    }
+
+    private KnowledgeRetrievalParentEvidence parentEvidence() {
+        return new KnowledgeRetrievalParentEvidence(
+                8001L,
+                9001L,
+                "订单审核规范.pdf",
+                "第一章",
+                "订单审核包括提交、风控、人工审核和归档。",
+                1.0D,
+                List.of(7001L),
+                List.of("VECTOR"));
     }
 
     private BusinessChatExchangeData buildExchange(

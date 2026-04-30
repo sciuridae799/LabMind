@@ -1,7 +1,7 @@
 package com.superagent.business.chat.chatagent.service;
 
-import com.superagent.business.chat.chatagent.dto.BusinessChatStreamRequest;
-import com.superagent.business.chat.chatagent.vo.BusinessChatStreamEvent;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatStreamRequest;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatStreamEvent;
 import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
 

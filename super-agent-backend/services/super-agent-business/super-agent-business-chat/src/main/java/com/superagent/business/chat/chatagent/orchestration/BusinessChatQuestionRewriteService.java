@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superagent.business.chat.chatagent.config.BusinessChatRewriteProperties;
 import com.superagent.business.chat.chatagent.execution.BusinessChatDynamicModelClient;
-import com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelApiConfigSnapshot;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
 import java.util.List;
 import lombok.RequiredArgsConstructor;

@@ -1,9 +1,11 @@
 package com.superagent.business.chat.chatagent.service;
 
-import com.superagent.business.chat.chatagent.dto.BusinessChatSessionDetailRequest;
-import com.superagent.business.chat.chatagent.dto.BusinessChatSessionListRequest;
-import com.superagent.business.chat.chatagent.vo.BusinessChatSessionDetailVo;
-import com.superagent.business.chat.chatagent.vo.BusinessChatSessionListPageVo;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatExchangeDetailRequest;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatSessionDetailRequest;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatSessionListRequest;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatExchangeDetailVo;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatSessionDetailVo;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatSessionListPageVo;
 
 /**
  * 会话查询服务。
@@ -34,6 +36,8 @@ public interface BusinessChatQueryService {
      * @return 会话详情和完整 exchange 列表
      */
     BusinessChatSessionDetailVo getSession(BusinessChatSessionDetailRequest request);
+
+    BusinessChatExchangeDetailVo getExchangeDetail(BusinessChatExchangeDetailRequest request);
 
     String getActiveConversationId();
 }

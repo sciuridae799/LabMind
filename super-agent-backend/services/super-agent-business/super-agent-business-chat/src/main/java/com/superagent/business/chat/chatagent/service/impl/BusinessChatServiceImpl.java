@@ -1,18 +1,18 @@
 package com.superagent.business.chat.chatagent.service.impl;
 
-import com.superagent.business.chat.chatagent.agent.BusinessChatAgentEvent;
-import com.superagent.business.chat.chatagent.agent.BusinessChatAgentRegistry;
-import com.superagent.business.chat.chatagent.dto.BusinessChatStreamRequest;
-import com.superagent.business.chat.chatagent.finalization.BusinessChatFinalizationGenerator;
-import com.superagent.business.chat.chatagent.finalization.BusinessChatFinalizationResult;
-import com.superagent.business.chat.chatagent.model.BusinessChatConversationLeaseKeys;
-import com.superagent.business.chat.chatagent.model.BusinessChatEventType;
-import com.superagent.business.chat.chatagent.model.BusinessChatExecutionPlan;
-import com.superagent.business.chat.chatagent.model.BusinessChatIntentAnalysis;
-import com.superagent.business.chat.chatagent.model.BusinessChatMode;
-import com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot;
-import com.superagent.business.chat.chatagent.model.BusinessChatStartPlan;
-import com.superagent.business.chat.chatagent.model.BusinessChatTaskInfo;
+import com.superagent.business.chat.chatagent.execution.agent.BusinessChatAgentEvent;
+import com.superagent.business.chat.chatagent.execution.agent.BusinessChatAgentRegistry;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatStreamRequest;
+import com.superagent.business.chat.chatagent.orchestration.finalization.BusinessChatFinalizationGenerator;
+import com.superagent.business.chat.chatagent.orchestration.finalization.BusinessChatFinalizationResult;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatConversationLeaseKeys;
+import com.superagent.business.chat.chatagent.persistence.model.BusinessChatEventType;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatIntentAnalysis;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatMode;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelApiConfigSnapshot;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatStartPlan;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatTaskInfo;
 import com.superagent.business.chat.chatagent.orchestration.BusinessChatOrchestrator;
 import com.superagent.business.chat.chatagent.persistence.BusinessChatPersistenceService;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatFinalizedTurn;
@@ -21,11 +21,14 @@ import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeRegistr
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatModelApiConfigService;
 import com.superagent.business.chat.chatagent.service.BusinessChatService;
-import com.superagent.business.chat.chatagent.vo.BusinessChatStreamEvent;
+import com.superagent.business.chat.chatagent.trace.BusinessChatTraceStage;
+import com.superagent.business.chat.chatagent.trace.BusinessChatTraceStageRunner;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatStreamEvent;
 import com.superagent.business.chat.support.BusinessInputValidator;
-import com.superagent.business.chat.knowledge.dto.KnowledgeDocumentIdRequest;
-import com.superagent.business.chat.knowledge.service.KnowledgeManageService;
-import com.superagent.business.chat.knowledge.vo.KnowledgeDocumentVo;
+import com.superagent.business.chat.knowledge.api.dto.KnowledgeDocumentIdRequest;
+import com.superagent.business.chat.knowledge.retrieval.KnowledgeRetrievalParentEvidence;
+import com.superagent.business.chat.knowledge.document.service.KnowledgeManageService;
+import com.superagent.business.chat.knowledge.api.vo.KnowledgeDocumentVo;
 import com.superagent.common.frame.exception.BaseException;
 import com.superagent.redisson.servicelease.lease.RedisLeaseManager;
 import java.time.Duration;
@@ -70,10 +73,6 @@ public class BusinessChatServiceImpl implements BusinessChatService {
 
     private static final Duration LEASE_RENEW_INTERVAL = Duration.ofSeconds(10);
 
-    private static final String FINALIZE_STAGE_CODE = "FINALIZE";
-
-    private static final String RECOMMENDATION_STAGE_CODE = "RECOMMENDATION";
-
     private final RedisLeaseManager redisLeaseManager;
 
     private final BusinessChatPersistenceService businessChatPersistenceService;
@@ -89,6 +88,8 @@ public class BusinessChatServiceImpl implements BusinessChatService {
     private final BusinessChatModelApiConfigService modelApiConfigService;
 
     private final KnowledgeManageService knowledgeManageService;
+
+    private final BusinessChatTraceStageRunner traceStageRunner;
 
     @Override
     public Flux<ServerSentEvent<BusinessChatStreamEvent>> streamChat(BusinessChatStreamRequest request) {
@@ -232,13 +233,47 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                 .then(Mono.fromSupplier(() -> orchestrateExecutionPlan(runtimeContext)))
                 .doOnNext(executionPlan -> runtimeContext.setIntentAnalysis(buildIntentAnalysis(executionPlan)))
                 .doOnNext(runtimeContext::setExecutionPlan)
+                .doOnNext(executionPlan -> applyRetrievalSourceSnapshots(runtimeContext, executionPlan))
                 .doOnNext(executionPlan -> pushAgentStarted(runtimeContext, executionPlan))
-                .flatMapMany(executionPlan -> businessChatAgentRegistry.getRequiredAgent(executionPlan.agentType())
-                        .execute(runtimeContext, executionPlan))
+                .flatMapMany(executionPlan -> executeAgentWithTrace(runtimeContext, executionPlan))
                 .concatMap(textDelta -> Mono.fromRunnable(() -> pushTextDeltaContinuously(runtimeContext, textDelta)))
                 .then(Mono.fromRunnable(() -> pushAgentFinished(runtimeContext)))
                 .then(Mono.fromRunnable(() -> pushFunctionSupplement(runtimeContext)))
                 .then(finalizeSucceededTurn(runtimeContext));
+    }
+
+    private Flux<String> executeAgentWithTrace(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatExecutionPlan executionPlan) {
+        Long answerGenerationTraceStageId = null;
+        try {
+            answerGenerationTraceStageId = traceStageRunner.start(
+                    runtimeContext,
+                    BusinessChatTraceStage.ANSWER_GENERATION);
+            Long boundTraceStageId = answerGenerationTraceStageId;
+            return businessChatAgentRegistry.getRequiredAgent(executionPlan.agentType())
+                    .execute(runtimeContext, executionPlan)
+                    .doOnComplete(() -> traceStageRunner.complete(
+                            boundTraceStageId,
+                            executionPlan.shortCircuit() ? "证据不足，本轮未调用模型生成" : "回答生成完成",
+                            buildAnswerGenerationTraceSnapshot(runtimeContext, executionPlan)))
+                    .doOnError(error -> traceStageRunner.fail(boundTraceStageId, error));
+        } catch (Throwable error) {
+            traceStageRunner.fail(answerGenerationTraceStageId, error);
+            return Flux.error(propagate(error));
+        }
+    }
+
+    private Map<String, Object> buildAnswerGenerationTraceSnapshot(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatExecutionPlan executionPlan) {
+        return Map.of(
+                "agentType", executionPlan.agentType().getValue(),
+                "executionMode", executionPlan.executionMode().getValue(),
+                "executionModel", executionPlan.executionModel(),
+                "knowledgeRoute", executionPlan.knowledgeRoute(),
+                "shortCircuit", executionPlan.shortCircuit(),
+                "replyLength", runtimeContext.getReplyContent().length());
     }
 
     private BusinessChatExecutionPlan orchestrateExecutionPlan(BusinessChatRuntimeContext runtimeContext) {
@@ -250,6 +285,33 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                 executionPlan.intentLabel(),
                 executionPlan.intentReason(),
                 executionPlan.executionMode());
+    }
+
+    private void applyRetrievalSourceSnapshots(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatExecutionPlan executionPlan) {
+        runtimeContext.getSourceSnapshotList().clear();
+        List<KnowledgeRetrievalParentEvidence> evidenceList = executionPlan.retrievalEvidenceList();
+        if (evidenceList == null || evidenceList.isEmpty()) {
+            return;
+        }
+        for (int index = 0; index < evidenceList.size(); index++) {
+            KnowledgeRetrievalParentEvidence evidence = evidenceList.get(index);
+            runtimeContext.getSourceSnapshotList().add(renderRetrievalSourceSnapshot(evidence, index + 1));
+        }
+    }
+
+    private String renderRetrievalSourceSnapshot(KnowledgeRetrievalParentEvidence evidence, int evidenceNumber) {
+        return new StringBuilder()
+                .append("[").append(evidenceNumber).append("]\n")
+                .append("文档名称：").append(nullToEmpty(evidence.documentName())).append("\n")
+                .append("章节路径：").append(nullToEmpty(evidence.sectionPath())).append("\n")
+                .append("引用内容：\n").append(nullToEmpty(evidence.parentText()))
+                .toString();
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     private void pushAgentStarted(
@@ -357,28 +419,25 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                 return Mono.empty();
             }
 
-            Long finalizeTraceStageId = null;
             try {
                 // 收尾流：RuntimeContext -> FinalizedTurn -> trace/SSE/archive/summary。
                 // FinalizedTurn 是冻结快照，后续引用、推荐追问、归档和摘要都读它，避免各环节读到不同运行态。
-                finalizeTraceStageId = businessChatPersistenceService.startTraceStage(
-                        runtimeContext,
-                        FINALIZE_STAGE_CODE,
-                        "收尾归档",
-                        900);
                 BusinessChatFinalizedTurn frozenTurn = runtimeContext.freezeFinalizedTurn();
                 BusinessChatFinalizedTurn finalizedTurn = finalizeTitleAndRecommendation(runtimeContext, frozenTurn);
-                pushReferenceSupplement(runtimeContext, finalizedTurn);
-                pushFollowUpRecommendations(runtimeContext, finalizedTurn);
-                archiveSucceededTurn(finalizedTurn);
-                businessChatPersistenceService.completeTraceStage(
-                        finalizeTraceStageId,
-                        "本轮回答、引用、推荐追问和调试快照已完成归档",
-                        buildFinalizeTraceSnapshot(finalizedTurn));
-                pushTurnFinished(runtimeContext, finalizedTurn);
-                return refreshConversationSummary(finalizedTurn);
+                BusinessChatFinalizedTurn archivedTurn = traceStageRunner.run(
+                        runtimeContext,
+                        BusinessChatTraceStage.FINALIZE,
+                        () -> {
+                            pushReferenceSupplement(runtimeContext, finalizedTurn);
+                            pushFollowUpRecommendations(runtimeContext, finalizedTurn);
+                            archiveSucceededTurn(finalizedTurn);
+                            return finalizedTurn;
+                        },
+                        this::buildFinalizeTraceSnapshot,
+                        turn -> "本轮回答、引用、推荐问题和调试快照已完成归档");
+                pushTurnFinished(runtimeContext, archivedTurn);
+                return refreshConversationSummary(archivedTurn);
             } catch (Throwable error) {
-                businessChatPersistenceService.failTraceStage(finalizeTraceStageId, error);
                 return Mono.error(propagate(error));
             }
         });
@@ -393,35 +452,26 @@ public class BusinessChatServiceImpl implements BusinessChatService {
     private BusinessChatFinalizedTurn finalizeTitleAndRecommendation(
             BusinessChatRuntimeContext runtimeContext,
             BusinessChatFinalizedTurn frozenTurn) {
-        Long recommendationTraceStageId = null;
-        try {
-            recommendationTraceStageId = businessChatPersistenceService.startTraceStage(
-                    runtimeContext,
-                    RECOMMENDATION_STAGE_CODE,
-                    "推荐追问",
-                    910);
-            boolean titleRequired = !businessChatPersistenceService.dialogueTitleExists(frozenTurn);
-            BusinessChatFinalizationResult finalizationResult =
-                    businessChatFinalizationGenerator.generate(runtimeContext, frozenTurn, titleRequired);
-            if (titleRequired) {
-                // 标题只允许首轮补写，避免后续轮次覆盖用户已经看到的会话名称。
-                businessChatPersistenceService.updateDialogueTitleIfAbsent(
-                        frozenTurn,
-                        finalizationResult.dialogueTitle());
-            }
-            List<String> followUpSuggestionList = finalizationResult.followUpSuggestionList();
-            runtimeContext.getFollowUpSuggestionList().clear();
-            runtimeContext.getFollowUpSuggestionList().addAll(followUpSuggestionList);
-            BusinessChatFinalizedTurn finalizedTurn = frozenTurn.withFollowUpSuggestionList(followUpSuggestionList);
-            businessChatPersistenceService.completeTraceStage(
-                    recommendationTraceStageId,
-                    "推荐追问已生成",
-                    followUpSuggestionList);
-            return finalizedTurn;
-        } catch (Throwable error) {
-            businessChatPersistenceService.failTraceStage(recommendationTraceStageId, error);
-            throw propagate(error);
-        }
+        return traceStageRunner.run(
+                runtimeContext,
+                BusinessChatTraceStage.RECOMMENDATION,
+                () -> {
+                    boolean titleRequired = !businessChatPersistenceService.dialogueTitleExists(frozenTurn);
+                    BusinessChatFinalizationResult finalizationResult =
+                            businessChatFinalizationGenerator.generate(runtimeContext, frozenTurn, titleRequired);
+                    if (titleRequired) {
+                        // 标题只允许首轮补写，避免后续轮次覆盖用户已经看到的会话名称。
+                        businessChatPersistenceService.updateDialogueTitleIfAbsent(
+                                frozenTurn,
+                                finalizationResult.dialogueTitle());
+                    }
+                    List<String> followUpSuggestionList = finalizationResult.followUpSuggestionList();
+                    runtimeContext.getFollowUpSuggestionList().clear();
+                    runtimeContext.getFollowUpSuggestionList().addAll(followUpSuggestionList);
+                    return frozenTurn.withFollowUpSuggestionList(followUpSuggestionList);
+                },
+                BusinessChatFinalizedTurn::followUpSuggestionList,
+                turn -> "推荐问题已生成");
     }
 
     private RuntimeException propagate(Throwable error) {

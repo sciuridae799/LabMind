@@ -1,6 +1,6 @@
 # Phase 2 RAG 前置编排链路
 
-本文说明当前项目中“会话记忆加载之后，进入 RAG 前置编排”的真实实现。它覆盖问题改写、路由判断、歧义澄清、知识域收缩、开放式问题分支，以及执行计划如何交给后续 Agent。
+本文说明当前项目中“会话记忆加载之后，进入 RAG 前置编排”的真实实现。它覆盖问题改写、路由判断、歧义澄清、知识域收缩、当前文档影子路由、开放式问题分支，以及执行计划如何交给后续 Agent。
 
 这里需要先明确一个边界：当前项目没有独立的“LLM 意图分类器”。LLM 在 Phase 2 中只参与问题改写；所谓意图标签和执行分支，是由 `chatMode`、知识候选、澄清规则共同推导出来的。
 
@@ -21,13 +21,17 @@ flowchart TD
     I --> J{chatMode}
     J -- OPEN_ENDED --> K[开放式问题: 不做知识路由]
     J -- CURRENT_DOCUMENT --> L[当前文档: 加载指定文档上下文]
+    J -- CURRENT_DOCUMENT --> U[发布异步影子路由任务]
     J -- KNOWLEDGE_BASE --> M[自动知识问答: Neo4j 路由候选]
 
     M --> N[Scope -> Topic -> Document 三层收缩]
-    N --> O[返回 KnowledgeRouteCandidate 列表]
+    N --> O[返回 KnowledgeRouteDecision]
     O --> P{是否需要澄清?}
     P -- 是 --> Q[CLARIFICATION Agent 要求用户补充信息]
     P -- 否 --> R[KNOWLEDGE_QA Agent 继续回答]
+
+    U --> V[Kafka Consumer 后台执行三层路由]
+    V --> W[记录 SHADOW Trace]
 
     K --> S[THINK_ACT Agent]
     L --> S
@@ -46,12 +50,13 @@ Phase 2 的入口仍然是 `BusinessChatOrchestratorImpl.orchestrate()`。它接
 2. 读取本轮模式：`runtimeContext.getTaskInfo().chatMode()`
 3. 问题改写：`questionRewriteService.rewrite(...)`
 4. 时效性判断：`detectFreshnessRequirement(...)`
-5. 知识候选路由：`routeKnowledgeCandidates(...)`
-6. 歧义澄清判断：`buildClarificationPlan(...)`
-7. 当前文档上下文加载：`buildSelectedDocumentContextText(...)`
-8. 生成路由摘要：`routeKnowledge(...)`
-9. 推导意图标签和 Agent 类型：`buildIntentLabel(...)`、`selectAgentType(...)`
-10. 输出 `BusinessChatExecutionPlan`
+5. 知识路由决策：`routeKnowledgeDecision(...)`
+6. 路由追踪处理：知识库模式同步写 AUTO trace；当前文档模式发布异步 SHADOW 任务
+7. 歧义澄清判断：`buildClarificationPlan(...)`
+8. 当前文档上下文加载：`buildSelectedDocumentContextText(...)`
+9. 生成路由摘要：`routeKnowledge(...)`
+10. 推导意图标签和 Agent 类型：`buildIntentLabel(...)`、`selectAgentType(...)`
+11. 输出 `BusinessChatExecutionPlan`
 
 ## chatMode 决定大方向
 
@@ -60,7 +65,7 @@ Phase 2 的入口仍然是 `BusinessChatOrchestratorImpl.orchestrate()`。它接
 | 当前模式 | 图中含义 | 当前行为 |
 | --- | --- | --- |
 | `OPEN_ENDED` | 开放式问题 | 不做知识路由，直接走 `THINK_ACT`。 |
-| `CURRENT_DOCUMENT` | 用户已明确指定文档 | 不做自动路由，加载指定文档画像和正文，走 `THINK_ACT`。 |
+| `CURRENT_DOCUMENT` | 用户已明确指定文档 | 主回答不做自动路由，加载指定文档画像和正文，走 `THINK_ACT`；同时发布异步影子路由任务，只用于质量观测。 |
 | `KNOWLEDGE_BASE` | 自动匹配知识库 | 先改写问题，再做知识路由和澄清判断，最终走 `KNOWLEDGE_QA` 或 `CLARIFICATION`。 |
 
 这意味着当前系统不是让 LLM 判断“开放式/知识库/文档问答”。这个大方向来自前端请求里的 `chatMode`。
@@ -167,7 +172,7 @@ flowchart TD
     C -- 否 --> D[返回空候选]
     C -- 是 --> E[Rank Topics in selected scopes]
     E --> F[Rank Documents in selected scopes/topics]
-    F --> G[返回 Top N KnowledgeRouteCandidate]
+    F --> G[返回 KnowledgeRouteDecision]
 ```
 
 ### Scope 收缩
@@ -200,7 +205,13 @@ Top scope 会有额外 boost。
 - Top scope boost
 - Top topic boost
 
-最后返回 `KnowledgeRouteCandidate`，包含：
+最后返回 `KnowledgeRouteDecision`，其中包含：
+
+- `scopeCandidates`：Scope 排序候选
+- `topicCandidates`：Topic 排序候选
+- `documentCandidates`：Document 排序候选
+
+`documentCandidates` 中的每个 `KnowledgeRouteCandidate` 包含：
 
 - `documentId`
 - `documentName`
@@ -212,6 +223,40 @@ Top scope 会有额外 boost。
 - `hitTerms`
 - `matchedPatterns`
 - `hitReason`
+
+Scope 和 Topic 候选会转换为 `KnowledgeRouteRankedCandidate`，保存候选类型、候选编码、候选名称、分数和命中原因。
+
+## 路由追踪
+
+知识路由追踪由 `KnowledgeRouteTraceService.recordRouteTrace(...)` 写入。它不重新计算路由，只保存本轮已经得到的 `KnowledgeRouteDecision` 快照。
+
+主表 `super_agent_knowledge_route_trace` 保存：
+
+- 原始问题 `question`
+- 改写问题 `rewritten_question`
+- 选中 Scope / Topic
+- Top Document id 列表
+- 完整 `route_result_json`
+- 用户手动选择的文档 `user_selected_document_id`
+- 路由第一名文档 `route_top_document_id`
+- 是否命中 `hit_selected_document`
+- 置信度 `confidence`
+- 路由状态 `route_status`
+- 路由模式 `route_mode`
+
+明细表 `super_agent_knowledge_route_trace_candidate` 保存三级 Top3 候选：
+
+- `candidate_type = SCOPE`：Top3 Scope 候选
+- `candidate_type = TOPIC`：Top3 Topic 候选
+- `candidate_type = DOCUMENT`：Top3 Document 候选
+
+`hit_selected_document` 的语义只针对影子路由：用户手动选择的文档与系统路由 Top1 Document 一致时为 `1`，不一致时为 `0`。当没有用户手动选择文档或没有 Top1 Document 时，该值为空。
+
+`route_status` 由 Document 候选和置信度决定：
+
+- 没有 Document 候选：`FAILED`
+- 置信度达到 `success-confidence`：`SUCCESS`
+- 有候选但置信度不足：`LOW_CONFIDENCE`
 
 ## 歧义澄清判断
 
@@ -301,6 +346,22 @@ Agent 选择规则：
 
 这些内容拼成 `selectedDocumentContextText`，交给后续模型回答。任一关键数据缺失会直接失败，不通过默认值或兜底逻辑掩盖。
 
+当前文档模式还会发布一条异步影子路由任务：
+
+```mermaid
+flowchart TD
+    A[CURRENT_DOCUMENT 编排] --> B[加载用户选中文档上下文]
+    A --> C[KnowledgeShadowRouteProducer 发布消息]
+    C --> D[Kafka topic: shadow-route-requested]
+    D --> E[KnowledgeShadowRouteConsumer]
+    E --> F[Neo4jKnowledgeGraphClient.routeQuestion]
+    F --> G[Scope -> Topic -> Document 三层排序]
+    G --> H[KnowledgeRouteTraceService.recordRouteTrace]
+    H --> I[route_mode = SHADOW]
+```
+
+影子路由不改变主回答路径。主回答始终使用用户手动选择的文档上下文；影子路由只把系统自动路由结果和用户选择做对比，用来评估路由质量。
+
 ## 开放式问题分支
 
 `OPEN_ENDED` 不走知识路由，不加载当前文档上下文，`knowledgeRoute = NOT_REQUIRED`，最终进入 `THINK_ACT` Agent。
@@ -314,17 +375,18 @@ Agent 选择规则：
 | RAG 前置编排 | `BusinessChatOrchestratorImpl.orchestrate()` |
 | LLM 意图分析 | 当前没有独立 LLM 意图分类；LLM 只做问题改写 |
 | 问题改写 | `BusinessChatQuestionRewriteService.rewrite()` |
-| 路由判定 | `chatMode` 分支 + `routeKnowledgeCandidates()` |
+| 路由判定 | `chatMode` 分支 + `routeKnowledgeDecision()` |
 | 存在歧义 | `buildClarificationPlan()` 返回 required=true |
 | 歧义澄清 | `CLARIFICATION` Agent |
 | 匹配知识库 | `KNOWLEDGE_BASE` 且候选稳定 |
-| 知识域收缩 | `Neo4jKnowledgeGraphClient.routeQuestion()` 的 Scope -> Topic -> Document |
+| 知识域收缩 | `Neo4jKnowledgeGraphClient.routeQuestion()` 的 Scope -> Topic -> Document，返回 `KnowledgeRouteDecision` |
+| 当前文档影子路由 | `KnowledgeShadowRouteProducer` 发布异步任务，`KnowledgeShadowRouteConsumer` 后台路由并记录 SHADOW trace |
 | 开放式问题 | `OPEN_ENDED`，不做知识路由 |
 
 ## 当前实现边界
 
 1. 当前没有独立 LLM 意图分类器。
-2. 当前知识库路由只返回候选文档和命中原因，不在编排阶段读取候选文档正文。
+2. 当前知识库路由返回 `KnowledgeRouteDecision`，包含 Scope、Topic、Document 三级候选；不在编排阶段读取候选文档正文。
 3. 当前知识库模式没有单独的 `GRAPH / RETRIEVAL` 二级分流。
 4. 当前时效性判断只记录能力边界，不触发外部实时检索。
 5. 当前问题改写只输出单个 `rewrite`，不输出 `sub_questions`。
@@ -333,7 +395,8 @@ Agent 选择规则：
 
 - `BusinessChatOrchestratorImpl`
   - `orchestrate()`：Phase 2 主编排。
-  - `routeKnowledgeCandidates()`：知识库模式调用 Neo4j 路由。
+  - `routeKnowledgeDecision()`：知识库模式调用 Neo4j 路由。
+  - `recordKnowledgeRouteTrace()`：知识库模式同步记录 AUTO trace；当前文档模式发布 SHADOW 任务。
   - `buildClarificationPlan()`：澄清规则。
   - `routeKnowledge()`：生成路由摘要。
   - `buildIntentLabel()`：推导意图标签。
@@ -345,6 +408,12 @@ Agent 选择规则：
 - `Neo4jKnowledgeGraphClient`
   - `routeQuestion()`：Scope -> Topic -> Document 三层知识收缩。
   - `UPSERT_ROUTE_ASSET_CYPHER`：文档画像同步为路由图资产。
+- `KnowledgeShadowRouteProducer`
+  - `publish()`：发布当前文档模式的影子路由任务。
+- `KnowledgeShadowRouteConsumer`
+  - `consume()`：后台执行影子路由并记录 SHADOW trace。
+- `KnowledgeRouteTraceServiceImpl`
+  - `recordRouteTrace()`：保存完整路由决策快照和三级 Top3 明细。
 - `BusinessChatClarificationProperties`
   - 澄清开关、候选数量、低分阈值、跨域分差阈值。
 - `KnowledgeRouteProperties`
@@ -352,6 +421,6 @@ Agent 选择规则：
 
 ## 当前链路结论
 
-当前项目已经实现了 Phase 2 的主干：Phase 1 输出历史上下文后，系统会进行可选 LLM 问题改写，再按 `chatMode` 决定是否进入知识库路由；知识库模式通过 Neo4j 做知识域、专题、文档三层收缩；候选不稳定时进入澄清，候选稳定时进入知识库回答；开放式问题直接跳过知识路由。
+当前项目已经实现了 Phase 2 的主干：Phase 1 输出历史上下文后，系统会进行可选 LLM 问题改写，再按 `chatMode` 决定是否进入知识库路由；知识库模式通过 Neo4j 做知识域、专题、文档三层收缩并保存 AUTO trace；当前文档模式加载用户指定文档回答，同时异步执行 SHADOW 路由并保存完整三级决策 trace；候选不稳定时进入澄清，候选稳定时进入知识库回答；开放式问题直接跳过知识路由。
 
 需要准确表达的是：当前图里的“LLM 意图分析”在项目里不是独立分类器，而是“LLM 问题改写 + 规则编排推导意图”。这个实现符合规则推导的设计方向，但不是完整的智能意图识别器。

@@ -10,27 +10,29 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.superagent.business.chat.chatagent.agent.BusinessChatAgent;
-import com.superagent.business.chat.chatagent.agent.BusinessChatAgentRegistry;
-import com.superagent.business.chat.chatagent.agent.BusinessChatAgentType;
-import com.superagent.business.chat.chatagent.dto.BusinessChatStreamRequest;
-import com.superagent.business.chat.chatagent.finalization.BusinessChatFinalizationGenerator;
-import com.superagent.business.chat.chatagent.finalization.BusinessChatFinalizationResult;
-import com.superagent.business.chat.chatagent.model.BusinessChatClarificationPlan;
-import com.superagent.business.chat.chatagent.model.BusinessChatExecutionPlan;
+import com.superagent.business.chat.chatagent.execution.agent.BusinessChatAgent;
+import com.superagent.business.chat.chatagent.execution.agent.BusinessChatAgentRegistry;
+import com.superagent.business.chat.chatagent.execution.agent.BusinessChatAgentType;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatStreamRequest;
+import com.superagent.business.chat.chatagent.orchestration.finalization.BusinessChatFinalizationGenerator;
+import com.superagent.business.chat.chatagent.orchestration.finalization.BusinessChatFinalizationResult;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatClarificationPlan;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatFinalizedTurn;
-import com.superagent.business.chat.chatagent.model.BusinessChatFreshnessRequirement;
-import com.superagent.business.chat.chatagent.model.BusinessChatMode;
-import com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot;
-import com.superagent.business.chat.chatagent.model.BusinessChatModelProvider;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatFreshnessRequirement;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatMode;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelApiConfigSnapshot;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelProvider;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
-import com.superagent.business.chat.chatagent.model.BusinessChatTaskInfo;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatTaskInfo;
 import com.superagent.business.chat.chatagent.orchestration.BusinessChatOrchestrator;
 import com.superagent.business.chat.chatagent.persistence.BusinessChatPersistenceService;
 import com.superagent.business.chat.chatagent.service.BusinessChatModelApiConfigService;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeRegistry;
-import com.superagent.business.chat.chatagent.vo.BusinessChatStreamEvent;
-import com.superagent.business.chat.knowledge.service.KnowledgeManageService;
+import com.superagent.business.chat.chatagent.trace.BusinessChatTraceStageRunner;
+import com.superagent.business.chat.chatagent.api.vo.BusinessChatStreamEvent;
+import com.superagent.business.chat.knowledge.retrieval.KnowledgeRetrievalParentEvidence;
+import com.superagent.business.chat.knowledge.document.service.KnowledgeManageService;
 import com.superagent.redisson.servicelease.lease.RedisLeaseManager;
 import java.time.Duration;
 import java.util.List;
@@ -82,7 +84,7 @@ class BusinessChatServiceImplTest {
             "DASHSCOPE",
             "https://dashscope.aliyuncs.com/compatible-mode",
             "qwen-plus",
-            "api-key");
+            "api-key", java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, 1000, "CNY");
 
     private final BusinessChatModelApiConfigSnapshot secondModelConfig = new BusinessChatModelApiConfigSnapshot(
             3002L,
@@ -90,10 +92,11 @@ class BusinessChatServiceImplTest {
             "DeepSeek",
             "https://api.deepseek.com",
             "deepseek-v4-pro",
-            "api-key");
+            "api-key", java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, 1000, "CNY");
 
     @BeforeEach
     void setUp() {
+        BusinessChatTraceStageRunner traceStageRunner = new BusinessChatTraceStageRunner(businessChatPersistenceService);
         businessChatService = new BusinessChatServiceImpl(
                 redisLeaseManager,
                 businessChatPersistenceService,
@@ -102,7 +105,8 @@ class BusinessChatServiceImplTest {
                 businessChatAgentRegistry,
                 businessChatFinalizationGenerator,
                 modelApiConfigService,
-                knowledgeManageService);
+                knowledgeManageService,
+                traceStageRunner);
         lenient().when(modelApiConfigService.getRequiredAvailableSnapshot("3001")).thenReturn(modelConfig);
         lenient().when(modelApiConfigService.getRequiredAvailableSnapshot("3002")).thenReturn(secondModelConfig);
     }
@@ -171,6 +175,46 @@ class BusinessChatServiceImplTest {
     }
 
     @Test
+    void shouldArchiveRetrievalEvidenceAsSourceSnapshots() {
+        BusinessChatRuntimeContext runtimeContext = prepareSuccessfulRuntime(
+                Flux.just("基于证据回答 [1]"),
+                buildExecutionPlan(List.of(new KnowledgeRetrievalParentEvidence(
+                        8001L,
+                        9001L,
+                        "订单审核手册",
+                        "第一章",
+                        "订单审核包括提交、风控、人工审核和归档。",
+                        1.0D,
+                        List.of(7001L),
+                        List.of("VECTOR")))));
+
+        List<ServerSentEvent<BusinessChatStreamEvent>> events = businessChatService.streamChat(createRequest())
+                .collectList()
+                .block(Duration.ofSeconds(5));
+
+        BusinessChatStreamEvent referenceEvent = events.stream()
+                .map(ServerSentEvent::data)
+                .filter(event -> "REFERENCE_SUPPLEMENT".equals(event.eventType()))
+                .findFirst()
+                .orElseThrow();
+        String sourceSnapshot = """
+                [1]
+                文档名称：订单审核手册
+                章节路径：第一章
+                引用内容：
+                订单审核包括提交、风控、人工审核和归档。""";
+        assertThat(referenceEvent.sourceSnapshotList())
+                .containsExactly(sourceSnapshot);
+        ArgumentCaptor<BusinessChatFinalizedTurn> finalizedTurnCaptor =
+                ArgumentCaptor.forClass(BusinessChatFinalizedTurn.class);
+        verify(businessChatPersistenceService).archiveSucceededTurn(finalizedTurnCaptor.capture());
+        assertThat(finalizedTurnCaptor.getValue().sourceSnapshotList())
+                .containsExactly(sourceSnapshot);
+        assertThat(runtimeContext.getSourceSnapshotList())
+                .containsExactly(sourceSnapshot);
+    }
+
+    @Test
     void shouldArchiveFailureAndEmitFailedEventWhenExecutorThrows() {
         BusinessChatRuntimeContext runtimeContext = prepareSuccessfulRuntime(
                 Flux.error(new IllegalStateException("executor failed")));
@@ -210,7 +254,7 @@ class BusinessChatServiceImplTest {
         when(redisLeaseManager.release(any(), any())).thenReturn(true);
         when(businessChatPersistenceService.createTurnRecordAndBuildTaskInfo(any()))
                 .thenAnswer(invocation -> {
-                    var startPlan = invocation.getArgument(0, com.superagent.business.chat.chatagent.model.BusinessChatStartPlan.class);
+                    var startPlan = invocation.getArgument(0, com.superagent.business.chat.chatagent.orchestration.model.BusinessChatStartPlan.class);
                     return new BusinessChatTaskInfo(
                             1001L,
                             startPlan.modelConfig().id() + 10000L,
@@ -243,6 +287,8 @@ class BusinessChatServiceImplTest {
                             null,
                             0,
                             null,
+                            null,
+                            List.of(),
                             new BusinessChatFreshnessRequirement(false, "用户问题未命中明确实时信息信号", List.of(), "NOT_REQUIRED"),
                             "NOT_REQUIRED",
                             List.of(),
@@ -252,7 +298,9 @@ class BusinessChatServiceImplTest {
                             BusinessChatAgentType.THINK_ACT,
                             BusinessChatMode.OPEN_ENDED,
                             BusinessChatClarificationPlan.notRequired(),
-                            List.of("执行模型：" + runtimeContext.getTaskInfo().modelConfig().modelName()));
+                            false,
+                null,
+                List.of("执行模型：" + runtimeContext.getTaskInfo().modelConfig().modelName()));
                 });
         when(businessChatAgentRegistry.getRequiredAgent(BusinessChatAgentType.THINK_ACT))
                 .thenReturn(businessChatAgent);
@@ -275,6 +323,12 @@ class BusinessChatServiceImplTest {
     }
 
     private BusinessChatRuntimeContext prepareSuccessfulRuntime(Flux<String> executionFlux) {
+        return prepareSuccessfulRuntime(executionFlux, buildExecutionPlan(List.of()));
+    }
+
+    private BusinessChatRuntimeContext prepareSuccessfulRuntime(
+            Flux<String> executionFlux,
+            BusinessChatExecutionPlan executionPlan) {
         BusinessChatTaskInfo taskInfo = new BusinessChatTaskInfo(
                 1001L,
                 2001L,
@@ -291,34 +345,6 @@ class BusinessChatServiceImplTest {
                 System.currentTimeMillis());
         BusinessChatRuntimeContext runtimeContext =
                 new BusinessChatRuntimeContext(taskInfo, Sinks.many().unicast().onBackpressureBuffer());
-        BusinessChatExecutionPlan executionPlan = new BusinessChatExecutionPlan(
-                "请帮我说明这条链路",
-                "请帮我说明这条链路",
-                null,
-                null,
-                null,
-                0,
-                null,
-                new BusinessChatFreshnessRequirement(false, "用户问题未命中明确实时信息信号", List.of(), "NOT_REQUIRED"),
-                "NOT_REQUIRED",
-                List.of(),
-                "CHAT_CLIENT_DEFAULT",
-                "open_ended_question_answer",
-                "根据会话模式、历史上下文、知识路由和时效性要求生成本轮执行计划。",
-                BusinessChatAgentType.THINK_ACT,
-                BusinessChatMode.OPEN_ENDED,
-                BusinessChatClarificationPlan.notRequired(),
-                            List.of(
-                        "加载长期摘要：无",
-                        "加载最近对话窗口：0轮",
-                        "问题改写使用历史：否",
-                        "问题改写：请帮我说明这条链路",
-                        "时效性判断：不需要实时信息",
-                        "知识路由：NOT_REQUIRED",
-                        "执行模型：CHAT_CLIENT_DEFAULT",
-                        "按执行计划生成流式正文",
-                        "补发执行补充信息与推荐追问"));
-
         when(redisLeaseManager.acquire(any(), any(), any())).thenReturn(true);
         when(redisLeaseManager.release(any(), any())).thenReturn(true);
         when(businessChatPersistenceService.createTurnRecordAndBuildTaskInfo(any())).thenReturn(taskInfo);
@@ -334,6 +360,40 @@ class BusinessChatServiceImplTest {
                         "链路说明",
                         List.of("如何继续拆解链路？", "有哪些关键风险？", "如何落地执行？")));
         return runtimeContext;
+    }
+
+    private BusinessChatExecutionPlan buildExecutionPlan(List<KnowledgeRetrievalParentEvidence> evidenceList) {
+        return new BusinessChatExecutionPlan(
+                "请帮我说明这条链路",
+                "请帮我说明这条链路",
+                null,
+                null,
+                null,
+                0,
+                null,
+                evidenceList.isEmpty() ? null : "[1]\nParent正文：\n订单审核包括提交、风控、人工审核和归档。",
+                evidenceList,
+                new BusinessChatFreshnessRequirement(false, "用户问题未命中明确实时信息信号", List.of(), "NOT_REQUIRED"),
+                "NOT_REQUIRED",
+                List.of(),
+                "CHAT_CLIENT_DEFAULT",
+                "open_ended_question_answer",
+                "根据会话模式、历史上下文、知识路由和时效性要求生成本轮执行计划。",
+                BusinessChatAgentType.THINK_ACT,
+                BusinessChatMode.OPEN_ENDED,
+                BusinessChatClarificationPlan.notRequired(),
+                            false,
+                null,
+                List.of(
+                        "加载长期摘要：无",
+                        "加载最近对话窗口：0轮",
+                        "问题改写使用历史：否",
+                        "问题改写：请帮我说明这条链路",
+                        "时效性判断：不需要实时信息",
+                        "知识路由：NOT_REQUIRED",
+                        "执行模型：CHAT_CLIENT_DEFAULT",
+                        "按执行计划生成流式正文",
+                        "补发执行补充信息与推荐追问"));
     }
 
     private BusinessChatStreamRequest createRequest() {

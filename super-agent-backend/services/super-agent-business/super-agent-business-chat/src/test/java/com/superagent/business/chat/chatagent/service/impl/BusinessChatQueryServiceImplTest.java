@@ -6,15 +6,19 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.superagent.business.chat.chatagent.data.BusinessChatDialogueData;
-import com.superagent.business.chat.chatagent.data.BusinessChatExchangeData;
-import com.superagent.business.chat.chatagent.data.BusinessChatMemorySummaryData;
-import com.superagent.business.chat.chatagent.dto.BusinessChatSessionDetailRequest;
-import com.superagent.business.chat.chatagent.dto.BusinessChatSessionListRequest;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatDialogueMapper;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatExchangeMapper;
-import com.superagent.business.chat.chatagent.mapper.BusinessChatMemorySummaryMapper;
-import com.superagent.business.chat.chatagent.model.BusinessChatSessionListRow;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatDialogueData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatExchangeData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatMemorySummaryData;
+import com.superagent.business.chat.chatagent.config.BusinessChatRuntimeProperties;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatSessionDetailRequest;
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatSessionListRequest;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatDialogueMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExchangeMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExchangeTraceStageMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatModelCallTraceMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatMemorySummaryMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatToolCallTraceMapper;
+import com.superagent.business.chat.chatagent.persistence.model.BusinessChatSessionListRow;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
 import com.superagent.common.frame.exception.BaseException;
@@ -40,6 +44,15 @@ class BusinessChatQueryServiceImplTest {
     private BusinessChatMemorySummaryMapper businessChatMemorySummaryMapper;
 
     @Mock
+    private BusinessChatExchangeTraceStageMapper businessChatExchangeTraceStageMapper;
+
+    @Mock
+    private BusinessChatModelCallTraceMapper businessChatModelCallTraceMapper;
+
+    @Mock
+    private BusinessChatToolCallTraceMapper businessChatToolCallTraceMapper;
+
+    @Mock
     private BusinessChatSessionStateService businessChatSessionStateService;
 
     private BusinessChatQueryServiceImpl businessChatQueryService;
@@ -50,7 +63,11 @@ class BusinessChatQueryServiceImplTest {
                 businessChatDialogueMapper,
                 businessChatExchangeMapper,
                 businessChatMemorySummaryMapper,
+                businessChatExchangeTraceStageMapper,
+                businessChatModelCallTraceMapper,
+                businessChatToolCallTraceMapper,
                 businessChatSessionStateService,
+                new BusinessChatRuntimeProperties(),
                 new ObjectMapper());
     }
 

@@ -86,6 +86,59 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_exchange_trace_stage (
     KEY idx_super_agent_chat_trace_stage_code (stage_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='对话轮次执行阶段轨迹表';
 
+CREATE TABLE IF NOT EXISTS super_agent_chat_model_call_trace (
+    id BIGINT NOT NULL COMMENT '主键id',
+    dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
+    exchange_id BIGINT NOT NULL COMMENT '所属轮次id',
+    trace_id VARCHAR(64) NOT NULL COMMENT '本轮执行trace id',
+    stage_code VARCHAR(64) NOT NULL COMMENT '阶段编码',
+    stage_name VARCHAR(128) NOT NULL COMMENT '阶段名称',
+    provider VARCHAR(32) NOT NULL COMMENT '模型供应商编码',
+    base_url VARCHAR(255) DEFAULT NULL COMMENT 'OpenAI兼容接口Base URL',
+    model_name VARCHAR(128) NOT NULL COMMENT '模型名称',
+    call_type VARCHAR(32) NOT NULL COMMENT '调用类型：STREAM/NON_STREAM',
+    input_tokens INT NOT NULL DEFAULT 0 COMMENT '输入token数',
+    output_tokens INT NOT NULL DEFAULT 0 COMMENT '输出token数',
+    total_tokens INT NOT NULL DEFAULT 0 COMMENT '总token数',
+    input_token_unit_price DECIMAL(18, 8) NOT NULL DEFAULT 0 COMMENT '输入token单价',
+    output_token_unit_price DECIMAL(18, 8) NOT NULL DEFAULT 0 COMMENT '输出token单价',
+    price_unit_tokens INT NOT NULL DEFAULT 1000 COMMENT '价格单位token数',
+    currency VARCHAR(16) NOT NULL DEFAULT 'CNY' COMMENT '计价币种',
+    estimated_cost DECIMAL(18, 8) NOT NULL DEFAULT 0 COMMENT '估算成本',
+    call_state TINYINT(1) NOT NULL DEFAULT '1' COMMENT '1:运行中 2:完成 3:失败',
+    start_time DATETIME DEFAULT NULL COMMENT '开始时间',
+    end_time DATETIME DEFAULT NULL COMMENT '结束时间',
+    duration_ms BIGINT DEFAULT NULL COMMENT '耗时，毫秒',
+    error_message TEXT DEFAULT NULL COMMENT '错误信息',
+    create_time DATETIME DEFAULT NULL COMMENT '创建时间',
+    edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
+    status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
+    PRIMARY KEY (id),
+    KEY idx_super_agent_chat_model_call_exchange (exchange_id, start_time),
+    KEY idx_super_agent_chat_model_call_dialogue (dialogue_code, exchange_id),
+    KEY idx_super_agent_chat_model_call_trace (trace_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='对话模型调用用量追踪表';
+
+CREATE TABLE IF NOT EXISTS super_agent_chat_tool_call_trace (
+    id BIGINT NOT NULL COMMENT '主键id',
+    dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
+    exchange_id BIGINT NOT NULL COMMENT '所属轮次id',
+    trace_id VARCHAR(64) NOT NULL COMMENT '本轮执行trace id',
+    tool_name VARCHAR(128) NOT NULL COMMENT '工具名称',
+    call_state TINYINT(1) NOT NULL DEFAULT '1' COMMENT '1:运行中 2:完成 3:失败',
+    start_time DATETIME DEFAULT NULL COMMENT '开始时间',
+    end_time DATETIME DEFAULT NULL COMMENT '结束时间',
+    duration_ms BIGINT DEFAULT NULL COMMENT '耗时，毫秒',
+    error_message TEXT DEFAULT NULL COMMENT '错误信息',
+    create_time DATETIME DEFAULT NULL COMMENT '创建时间',
+    edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
+    status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
+    PRIMARY KEY (id),
+    KEY idx_super_agent_chat_tool_call_exchange (exchange_id, start_time),
+    KEY idx_super_agent_chat_tool_call_dialogue (dialogue_code, exchange_id),
+    KEY idx_super_agent_chat_tool_call_trace (trace_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='对话工具调用追踪表';
+
 CREATE TABLE IF NOT EXISTS super_agent_chat_session_state (
     id BIGINT NOT NULL COMMENT '主键id',
     state_key VARCHAR(64) NOT NULL COMMENT '状态键，当前为全局聊天页状态',

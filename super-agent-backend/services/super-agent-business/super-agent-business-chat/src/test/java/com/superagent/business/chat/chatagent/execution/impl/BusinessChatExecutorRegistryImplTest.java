@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.superagent.business.chat.chatagent.model.BusinessChatMode;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatMode;
 import com.superagent.business.chat.chatagent.execution.BusinessChatExecutor;
 import com.superagent.common.frame.exception.BaseException;
 import java.util.List;

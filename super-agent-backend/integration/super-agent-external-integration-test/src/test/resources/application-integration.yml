@@ -15,7 +15,7 @@ integration:
       secret-key: 12345678
       bucket: super-agent-external-integration-test
     pgvector:
-      jdbc-url: jdbc:postgresql://43.139.223.137:5432/service_db
+      jdbc-url: jdbc:postgresql://43.139.223.137:5432/super_agent_pgvector
       username: postgres
       password: 123456
     elasticsearch:

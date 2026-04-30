@@ -1,6 +1,6 @@
 package com.superagent.business.chat.chatagent.execution;
 
-import com.superagent.business.chat.chatagent.model.BusinessChatMode;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatMode;
 
 /**
  * 对话执行器注册表。

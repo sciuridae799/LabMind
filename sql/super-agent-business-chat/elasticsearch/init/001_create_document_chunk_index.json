@@ -1,0 +1,54 @@
+{
+  "settings": {
+    "analysis": {
+      "analyzer": {
+        "super_agent_mixed_text": {
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase"
+          ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "chunkId": {
+        "type": "long"
+      },
+      "documentId": {
+        "type": "long"
+      },
+      "parentBlockId": {
+        "type": "long"
+      },
+      "chunkNo": {
+        "type": "integer"
+      },
+      "documentName": {
+        "type": "text",
+        "analyzer": "super_agent_mixed_text",
+        "fields": {
+          "keyword": {
+            "type": "keyword"
+          }
+        }
+      },
+      "sectionPath": {
+        "type": "text",
+        "analyzer": "super_agent_mixed_text"
+      },
+      "canonicalPath": {
+        "type": "text",
+        "analyzer": "super_agent_mixed_text"
+      },
+      "chunkText": {
+        "type": "text",
+        "analyzer": "super_agent_mixed_text"
+      },
+      "status": {
+        "type": "integer"
+      }
+    }
+  }
+}

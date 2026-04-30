@@ -57,6 +57,12 @@ super-agent:
     runtime:
       max-model-calls-per-run: 8
       max-model-calls-per-thread: 40
+      max-tavily-tool-calls-per-run: 6
+      max-tavily-tool-calls-per-thread: 30
+      max-parallel-tools: 4
+      tavily-max-retries: 2
+      tavily-retry-initial-delay-ms: 200
+      tavily-retry-max-delay-ms: 1200
     recommendation:
       enabled: true
       count: 3
@@ -73,6 +79,8 @@ super-agent:
   kafka:
     topics:
       document-parse-requested: ${SUPER_AGENT_KAFKA_TOPIC_DOCUMENT_PARSE_REQUESTED:super-agent.document.parse.requested}
+      document-index-requested: ${SUPER_AGENT_KAFKA_TOPIC_DOCUMENT_INDEX_REQUESTED:super-agent.document.index.requested}
+      shadow-route-requested: ${SUPER_AGENT_KAFKA_TOPIC_SHADOW_ROUTE_REQUESTED:super-agent.shadow.route.requested}
   knowledge:
     neo4j:
       uri: ${SUPER_AGENT_NEO4J_URI}
@@ -88,6 +96,35 @@ super-agent:
       lexical-weight: 1.0
       semantic-weight: 1.6
       success-confidence: 0.55
+    retrieval:
+      child-top-k: 40
+      final-parent-top-k: 6
+      max-parent-chars: 12000
+      vector:
+        top-k: 40
+        min-similarity: 0.45
+      keyword:
+        top-k: 40
+        relative-threshold: 0.35
+      rrf:
+        k: 60
+      embedding:
+        base-url: ${SUPER_AGENT_RETRIEVAL_EMBEDDING_BASE_URL}
+        api-key: ${SUPER_AGENT_RETRIEVAL_EMBEDDING_API_KEY}
+        model: ${SUPER_AGENT_RETRIEVAL_EMBEDDING_MODEL}
+      pg-vector:
+        url: ${SUPER_AGENT_PGVECTOR_URL}
+        username: ${SUPER_AGENT_PGVECTOR_USERNAME}
+        password: ${SUPER_AGENT_PGVECTOR_PASSWORD}
+      elasticsearch:
+        base-url: ${SUPER_AGENT_ELASTICSEARCH_BASE_URL}
+        api-key: ${SUPER_AGENT_ELASTICSEARCH_API_KEY:}
+        index-name: ${SUPER_AGENT_ELASTICSEARCH_INDEX:super_agent_document_chunk}
+      rerank:
+        enabled: ${SUPER_AGENT_RERANK_ENABLED:false}
+        base-url: ${SUPER_AGENT_RERANK_BASE_URL:}
+        api-key: ${SUPER_AGENT_RERANK_API_KEY:}
+        model: ${SUPER_AGENT_RERANK_MODEL:}
     document-storage:
       endpoint: ${SUPER_AGENT_MINIO_ENDPOINT}
       access-key: ${SUPER_AGENT_MINIO_ACCESS_KEY}

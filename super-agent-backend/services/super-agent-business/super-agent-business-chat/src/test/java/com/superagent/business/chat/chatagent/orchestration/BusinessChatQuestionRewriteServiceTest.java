@@ -12,8 +12,8 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superagent.business.chat.chatagent.config.BusinessChatRewriteProperties;
 import com.superagent.business.chat.chatagent.execution.BusinessChatDynamicModelClient;
-import com.superagent.business.chat.chatagent.model.BusinessChatModelApiConfigSnapshot;
-import com.superagent.business.chat.chatagent.model.BusinessChatModelProvider;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelApiConfigSnapshot;
+import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,7 +42,7 @@ class BusinessChatQuestionRewriteServiceTest {
                 "DASHSCOPE",
                 "https://dashscope.aliyuncs.com/compatible-mode",
                 "qwen-plus",
-                "api-key");
+                "api-key", java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, 1000, "CNY");
     }
 
     @Test

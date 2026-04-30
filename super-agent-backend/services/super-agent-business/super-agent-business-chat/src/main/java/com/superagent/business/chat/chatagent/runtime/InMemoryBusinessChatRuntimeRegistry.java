@@ -1,6 +1,6 @@
 package com.superagent.business.chat.chatagent.runtime;
 
-import com.superagent.business.chat.chatagent.model.BusinessChatTaskInfo;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatTaskInfo;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.common.frame.exception.BaseException;
 import java.util.concurrent.ConcurrentHashMap;

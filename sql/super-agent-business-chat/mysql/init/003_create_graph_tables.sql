@@ -15,5 +15,6 @@ CREATE TABLE IF NOT EXISTS GRAPH_CHECKPOINT (
     state_data JSON NOT NULL COMMENT '序列化后的 Agent 状态',
     saved_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '保存时间',
     PRIMARY KEY (checkpoint_id),
-    KEY idx_graph_checkpoint_thread_saved (thread_id, saved_at)
+    KEY idx_graph_checkpoint_thread_saved (thread_id, saved_at),
+    CONSTRAINT GRAPH_FK_THREAD FOREIGN KEY (thread_id) REFERENCES GRAPH_THREAD(thread_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Spring AI Alibaba Graph checkpoint 表';
