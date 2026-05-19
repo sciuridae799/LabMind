@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superagent.business.chat.knowledge.indexing.KnowledgeRetrievalIndexChunk;
 import com.superagent.business.chat.knowledge.retrieval.config.KnowledgeRetrievalProperties;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -124,6 +126,13 @@ public class ElasticsearchKnowledgeRetriever {
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
         if (StringUtils.hasText(elasticsearch.getApiKey())) {
             builder.defaultHeader(HttpHeaders.AUTHORIZATION, "ApiKey " + elasticsearch.getApiKey());
+        } else if (StringUtils.hasText(elasticsearch.getUsername()) || StringUtils.hasText(elasticsearch.getPassword())) {
+            requireText(elasticsearch.getUsername(), "retrieval elasticsearch username");
+            requireText(elasticsearch.getPassword(), "retrieval elasticsearch password");
+            String token = Base64.getEncoder().encodeToString(
+                    (elasticsearch.getUsername() + ":" + elasticsearch.getPassword())
+                            .getBytes(StandardCharsets.UTF_8));
+            builder.defaultHeader(HttpHeaders.AUTHORIZATION, "Basic " + token);
         }
         return builder.build();
     }

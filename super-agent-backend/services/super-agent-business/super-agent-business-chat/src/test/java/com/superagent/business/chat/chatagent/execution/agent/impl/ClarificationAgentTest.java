@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.superagent.business.chat.chatagent.execution.agent.BusinessChatAgentType;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatAgentStep;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatClarificationPlan;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatFreshnessRequirement;
@@ -61,12 +62,21 @@ class ClarificationAgentTest {
                 "qwen-plus",
                 "knowledge_route_clarification",
                 clarificationPlan.reason(),
-                BusinessChatAgentType.CLARIFICATION,
+                List.of(agentStep(BusinessChatAgentType.CLARIFICATION)),
                 BusinessChatMode.KNOWLEDGE_BASE,
                 clarificationPlan,
                 false,
                 null,
                 List.of("歧义澄清：" + clarificationPlan.reason()));
+    }
+
+    private BusinessChatAgentStep agentStep(BusinessChatAgentType agentType) {
+        return new BusinessChatAgentStep(
+                agentType,
+                "AGENT_" + agentType.getValue(),
+                agentType.getDisplayName(),
+                710,
+                true);
     }
 
     private BusinessChatRuntimeContext buildRuntimeContext() {

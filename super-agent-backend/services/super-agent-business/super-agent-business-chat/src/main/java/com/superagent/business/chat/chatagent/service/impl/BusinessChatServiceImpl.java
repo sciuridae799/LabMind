@@ -3,8 +3,10 @@ package com.superagent.business.chat.chatagent.service.impl;
 import com.superagent.business.chat.chatagent.execution.agent.BusinessChatAgentEvent;
 import com.superagent.business.chat.chatagent.execution.agent.BusinessChatAgentRegistry;
 import com.superagent.business.chat.chatagent.api.dto.BusinessChatStreamRequest;
+import com.superagent.business.chat.chatagent.logging.BusinessChatBusinessFlowLogger;
 import com.superagent.business.chat.chatagent.orchestration.finalization.BusinessChatFinalizationGenerator;
 import com.superagent.business.chat.chatagent.orchestration.finalization.BusinessChatFinalizationResult;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatAgentStep;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatConversationLeaseKeys;
 import com.superagent.business.chat.chatagent.persistence.model.BusinessChatEventType;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
@@ -91,6 +93,8 @@ public class BusinessChatServiceImpl implements BusinessChatService {
 
     private final BusinessChatTraceStageRunner traceStageRunner;
 
+    private final BusinessChatBusinessFlowLogger businessFlowLogger;
+
     @Override
     public Flux<ServerSentEvent<BusinessChatStreamEvent>> streamChat(BusinessChatStreamRequest request) {
         return Flux.defer(() -> startDeferredChatStream(request));
@@ -107,6 +111,7 @@ public class BusinessChatServiceImpl implements BusinessChatService {
         // 输入流：请求参数 -> StartPlan。StartPlan 是本轮对话的不可变入口快照，
         // 后续建档、租约、运行态、归档都从这里取同一组 conversation/model/document 信息。
         BusinessChatStartPlan startPlan = normalizeRequestAndBuildStartPlan(request);
+        businessFlowLogger.logStart(startPlan);
         if (!tryAcquireConversationLease(startPlan)) {
             return buildRejectedStream(startPlan, "该会话当前正在执行中");
         }
@@ -231,13 +236,12 @@ public class BusinessChatServiceImpl implements BusinessChatService {
         // 这里保持线性 concat/then 顺序，保证前端看到的事件顺序和数据库终态一致。
         return Mono.fromRunnable(() -> pushExecutionProgress(runtimeContext, "正在加载会话记忆、改写问题并生成执行计划"))
                 .then(Mono.fromSupplier(() -> orchestrateExecutionPlan(runtimeContext)))
+                .doOnNext(executionPlan -> businessFlowLogger.logExecutionPlan(runtimeContext, executionPlan))
                 .doOnNext(executionPlan -> runtimeContext.setIntentAnalysis(buildIntentAnalysis(executionPlan)))
                 .doOnNext(runtimeContext::setExecutionPlan)
                 .doOnNext(executionPlan -> applyRetrievalSourceSnapshots(runtimeContext, executionPlan))
-                .doOnNext(executionPlan -> pushAgentStarted(runtimeContext, executionPlan))
                 .flatMapMany(executionPlan -> executeAgentWithTrace(runtimeContext, executionPlan))
                 .concatMap(textDelta -> Mono.fromRunnable(() -> pushTextDeltaContinuously(runtimeContext, textDelta)))
-                .then(Mono.fromRunnable(() -> pushAgentFinished(runtimeContext)))
                 .then(Mono.fromRunnable(() -> pushFunctionSupplement(runtimeContext)))
                 .then(finalizeSucceededTurn(runtimeContext));
     }
@@ -251,8 +255,7 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                     runtimeContext,
                     BusinessChatTraceStage.ANSWER_GENERATION);
             Long boundTraceStageId = answerGenerationTraceStageId;
-            return businessChatAgentRegistry.getRequiredAgent(executionPlan.agentType())
-                    .execute(runtimeContext, executionPlan)
+            return executeAgentStepList(runtimeContext, executionPlan, boundTraceStageId)
                     .doOnComplete(() -> traceStageRunner.complete(
                             boundTraceStageId,
                             executionPlan.shortCircuit() ? "证据不足，本轮未调用模型生成" : "回答生成完成",
@@ -264,11 +267,98 @@ public class BusinessChatServiceImpl implements BusinessChatService {
         }
     }
 
+    private Flux<String> executeAgentStepList(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatExecutionPlan executionPlan,
+            Long parentTraceStageId) {
+        Flux<String> outputFlux = Flux.empty();
+        for (BusinessChatAgentStep agentStep : executionPlan.agentStepList()) {
+            outputFlux = outputFlux.concatWith(executeAgentStep(runtimeContext, executionPlan, parentTraceStageId, agentStep));
+        }
+        return outputFlux;
+    }
+
+    private Flux<String> executeAgentStep(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatExecutionPlan executionPlan,
+            Long parentTraceStageId,
+            BusinessChatAgentStep agentStep) {
+        return Flux.defer(() -> {
+            Long traceStageId = traceStageRunner.startSubStage(
+                    runtimeContext,
+                    parentTraceStageId,
+                    agentStep.stageCode(),
+                    agentStep.stageName(),
+                    agentStep.stageOrder());
+            pushAgentStarted(runtimeContext, agentStep);
+            runtimeContext.bindCurrentTraceStage(agentStep.stageCode(), agentStep.stageName());
+            Flux<String> agentFlux = agentStep.answerProducer()
+                    ? businessChatAgentRegistry.getRequiredAgent(agentStep.agentType()).execute(runtimeContext, executionPlan)
+                    : executeNonAnswerAgentStep(runtimeContext, executionPlan, agentStep);
+            return agentFlux
+                    .doOnComplete(() -> {
+                        traceStageRunner.complete(
+                                traceStageId,
+                                agentStep.stageName() + "处理完成",
+                                buildAgentStepTraceSnapshot(runtimeContext, executionPlan, agentStep));
+                        pushAgentFinished(runtimeContext, agentStep);
+                    })
+                    .doOnError(error -> traceStageRunner.fail(traceStageId, error))
+                    .doFinally(signalType -> runtimeContext.clearCurrentTraceStage());
+        });
+    }
+
+    private Flux<String> executeNonAnswerAgentStep(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatExecutionPlan executionPlan,
+            BusinessChatAgentStep agentStep) {
+        return Mono.fromRunnable(() -> validateNonAnswerAgentStep(runtimeContext, executionPlan, agentStep))
+                .thenMany(Flux.empty());
+    }
+
+    private void validateNonAnswerAgentStep(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatExecutionPlan executionPlan,
+            BusinessChatAgentStep agentStep) {
+        switch (agentStep.agentType()) {
+            case EVIDENCE_GENERATION -> {
+                if (executionPlan.retrievalEvidenceList() == null || executionPlan.retrievalEvidenceList().isEmpty()) {
+                    throw new IllegalStateException("retrieval evidence is required for evidence generation agent.");
+                }
+            }
+            case CITATION -> {
+                if (executionPlan.retrievalEvidenceList() == null || executionPlan.retrievalEvidenceList().isEmpty()) {
+                    throw new IllegalStateException("retrieval evidence is required for citation agent.");
+                }
+                if (runtimeContext.getSourceSnapshotList().isEmpty()) {
+                    throw new IllegalStateException("source snapshot is required for citation agent.");
+                }
+            }
+            default -> throw new IllegalStateException("non-answer agent is not supported: " + agentStep.agentType().getValue());
+        }
+    }
+
+    private Map<String, Object> buildAgentStepTraceSnapshot(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatExecutionPlan executionPlan,
+            BusinessChatAgentStep agentStep) {
+        return Map.of(
+                "agentType", agentStep.agentType().getValue(),
+                "answerProducer", agentStep.answerProducer(),
+                "executionMode", executionPlan.executionMode().getValue(),
+                "executionModel", executionPlan.executionModel(),
+                "evidenceCount", executionPlan.retrievalEvidenceList() == null
+                        ? 0
+                        : executionPlan.retrievalEvidenceList().size(),
+                "replyLength", runtimeContext.getReplyContent().length());
+    }
+
     private Map<String, Object> buildAnswerGenerationTraceSnapshot(
             BusinessChatRuntimeContext runtimeContext,
             BusinessChatExecutionPlan executionPlan) {
         return Map.of(
-                "agentType", executionPlan.agentType().getValue(),
+                "agentCount", executionPlan.agentStepList().size(),
+                "answerAgentType", executionPlan.answerAgentStep().agentType().getValue(),
                 "executionMode", executionPlan.executionMode().getValue(),
                 "executionModel", executionPlan.executionModel(),
                 "knowledgeRoute", executionPlan.knowledgeRoute(),
@@ -316,19 +406,20 @@ public class BusinessChatServiceImpl implements BusinessChatService {
 
     private void pushAgentStarted(
             BusinessChatRuntimeContext runtimeContext,
-            BusinessChatExecutionPlan executionPlan) {
+            BusinessChatAgentStep agentStep) {
         BusinessChatAgentEvent agentEvent = new BusinessChatAgentEvent(
-                executionPlan.agentType(),
-                executionPlan.agentType().getDisplayName(),
+                agentStep.agentType(),
+                agentStep.stageName(),
                 "开始处理");
         emitAgentEvent(runtimeContext, BusinessChatEventType.AGENT_STARTED, agentEvent);
     }
 
-    private void pushAgentFinished(BusinessChatRuntimeContext runtimeContext) {
-        BusinessChatExecutionPlan executionPlan = runtimeContext.getExecutionPlan();
+    private void pushAgentFinished(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatAgentStep agentStep) {
         BusinessChatAgentEvent agentEvent = new BusinessChatAgentEvent(
-                executionPlan.agentType(),
-                executionPlan.agentType().getDisplayName(),
+                agentStep.agentType(),
+                agentStep.stageName(),
                 "处理完成");
         emitAgentEvent(runtimeContext, BusinessChatEventType.AGENT_FINISHED, agentEvent);
     }
@@ -393,10 +484,11 @@ public class BusinessChatServiceImpl implements BusinessChatService {
     private void pushFunctionSupplement(BusinessChatRuntimeContext runtimeContext) {
         // 补充流：前台只需要 Agent 与模型摘要；完整执行计划进入 debugTraceJson，供后台追踪页复盘。
         String functionSupplement = """
-                Agent：%s
+                Agent：
+                %s
                 执行模型：%s
                 """.formatted(
-                runtimeContext.getExecutionPlan().agentType().getDisplayName(),
+                renderAgentStepSupplement(runtimeContext.getExecutionPlan().agentStepList()),
                 runtimeContext.getTaskInfo().modelConfig().displayName() + "/" + runtimeContext.getExecutionPlan().executionModel());
         runtimeContext.getToolTraceList().add(functionSupplement);
         emitStreamEvent(runtimeContext, BusinessChatStreamEvent.functionSupplement(
@@ -405,6 +497,13 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                 runtimeContext.getTaskInfo().chatMode().getValue(),
                 functionSupplement,
                 firstTokenLatency(runtimeContext)));
+    }
+
+    private String renderAgentStepSupplement(List<BusinessChatAgentStep> agentStepList) {
+        return agentStepList.stream()
+                .map(agentStep -> "- " + agentStep.stageName())
+                .reduce((left, right) -> left + "\n" + right)
+                .orElse("- 无");
     }
 
     /**
@@ -436,6 +535,7 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                         this::buildFinalizeTraceSnapshot,
                         turn -> "本轮回答、引用、推荐问题和调试快照已完成归档");
                 pushTurnFinished(runtimeContext, archivedTurn);
+                businessFlowLogger.logFinished(archivedTurn);
                 return refreshConversationSummary(archivedTurn);
             } catch (Throwable error) {
                 return Mono.error(propagate(error));
@@ -555,6 +655,7 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                 runtimeContext.getTaskInfo().conversationId(),
                 runtimeContext.getTaskInfo().exchangeId(),
                 error);
+        businessFlowLogger.logFailed(runtimeContext, error);
         return Mono.fromRunnable(() -> {
             businessChatPersistenceService.archiveFailedTurn(runtimeContext, error.getMessage());
             emitStreamEvent(runtimeContext, BusinessChatStreamEvent.message(
@@ -583,6 +684,7 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                 "Business chat execution cancelled. conversationId={}, exchangeId={}",
                 runtimeContext.getTaskInfo().conversationId(),
                 runtimeContext.getTaskInfo().exchangeId());
+        businessFlowLogger.logStopped(runtimeContext);
         businessChatPersistenceService.archiveStoppedTurn(runtimeContext, finishNote);
     }
 

@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
 MAVEN_BIN="/Users/admin/Documents/apache-maven-3.9.11/bin/mvn"
 MAVEN_SETTINGS="/Users/admin/Documents/apache-maven-3.9.11/conf/settings.xml"
+SUPER_AGENT_LOG_DIR="${ROOT_DIR}/logs/super-agent-business-chat"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo ".env was not found: ${ENV_FILE}" >&2
@@ -14,6 +15,9 @@ fi
 set -a
 source "${ENV_FILE}"
 set +a
+
+export SUPER_AGENT_LOG_DIR
+mkdir -p "${SUPER_AGENT_LOG_DIR}"
 
 for required_env in \
   SUPER_AGENT_MINIO_ENDPOINT \

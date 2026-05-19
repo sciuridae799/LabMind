@@ -80,6 +80,10 @@ public class KnowledgeRetrievalProperties {
 
         private String apiKey;
 
+        private String username;
+
+        private String password;
+
         private String indexName = "super_agent_document_chunk";
     }
 

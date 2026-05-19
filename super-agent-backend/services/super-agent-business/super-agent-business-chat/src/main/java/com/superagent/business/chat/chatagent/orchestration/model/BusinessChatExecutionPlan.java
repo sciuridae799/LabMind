@@ -1,6 +1,5 @@
 package com.superagent.business.chat.chatagent.orchestration.model;
 
-import com.superagent.business.chat.chatagent.execution.agent.BusinessChatAgentType;
 import com.superagent.business.chat.knowledge.route.model.KnowledgeRouteCandidate;
 import com.superagent.business.chat.knowledge.retrieval.KnowledgeRetrievalParentEvidence;
 import java.util.List;
@@ -26,10 +25,21 @@ public record BusinessChatExecutionPlan(
         String executionModel,
         String intentLabel,
         String intentReason,
-        BusinessChatAgentType agentType,
+        List<BusinessChatAgentStep> agentStepList,
         BusinessChatMode executionMode,
         BusinessChatClarificationPlan clarificationPlan,
         boolean shortCircuit,
         String shortCircuitReply,
         List<String> executionStepList) {
+
+    public BusinessChatExecutionPlan {
+        agentStepList = List.copyOf(agentStepList == null ? List.of() : agentStepList);
+    }
+
+    public BusinessChatAgentStep answerAgentStep() {
+        return agentStepList.stream()
+                .filter(BusinessChatAgentStep::answerProducer)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("answer producer agent step is required."));
+    }
 }

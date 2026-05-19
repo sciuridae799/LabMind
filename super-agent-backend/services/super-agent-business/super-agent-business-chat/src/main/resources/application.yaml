@@ -12,6 +12,10 @@ spring:
       database: ${SUPER_AGENT_REDIS_DATABASE}
   kafka:
     bootstrap-servers: ${SUPER_AGENT_KAFKA_BOOTSTRAP_SERVERS}
+    properties:
+      security.protocol: ${SUPER_AGENT_KAFKA_SECURITY_PROTOCOL:SASL_PLAINTEXT}
+      sasl.mechanism: ${SUPER_AGENT_KAFKA_SASL_MECHANISM:PLAIN}
+      sasl.jaas.config: org.apache.kafka.common.security.plain.PlainLoginModule required username="${SUPER_AGENT_KAFKA_USERNAME}" password="${SUPER_AGENT_KAFKA_PASSWORD}";
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -119,6 +123,8 @@ super-agent:
       elasticsearch:
         base-url: ${SUPER_AGENT_ELASTICSEARCH_BASE_URL}
         api-key: ${SUPER_AGENT_ELASTICSEARCH_API_KEY:}
+        username: ${SUPER_AGENT_ELASTICSEARCH_USERNAME:}
+        password: ${SUPER_AGENT_ELASTICSEARCH_PASSWORD:}
         index-name: ${SUPER_AGENT_ELASTICSEARCH_INDEX:super_agent_document_chunk}
       rerank:
         enabled: ${SUPER_AGENT_RERANK_ENABLED:false}

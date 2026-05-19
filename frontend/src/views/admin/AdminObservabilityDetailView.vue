@@ -68,6 +68,10 @@ function stageProgressWidth(stage: ExchangeTraceStage): string {
   return `${Math.max(3, Math.min(100, (duration / maxStageDuration.value) * 100))}%`
 }
 
+function stageLevelClass(stage: ExchangeTraceStage): string {
+  return Number(stage.stageLevel || 1) > 1 ? 'is-child' : 'is-root'
+}
+
 function stateLabel(state: string): string {
   if (state === 'COMPLETED') {
     return '已完成'
@@ -200,7 +204,12 @@ onMounted(loadDetail)
       <section class="admin-content-panel">
         <h3>执行阶段时间线</h3>
         <div class="timeline-list">
-          <div v-for="stage in detail.stages" :key="`${stage.stageCode}-${stage.stageOrder}`" class="timeline-item">
+          <div
+            v-for="stage in detail.stages"
+            :key="`${stage.stageCode}-${stage.stageOrder}`"
+            class="timeline-item"
+            :class="stageLevelClass(stage)"
+          >
             <span class="timeline-dot" :class="stage.stageState.toLowerCase()"></span>
             <div class="timeline-content">
               <div class="timeline-head">
@@ -211,6 +220,7 @@ onMounted(loadDetail)
                 <span :class="['state-pill', stage.stageState.toLowerCase()]">{{ stateLabel(stage.stageState) }}</span>
                 <span>耗时 {{ formatDuration(stage.durationMs) }}</span>
                 <span>{{ stage.stageCode }}</span>
+                <span v-if="stage.parentStageId">父阶段 {{ stage.parentStageId }}</span>
               </div>
               <p>{{ stage.summaryText || stage.errorMessage || '无阶段摘要' }}</p>
               <div class="stage-progress">
@@ -410,6 +420,22 @@ onMounted(loadDetail)
 
 .timeline-item:last-child::before {
   display: none;
+}
+
+.timeline-item.is-child {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+
+.timeline-item.is-child::before {
+  left: 34px;
+}
+
+.timeline-item.is-child .timeline-dot {
+  margin-left: 28px;
+}
+
+.timeline-item.is-child .timeline-content {
+  background: #fbfcfe;
 }
 
 .timeline-dot {

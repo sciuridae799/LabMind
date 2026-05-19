@@ -11,6 +11,7 @@ import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
 import com.alibaba.cloud.ai.toolcalling.tavily.TavilySearchService;
 import com.superagent.business.chat.chatagent.config.BusinessChatRuntimeProperties;
 import com.superagent.business.chat.chatagent.execution.BusinessChatExecutor;
+import com.superagent.business.chat.chatagent.logging.BusinessChatToolBusinessLogger;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatMode;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
@@ -79,18 +80,26 @@ public class OpenEndedBusinessChatExecutor implements BusinessChatExecutor {
 
     private final BusinessChatUsageTraceService usageTraceService;
 
+    private final BusinessChatModelBusinessLogger modelBusinessLogger;
+
+    private final BusinessChatToolBusinessLogger toolBusinessLogger;
+
     public OpenEndedBusinessChatExecutor(
             OpenAiCompatibleBusinessChatDynamicModelClient modelClient,
             BusinessChatRuntimeProperties runtimeProperties,
             TavilySearchService tavilySearchService,
             RedissonClient redissonClient,
             DataSource dataSource,
-            BusinessChatUsageTraceService usageTraceService) {
+            BusinessChatUsageTraceService usageTraceService,
+            BusinessChatModelBusinessLogger modelBusinessLogger,
+            BusinessChatToolBusinessLogger toolBusinessLogger) {
         this.modelClient = modelClient;
         this.runtimeProperties = runtimeProperties;
         this.tavilySearchService = tavilySearchService;
         this.redissonClient = redissonClient;
         this.usageTraceService = usageTraceService;
+        this.modelBusinessLogger = modelBusinessLogger;
+        this.toolBusinessLogger = toolBusinessLogger;
         this.mysqlSaver = MysqlSaver.builder()
                 .dataSource(dataSource)
                 .createOption(CreateOption.CREATE_NONE)
@@ -107,6 +116,12 @@ public class OpenEndedBusinessChatExecutor implements BusinessChatExecutor {
     public Flux<String> execute(BusinessChatRuntimeContext runtimeContext, BusinessChatExecutionPlan executionPlan) {
         RunnableConfig runnableConfig = buildRunnableConfig(runtimeContext);
         ReactAgent agent = buildAgent(runtimeContext, executionPlan);
+        BusinessChatModelPrompt prompt = buildReactAgentPrompt(executionPlan);
+        String callId = modelBusinessLogger.nextCallId();
+        long startNanoTime = System.nanoTime();
+        String stageCode = runtimeContext.getCurrentTraceStageCode();
+        String stageName = runtimeContext.getCurrentTraceStageName();
+        StringBuilder responseContent = new StringBuilder();
         return Flux.defer(() -> {
                     try {
                         return agent.streamMessages(executionPlan.rewrittenQuestion(), runnableConfig);
@@ -114,7 +129,31 @@ public class OpenEndedBusinessChatExecutor implements BusinessChatExecutor {
                         return Flux.error(error);
                     }
                 })
-                .handle(this::emitTextDelta)
+                .<String>handle((message, sink) -> emitTextDelta(message, sink, responseContent))
+                .doOnComplete(() -> modelBusinessLogger.logCompleted(
+                        callId,
+                        runtimeContext,
+                        runtimeContext.getTaskInfo().modelConfig(),
+                        "REACT_AGENT_STREAM",
+                        prompt,
+                        responseContent.toString(),
+                        null,
+                        startNanoTime,
+                        0,
+                        stageCode,
+                        stageName))
+                .doOnError(error -> modelBusinessLogger.logFailed(
+                        callId,
+                        runtimeContext,
+                        runtimeContext.getTaskInfo().modelConfig(),
+                        "REACT_AGENT_STREAM",
+                        prompt,
+                        responseContent.toString(),
+                        error,
+                        startNanoTime,
+                        0,
+                        stageCode,
+                        stageName))
                 .doFinally(signalType -> syncAgentCounters(runtimeContext, runnableConfig));
     }
 
@@ -200,9 +239,14 @@ public class OpenEndedBusinessChatExecutor implements BusinessChatExecutor {
         return builder.toString();
     }
 
-    private void emitTextDelta(Message message, SynchronousSink<String> sink) {
+    private BusinessChatModelPrompt buildReactAgentPrompt(BusinessChatExecutionPlan executionPlan) {
+        return new BusinessChatModelPrompt(buildInstruction(executionPlan), executionPlan.rewrittenQuestion());
+    }
+
+    private void emitTextDelta(Message message, SynchronousSink<String> sink, StringBuilder responseContent) {
         String text = message.getText();
         if (StringUtils.hasText(text)) {
+            responseContent.append(text);
             sink.next(text);
         }
     }
@@ -248,13 +292,52 @@ public class OpenEndedBusinessChatExecutor implements BusinessChatExecutor {
             BusinessChatRuntimeContext runtimeContext,
             TavilySearchService.Request request) {
         Long traceId = usageTraceService.startToolCall(runtimeContext, TAVILY_TOOL_NAME);
+        String callId = toolBusinessLogger.nextCallId();
+        long startNanoTime = System.nanoTime();
         try {
             TavilySearchService.Response response = tavilySearchService.apply(request);
             usageTraceService.completeToolCall(traceId);
+            toolBusinessLogger.logCompleted(
+                    callId,
+                    runtimeContext,
+                    TAVILY_TOOL_NAME,
+                    renderTavilyRequest(request),
+                    renderTavilyResponse(response),
+                    startNanoTime);
             return response;
         } catch (RuntimeException error) {
             usageTraceService.failToolCall(traceId, error);
+            toolBusinessLogger.logFailed(
+                    callId,
+                    runtimeContext,
+                    TAVILY_TOOL_NAME,
+                    renderTavilyRequest(request),
+                    error,
+                    startNanoTime);
             throw error;
         }
+    }
+
+    private String renderTavilyRequest(TavilySearchService.Request request) {
+        return "query=" + request.query();
+    }
+
+    private String renderTavilyResponse(TavilySearchService.Response response) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("query=").append(response.query()).append("\n");
+        builder.append("responseTime=").append(response.responseTime()).append("\n");
+        if (response.results() == null || response.results().isEmpty()) {
+            builder.append("results=none");
+            return builder.toString();
+        }
+        for (int index = 0; index < response.results().size(); index++) {
+            var result = response.results().get(index);
+            builder.append("\n[").append(index + 1).append("] ")
+                    .append(result.title()).append("\n")
+                    .append("url=").append(result.url()).append("\n")
+                    .append("score=").append(result.score()).append("\n")
+                    .append("content=").append(result.content()).append("\n");
+        }
+        return builder.toString();
     }
 }

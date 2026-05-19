@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.superagent.business.chat.chatagent.config.BusinessChatRuntimeProperties;
 import com.superagent.business.chat.chatagent.execution.agent.BusinessChatAgentType;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatAgentStep;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatClarificationPlan;
 import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelApiConfigSnapshot;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
@@ -42,7 +43,9 @@ class OpenAiCompatibleBusinessChatDynamicModelClientTest {
                 ToolCallingManager.builder().build(),
                 RetryTemplate.defaultInstance(),
                 new BusinessChatRuntimeProperties(),
-                mock(RedissonClient.class), mock(com.superagent.business.chat.chatagent.trace.BusinessChatUsageTraceService.class));
+                mock(RedissonClient.class),
+                mock(com.superagent.business.chat.chatagent.trace.BusinessChatUsageTraceService.class),
+                new BusinessChatModelBusinessLogger());
     }
 
     @Test
@@ -256,7 +259,9 @@ class OpenAiCompatibleBusinessChatDynamicModelClientTest {
                 ToolCallingManager.builder().build(),
                 RetryTemplate.defaultInstance(),
                 properties,
-                mock(RedissonClient.class), mock(com.superagent.business.chat.chatagent.trace.BusinessChatUsageTraceService.class));
+                mock(RedissonClient.class),
+                mock(com.superagent.business.chat.chatagent.trace.BusinessChatUsageTraceService.class),
+                new BusinessChatModelBusinessLogger());
         BusinessChatRuntimeContext runtimeContext = buildRuntimeContext();
         runtimeContext.incrementModelCallCount();
 
@@ -279,7 +284,8 @@ class OpenAiCompatibleBusinessChatDynamicModelClientTest {
                 RetryTemplate.defaultInstance(),
                 properties,
                 redissonClient,
-                mock(com.superagent.business.chat.chatagent.trace.BusinessChatUsageTraceService.class));
+                mock(com.superagent.business.chat.chatagent.trace.BusinessChatUsageTraceService.class),
+                new BusinessChatModelBusinessLogger());
         BusinessChatRuntimeContext runtimeContext = buildRuntimeContext();
 
         assertThatThrownBy(() -> limitedClient.call(runtimeContext, runtimeContext.getTaskInfo().modelConfig(), "system", "user"))
@@ -317,12 +323,21 @@ class OpenAiCompatibleBusinessChatDynamicModelClientTest {
                 modelName,
                 "open_ended_question_answer",
                 "根据本轮输入生成执行计划。",
-                BusinessChatAgentType.THINK_ACT,
+                List.of(agentStep(BusinessChatAgentType.THINK_ACT)),
                 BusinessChatMode.OPEN_ENDED,
                 BusinessChatClarificationPlan.notRequired(),
                 false,
                 null,
                 List.of("执行模型：" + modelName));
+    }
+
+    private BusinessChatAgentStep agentStep(BusinessChatAgentType agentType) {
+        return new BusinessChatAgentStep(
+                agentType,
+                "AGENT_" + agentType.getValue(),
+                agentType.getDisplayName(),
+                710,
+                true);
     }
 
     private BusinessChatRuntimeContext buildRuntimeContext() {

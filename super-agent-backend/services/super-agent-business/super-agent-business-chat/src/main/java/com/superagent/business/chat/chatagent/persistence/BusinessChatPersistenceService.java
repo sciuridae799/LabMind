@@ -50,6 +50,13 @@ public interface BusinessChatPersistenceService {
 
     Long startTraceStage(BusinessChatRuntimeContext runtimeContext, String stageCode, String stageName, int stageOrder);
 
+    Long startTraceSubStage(
+            BusinessChatRuntimeContext runtimeContext,
+            Long parentStageId,
+            String stageCode,
+            String stageName,
+            int stageOrder);
+
     void completeTraceStage(Long traceStageId, String summaryText, Object snapshot);
 
     void failTraceStage(Long traceStageId, Throwable error);

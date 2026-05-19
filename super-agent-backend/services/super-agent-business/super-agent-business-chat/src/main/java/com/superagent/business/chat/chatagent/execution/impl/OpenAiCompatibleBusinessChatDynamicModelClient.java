@@ -9,6 +9,7 @@ import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext
 import com.superagent.business.chat.chatagent.trace.BusinessChatUsageTraceService;
 import io.micrometer.observation.ObservationRegistry;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.ai.chat.metadata.Usage;
 import org.redisson.api.RedissonClient;
@@ -55,23 +56,60 @@ public class OpenAiCompatibleBusinessChatDynamicModelClient implements BusinessC
 
     private final BusinessChatUsageTraceService usageTraceService;
 
+    private final BusinessChatModelBusinessLogger modelBusinessLogger;
+
     public OpenAiCompatibleBusinessChatDynamicModelClient(
             ToolCallingManager toolCallingManager,
             RetryTemplate retryTemplate,
             BusinessChatRuntimeProperties runtimeProperties,
             RedissonClient redissonClient,
-            BusinessChatUsageTraceService usageTraceService) {
+            BusinessChatUsageTraceService usageTraceService,
+            BusinessChatModelBusinessLogger modelBusinessLogger) {
         this.toolCallingManager = toolCallingManager;
         this.retryTemplate = retryTemplate;
         this.runtimeProperties = runtimeProperties;
         this.redissonClient = redissonClient;
         this.usageTraceService = usageTraceService;
+        this.modelBusinessLogger = modelBusinessLogger;
     }
 
     @Override
     public Flux<String> stream(BusinessChatModelApiConfigSnapshot modelConfig, BusinessChatExecutionPlan executionPlan) {
-        return new AbstractChatClientBusinessChatModelClient(buildChatClient(modelConfig, true, modelConfig.modelName())) {
-        }.stream(executionPlan);
+        AbstractChatClientBusinessChatModelClient client =
+                new AbstractChatClientBusinessChatModelClient(buildChatClient(modelConfig, true, modelConfig.modelName())) {
+                };
+        BusinessChatModelPrompt prompt = client.buildPrompt(executionPlan);
+        String callId = modelBusinessLogger.nextCallId();
+        long startNanoTime = System.nanoTime();
+        AtomicInteger streamChunkCount = new AtomicInteger();
+        StringBuilder responseContent = new StringBuilder();
+        return client.streamResponse(prompt)
+                .map(response -> {
+                    String text = client.extractText(response);
+                    streamChunkCount.incrementAndGet();
+                    responseContent.append(text);
+                    return text;
+                })
+                .doOnComplete(() -> modelBusinessLogger.logCompleted(
+                        callId,
+                        null,
+                        modelConfig,
+                        CALL_TYPE_STREAM,
+                        prompt,
+                        responseContent.toString(),
+                        null,
+                        startNanoTime,
+                        streamChunkCount.get()))
+                .doOnError(error -> modelBusinessLogger.logFailed(
+                        callId,
+                        null,
+                        modelConfig,
+                        CALL_TYPE_STREAM,
+                        prompt,
+                        responseContent.toString(),
+                        error,
+                        startNanoTime,
+                        streamChunkCount.get()));
     }
 
     @Override
@@ -82,22 +120,87 @@ public class OpenAiCompatibleBusinessChatDynamicModelClient implements BusinessC
         AbstractChatClientBusinessChatModelClient client =
                 new AbstractChatClientBusinessChatModelClient(buildChatClient(modelConfig, true, modelConfig.modelName())) {
                 };
+        BusinessChatModelPrompt prompt = client.buildPrompt(executionPlan);
+        String callId = modelBusinessLogger.nextCallId();
+        long startNanoTime = System.nanoTime();
         AtomicReference<Usage> usageRef = new AtomicReference<>();
-        return client.streamResponse(executionPlan)
+        AtomicInteger streamChunkCount = new AtomicInteger();
+        StringBuilder responseContent = new StringBuilder();
+        return client.streamResponse(prompt)
                 .doOnNext(response -> {
                     if (response.getMetadata() != null && response.getMetadata().getUsage() != null) {
                         usageRef.set(response.getMetadata().getUsage());
                     }
                 })
-                .map(client::extractText)
-                .doOnComplete(() -> usageTraceService.completeModelCall(traceId, usageRef.get()))
-                .doOnError(error -> usageTraceService.failModelCall(traceId, error));
+                .map(response -> {
+                    String text = client.extractText(response);
+                    streamChunkCount.incrementAndGet();
+                    responseContent.append(text);
+                    return text;
+                })
+                .doOnComplete(() -> {
+                    usageTraceService.completeModelCall(traceId, usageRef.get());
+                    modelBusinessLogger.logCompleted(
+                            callId,
+                            runtimeContext,
+                            modelConfig,
+                            CALL_TYPE_STREAM,
+                            prompt,
+                            responseContent.toString(),
+                            usageRef.get(),
+                            startNanoTime,
+                            streamChunkCount.get());
+                })
+                .doOnError(error -> {
+                    usageTraceService.failModelCall(traceId, error);
+                    modelBusinessLogger.logFailed(
+                            callId,
+                            runtimeContext,
+                            modelConfig,
+                            CALL_TYPE_STREAM,
+                            prompt,
+                            responseContent.toString(),
+                            error,
+                            startNanoTime,
+                            streamChunkCount.get());
+                });
     }
 
     @Override
     public String call(BusinessChatModelApiConfigSnapshot modelConfig, String systemPrompt, String userMessage) {
-        return new AbstractChatClientBusinessChatModelClient(buildChatClient(modelConfig, false, modelConfig.modelName())) {
-        }.call(systemPrompt, userMessage);
+        AbstractChatClientBusinessChatModelClient client =
+                new AbstractChatClientBusinessChatModelClient(buildChatClient(modelConfig, false, modelConfig.modelName())) {
+                };
+        BusinessChatModelPrompt prompt = new BusinessChatModelPrompt(systemPrompt, userMessage);
+        String callId = modelBusinessLogger.nextCallId();
+        long startNanoTime = System.nanoTime();
+        try {
+            var response = client.callResponse(prompt);
+            String content = client.extractText(response);
+            modelBusinessLogger.logCompleted(
+                    callId,
+                    null,
+                    modelConfig,
+                    CALL_TYPE_NON_STREAM,
+                    prompt,
+                    content,
+                    modelBusinessLogger.extractUsage(response),
+                    startNanoTime,
+                    0);
+            return content;
+        } catch (RuntimeException error) {
+            modelBusinessLogger.logFailed(
+                    callId,
+                    null,
+                    modelConfig,
+                    CALL_TYPE_NON_STREAM,
+                    prompt,
+                    "",
+                    error,
+                    startNanoTime,
+                    0);
+            throw error;
+        }
     }
 
     @Override
@@ -108,17 +211,41 @@ public class OpenAiCompatibleBusinessChatDynamicModelClient implements BusinessC
             String userMessage) {
         registerModelCall(runtimeContext);
         Long traceId = usageTraceService.startModelCall(runtimeContext, modelConfig, CALL_TYPE_NON_STREAM);
+        BusinessChatModelPrompt prompt = new BusinessChatModelPrompt(systemPrompt, userMessage);
+        String callId = modelBusinessLogger.nextCallId();
+        long startNanoTime = System.nanoTime();
         try {
             AbstractChatClientBusinessChatModelClient client =
                     new AbstractChatClientBusinessChatModelClient(buildChatClient(modelConfig, false, modelConfig.modelName())) {
                     };
-            var response = client.callResponse(systemPrompt, userMessage);
+            var response = client.callResponse(prompt);
+            String content = client.extractText(response);
             usageTraceService.completeModelCall(
                     traceId,
                     response.getMetadata() == null ? null : response.getMetadata().getUsage());
-            return client.extractText(response);
+            modelBusinessLogger.logCompleted(
+                    callId,
+                    runtimeContext,
+                    modelConfig,
+                    CALL_TYPE_NON_STREAM,
+                    prompt,
+                    content,
+                    modelBusinessLogger.extractUsage(response),
+                    startNanoTime,
+                    0);
+            return content;
         } catch (RuntimeException error) {
             usageTraceService.failModelCall(traceId, error);
+            modelBusinessLogger.logFailed(
+                    callId,
+                    runtimeContext,
+                    modelConfig,
+                    CALL_TYPE_NON_STREAM,
+                    prompt,
+                    "",
+                    error,
+                    startNanoTime,
+                    0);
             throw error;
         }
     }

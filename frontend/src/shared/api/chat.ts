@@ -195,6 +195,8 @@ export interface ExchangeTraceStage {
   stageCode: string
   stageName: string
   stageOrder: number
+  stageLevel: number
+  parentStageId: string | null
   stageState: string
   durationMs: string | number | null
   summaryText: string | null

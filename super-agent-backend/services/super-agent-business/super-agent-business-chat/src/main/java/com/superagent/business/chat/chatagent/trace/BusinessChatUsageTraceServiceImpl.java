@@ -50,8 +50,8 @@ public class BusinessChatUsageTraceServiceImpl implements BusinessChatUsageTrace
         data.setDialogueCode(runtimeContext.getTaskInfo().conversationId());
         data.setExchangeId(runtimeContext.getTaskInfo().exchangeId());
         data.setTraceId(runtimeContext.getTaskInfo().traceId());
-        data.setStageCode(MODEL_STAGE_CODE);
-        data.setStageName(MODEL_STAGE_NAME);
+        data.setStageCode(resolveStageCode(runtimeContext));
+        data.setStageName(resolveStageName(runtimeContext));
         data.setProvider(modelConfig.provider().getValue());
         data.setBaseUrl(modelConfig.baseUrl());
         data.setModelName(modelConfig.modelName());
@@ -194,6 +194,16 @@ public class BusinessChatUsageTraceServiceImpl implements BusinessChatUsageTrace
 
     private int normalizeTokenCount(Integer value) {
         return value == null ? 0 : value;
+    }
+
+    private String resolveStageCode(BusinessChatRuntimeContext runtimeContext) {
+        String stageCode = runtimeContext.getCurrentTraceStageCode();
+        return stageCode == null || stageCode.isBlank() ? MODEL_STAGE_CODE : stageCode;
+    }
+
+    private String resolveStageName(BusinessChatRuntimeContext runtimeContext) {
+        String stageName = runtimeContext.getCurrentTraceStageName();
+        return stageName == null || stageName.isBlank() ? MODEL_STAGE_NAME : stageName;
     }
 
 }

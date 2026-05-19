@@ -64,6 +64,10 @@ public class BusinessChatRuntimeContext {
 
     private final AtomicLong modelCallCount;
 
+    private final ThreadLocal<String> currentTraceStageCode;
+
+    private final ThreadLocal<String> currentTraceStageName;
+
     @Getter
     @Setter
     private volatile BusinessChatIntentAnalysis intentAnalysis;
@@ -85,6 +89,8 @@ public class BusinessChatRuntimeContext {
         this.outputClosed = new AtomicBoolean(false);
         this.firstTokenLatencyMs = new AtomicLong(-1L);
         this.modelCallCount = new AtomicLong(0L);
+        this.currentTraceStageCode = new ThreadLocal<>();
+        this.currentTraceStageName = new ThreadLocal<>();
     }
 
     public synchronized void appendReplyContent(String textDelta) {
@@ -113,6 +119,24 @@ public class BusinessChatRuntimeContext {
 
     public long getModelCallCount() {
         return modelCallCount.get();
+    }
+
+    public void bindCurrentTraceStage(String stageCode, String stageName) {
+        currentTraceStageCode.set(stageCode);
+        currentTraceStageName.set(stageName);
+    }
+
+    public void clearCurrentTraceStage() {
+        currentTraceStageCode.remove();
+        currentTraceStageName.remove();
+    }
+
+    public String getCurrentTraceStageCode() {
+        return currentTraceStageCode.get();
+    }
+
+    public String getCurrentTraceStageName() {
+        return currentTraceStageName.get();
     }
 
     public boolean markFinalized() {

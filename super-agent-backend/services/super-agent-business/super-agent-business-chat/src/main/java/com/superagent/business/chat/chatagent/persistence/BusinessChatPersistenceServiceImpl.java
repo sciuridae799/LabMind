@@ -58,6 +58,8 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
 
     private static final int TOP_LEVEL_STAGE = 1;
 
+    private static final int SUB_STAGE = 2;
+
     private final BusinessChatDialogueMapper businessChatDialogueMapper;
 
     private final BusinessChatExchangeMapper businessChatExchangeMapper;
@@ -206,6 +208,30 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
             String stageCode,
             String stageName,
             int stageOrder) {
+        return startTraceStage(runtimeContext, null, stageCode, stageName, stageOrder, TOP_LEVEL_STAGE);
+    }
+
+    @Override
+    @Transactional
+    public Long startTraceSubStage(
+            BusinessChatRuntimeContext runtimeContext,
+            Long parentStageId,
+            String stageCode,
+            String stageName,
+            int stageOrder) {
+        if (parentStageId == null) {
+            throw new IllegalArgumentException("parentStageId is required");
+        }
+        return startTraceStage(runtimeContext, parentStageId, stageCode, stageName, stageOrder, SUB_STAGE);
+    }
+
+    private Long startTraceStage(
+            BusinessChatRuntimeContext runtimeContext,
+            Long parentStageId,
+            String stageCode,
+            String stageName,
+            int stageOrder,
+            int stageLevel) {
         BusinessChatExchangeTraceStageData traceStageData = new BusinessChatExchangeTraceStageData();
         traceStageData.setId(snowflakeIdGenerator.nextId());
         traceStageData.setDialogueCode(runtimeContext.getTaskInfo().conversationId());
@@ -214,7 +240,8 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
         traceStageData.setStageCode(stageCode);
         traceStageData.setStageName(stageName);
         traceStageData.setStageOrder(stageOrder);
-        traceStageData.setStageLevel(TOP_LEVEL_STAGE);
+        traceStageData.setStageLevel(stageLevel);
+        traceStageData.setParentStageId(parentStageId);
         traceStageData.setExecutionMode(runtimeContext.getTaskInfo().chatMode().getValue());
         traceStageData.setStageState(TRACE_STAGE_RUNNING);
         traceStageData.setStartTime(LocalDateTime.now());

@@ -11,6 +11,7 @@ import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExc
 import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatMemorySummaryMapper;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatClarificationOption;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatClarificationPlan;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatAgentStep;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
 import com.superagent.business.chat.chatagent.persistence.model.BusinessChatExchangeState;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatFreshnessRequirement;
@@ -197,7 +198,10 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
                 : clarificationPlan.required()
                         ? clarificationPlan.reason()
                         : "根据会话模式、历史上下文、知识路由和时效性要求生成本轮执行计划。";
-        BusinessChatAgentType agentType = selectAgentType(routedExecutionMode, clarificationPlan);
+        List<BusinessChatAgentStep> agentStepList = buildAgentStepList(
+                routedExecutionMode,
+                clarificationPlan,
+                retrievalResult);
         return new BusinessChatExecutionPlan(
                 runtimeContext.getTaskInfo().question(),
                 rewrittenQuestion,
@@ -214,7 +218,7 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
                 executionModel,
                 intentLabel,
                 intentReason,
-                agentType,
+                agentStepList,
                 routedExecutionMode,
                 clarificationPlan,
                 shortCircuit,
@@ -243,7 +247,7 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         };
     }
 
-    private BusinessChatAgentType selectAgentType(
+    private BusinessChatAgentType selectAnswerAgentType(
             BusinessChatMode executionMode,
             BusinessChatClarificationPlan clarificationPlan) {
         if (clarificationPlan.required()) {
@@ -253,6 +257,37 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
             case KNOWLEDGE_BASE -> BusinessChatAgentType.KNOWLEDGE_QA;
             case CURRENT_DOCUMENT, OPEN_ENDED -> BusinessChatAgentType.THINK_ACT;
         };
+    }
+
+    private List<BusinessChatAgentStep> buildAgentStepList(
+            BusinessChatMode executionMode,
+            BusinessChatClarificationPlan clarificationPlan,
+            KnowledgeRetrievalResult retrievalResult) {
+        BusinessChatAgentType answerAgentType = selectAnswerAgentType(executionMode, clarificationPlan);
+        if (clarificationPlan.required()) {
+            return List.of(agentStep(answerAgentType, 710, true));
+        }
+        if (executionMode == BusinessChatMode.OPEN_ENDED) {
+            return List.of(agentStep(answerAgentType, 710, true));
+        }
+        List<BusinessChatAgentStep> stepList = new ArrayList<>();
+        if (retrievalResult != null && !retrievalResult.parentEvidenceList().isEmpty()) {
+            stepList.add(agentStep(BusinessChatAgentType.EVIDENCE_GENERATION, 710, false));
+        }
+        stepList.add(agentStep(answerAgentType, 720, true));
+        if (retrievalResult != null && !retrievalResult.parentEvidenceList().isEmpty()) {
+            stepList.add(agentStep(BusinessChatAgentType.CITATION, 730, false));
+        }
+        return List.copyOf(stepList);
+    }
+
+    private BusinessChatAgentStep agentStep(BusinessChatAgentType agentType, int stageOrder, boolean answerProducer) {
+        return new BusinessChatAgentStep(
+                agentType,
+                "AGENT_" + agentType.getValue(),
+                agentType.getDisplayName(),
+                stageOrder,
+                answerProducer);
     }
 
     /**

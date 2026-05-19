@@ -12,6 +12,10 @@ public class BusinessChatExchangeTraceStageVo {
 
     private Integer stageOrder;
 
+    private Integer stageLevel;
+
+    private String parentStageId;
+
     private String stageState;
 
     private Long durationMs;

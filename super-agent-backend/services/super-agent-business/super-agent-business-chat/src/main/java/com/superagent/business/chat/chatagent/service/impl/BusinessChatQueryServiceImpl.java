@@ -282,6 +282,8 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
         vo.setStageCode(data.getStageCode());
         vo.setStageName(data.getStageName());
         vo.setStageOrder(data.getStageOrder());
+        vo.setStageLevel(data.getStageLevel());
+        vo.setParentStageId(data.getParentStageId() == null ? null : String.valueOf(data.getParentStageId()));
         vo.setStageState(toTraceState(data.getStageState()));
         vo.setDurationMs(data.getDurationMs());
         vo.setSummaryText(data.getSummaryText());

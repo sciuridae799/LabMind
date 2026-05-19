@@ -226,7 +226,7 @@ class BusinessChatOrchestratorImplTest {
         assertThat(executionPlan.knowledgeRoute()).isEqualTo("KNOWLEDGE_BASE|DOCUMENT_MATCHED");
         assertThat(executionPlan.knowledgeRouteCandidateList()).hasSize(1);
         assertThat(executionPlan.clarificationPlan().required()).isFalse();
-        assertThat(executionPlan.agentType()).isEqualTo(BusinessChatAgentType.KNOWLEDGE_QA);
+        assertThat(executionPlan.answerAgentStep().agentType()).isEqualTo(BusinessChatAgentType.KNOWLEDGE_QA);
         assertThat(executionPlan.executionMode()).isEqualTo(BusinessChatMode.KNOWLEDGE_BASE);
         verify(knowledgeGraphClient).routeQuestion("订单审核链路有哪些风险？", 5);
         assertThat(executionPlan.executionStepList()).contains(
@@ -246,7 +246,7 @@ class BusinessChatOrchestratorImplTest {
         var executionPlan = businessChatOrchestrator.orchestrate(
                 createRuntimeContext(BusinessChatMode.KNOWLEDGE_BASE, "订单审核怎么配置？"));
 
-        assertThat(executionPlan.agentType()).isEqualTo(BusinessChatAgentType.CLARIFICATION);
+        assertThat(executionPlan.answerAgentStep().agentType()).isEqualTo(BusinessChatAgentType.CLARIFICATION);
         assertThat(executionPlan.intentLabel()).isEqualTo("knowledge_route_clarification");
         assertThat(executionPlan.knowledgeRoute()).isEqualTo("KNOWLEDGE_BASE|NO_DOCUMENT_MATCH|CLARIFICATION_REQUIRED");
         assertThat(executionPlan.clarificationPlan().required()).isTrue();
@@ -268,7 +268,7 @@ class BusinessChatOrchestratorImplTest {
         var executionPlan = businessChatOrchestrator.orchestrate(
                 createRuntimeContext(BusinessChatMode.KNOWLEDGE_BASE, "流程怎么配置？"));
 
-        assertThat(executionPlan.agentType()).isEqualTo(BusinessChatAgentType.CLARIFICATION);
+        assertThat(executionPlan.answerAgentStep().agentType()).isEqualTo(BusinessChatAgentType.CLARIFICATION);
         assertThat(executionPlan.knowledgeRoute()).isEqualTo("KNOWLEDGE_BASE|DOCUMENT_MATCHED|CLARIFICATION_REQUIRED");
         assertThat(executionPlan.clarificationPlan().required()).isTrue();
         assertThat(executionPlan.clarificationPlan().reason()).contains("Top1/Top2 跨知识域且分差过小");
@@ -292,7 +292,7 @@ class BusinessChatOrchestratorImplTest {
         var executionPlan = businessChatOrchestrator.orchestrate(
                 createRuntimeContext(BusinessChatMode.KNOWLEDGE_BASE, "订单审核流程怎么配置？"));
 
-        assertThat(executionPlan.agentType()).isEqualTo(BusinessChatAgentType.KNOWLEDGE_QA);
+        assertThat(executionPlan.answerAgentStep().agentType()).isEqualTo(BusinessChatAgentType.KNOWLEDGE_QA);
         assertThat(executionPlan.clarificationPlan().required()).isFalse();
         assertThat(executionPlan.knowledgeRoute()).isEqualTo("KNOWLEDGE_BASE|DOCUMENT_MATCHED");
     }
@@ -418,7 +418,7 @@ class BusinessChatOrchestratorImplTest {
         assertThat(executionPlan.shortCircuit()).isTrue();
         assertThat(executionPlan.shortCircuitReply())
                 .isEqualTo("知识库中没有检索到足够证据，无法基于知识库回答该问题。");
-        assertThat(executionPlan.agentType()).isEqualTo(BusinessChatAgentType.KNOWLEDGE_QA);
+        assertThat(executionPlan.answerAgentStep().agentType()).isEqualTo(BusinessChatAgentType.KNOWLEDGE_QA);
         assertThat(executionPlan.executionStepList()).contains("证据短路：未调用模型生成");
     }
 

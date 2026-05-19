@@ -25,14 +25,23 @@ public class BusinessChatTraceStageRunner {
             Function<T, Object> snapshotBuilder,
             Function<T, String> summaryBuilder) {
         Long traceStageId = null;
+        String previousStageCode = runtimeContext.getCurrentTraceStageCode();
+        String previousStageName = runtimeContext.getCurrentTraceStageName();
         try {
             traceStageId = start(runtimeContext, stage);
+            runtimeContext.bindCurrentTraceStage(stage.code(), stage.stageName());
             T value = supplier.get();
             complete(traceStageId, summaryBuilder.apply(value), snapshotBuilder.apply(value));
             return value;
         } catch (Throwable error) {
             fail(traceStageId, error);
             throw propagate(error);
+        } finally {
+            if (previousStageCode == null && previousStageName == null) {
+                runtimeContext.clearCurrentTraceStage();
+            } else {
+                runtimeContext.bindCurrentTraceStage(previousStageCode, previousStageName);
+            }
         }
     }
 
@@ -42,6 +51,20 @@ public class BusinessChatTraceStageRunner {
                 stage.code(),
                 stage.stageName(),
                 stage.order());
+    }
+
+    public Long startSubStage(
+            BusinessChatRuntimeContext runtimeContext,
+            Long parentStageId,
+            String stageCode,
+            String stageName,
+            int stageOrder) {
+        return businessChatPersistenceService.startTraceSubStage(
+                runtimeContext,
+                parentStageId,
+                stageCode,
+                stageName,
+                stageOrder);
     }
 
     public void complete(Long traceStageId, String summaryText, Object snapshot) {

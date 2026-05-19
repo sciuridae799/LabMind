@@ -16,6 +16,7 @@ import com.superagent.business.chat.chatagent.execution.agent.BusinessChatAgentT
 import com.superagent.business.chat.chatagent.api.dto.BusinessChatStreamRequest;
 import com.superagent.business.chat.chatagent.orchestration.finalization.BusinessChatFinalizationGenerator;
 import com.superagent.business.chat.chatagent.orchestration.finalization.BusinessChatFinalizationResult;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatAgentStep;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatClarificationPlan;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatFinalizedTurn;
@@ -23,6 +24,7 @@ import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatFr
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatMode;
 import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelApiConfigSnapshot;
 import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelProvider;
+import com.superagent.business.chat.chatagent.logging.BusinessChatBusinessFlowLogger;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatTaskInfo;
 import com.superagent.business.chat.chatagent.orchestration.BusinessChatOrchestrator;
@@ -106,7 +108,8 @@ class BusinessChatServiceImplTest {
                 businessChatFinalizationGenerator,
                 modelApiConfigService,
                 knowledgeManageService,
-                traceStageRunner);
+                traceStageRunner,
+                new BusinessChatBusinessFlowLogger());
         lenient().when(modelApiConfigService.getRequiredAvailableSnapshot("3001")).thenReturn(modelConfig);
         lenient().when(modelApiConfigService.getRequiredAvailableSnapshot("3002")).thenReturn(secondModelConfig);
     }
@@ -295,7 +298,7 @@ class BusinessChatServiceImplTest {
                             runtimeContext.getTaskInfo().modelConfig().modelName(),
                             "open_ended_question_answer",
                             "根据会话模式、历史上下文、知识路由和时效性要求生成本轮执行计划。",
-                            BusinessChatAgentType.THINK_ACT,
+                            List.of(agentStep(BusinessChatAgentType.THINK_ACT)),
                             BusinessChatMode.OPEN_ENDED,
                             BusinessChatClarificationPlan.notRequired(),
                             false,
@@ -379,10 +382,10 @@ class BusinessChatServiceImplTest {
                 "CHAT_CLIENT_DEFAULT",
                 "open_ended_question_answer",
                 "根据会话模式、历史上下文、知识路由和时效性要求生成本轮执行计划。",
-                BusinessChatAgentType.THINK_ACT,
+                List.of(agentStep(BusinessChatAgentType.THINK_ACT)),
                 BusinessChatMode.OPEN_ENDED,
                 BusinessChatClarificationPlan.notRequired(),
-                            false,
+                false,
                 null,
                 List.of(
                         "加载长期摘要：无",
@@ -394,6 +397,15 @@ class BusinessChatServiceImplTest {
                         "执行模型：CHAT_CLIENT_DEFAULT",
                         "按执行计划生成流式正文",
                         "补发执行补充信息与推荐追问"));
+    }
+
+    private BusinessChatAgentStep agentStep(BusinessChatAgentType agentType) {
+        return new BusinessChatAgentStep(
+                agentType,
+                "AGENT_" + agentType.getValue(),
+                agentType.getDisplayName(),
+                710,
+                true);
     }
 
     private BusinessChatStreamRequest createRequest() {

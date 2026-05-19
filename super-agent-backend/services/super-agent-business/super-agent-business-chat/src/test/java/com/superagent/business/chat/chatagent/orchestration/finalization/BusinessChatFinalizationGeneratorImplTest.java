@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superagent.business.chat.chatagent.config.BusinessChatRecommendationProperties;
 import com.superagent.business.chat.chatagent.execution.agent.BusinessChatAgentType;
 import com.superagent.business.chat.chatagent.execution.BusinessChatDynamicModelClient;
+import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatAgentStep;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatClarificationPlan;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatFreshnessRequirement;
@@ -137,7 +138,7 @@ class BusinessChatFinalizationGeneratorImplTest {
                 modelConfig.modelName(),
                 "open_ended_question_answer",
                 "根据本轮输入生成执行计划。",
-                BusinessChatAgentType.THINK_ACT,
+                List.of(agentStep(BusinessChatAgentType.THINK_ACT)),
                 BusinessChatMode.OPEN_ENDED,
                 BusinessChatClarificationPlan.notRequired(),
                 false,
@@ -158,5 +159,14 @@ class BusinessChatFinalizationGeneratorImplTest {
                 2L,
                 12L,
                 120L);
+    }
+
+    private BusinessChatAgentStep agentStep(BusinessChatAgentType agentType) {
+        return new BusinessChatAgentStep(
+                agentType,
+                "AGENT_" + agentType.getValue(),
+                agentType.getDisplayName(),
+                710,
+                true);
     }
 }
