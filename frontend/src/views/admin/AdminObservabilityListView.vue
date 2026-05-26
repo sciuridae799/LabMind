@@ -102,17 +102,11 @@ onMounted(loadSessions)
 
 <template>
   <section class="observability-list-page">
-    <header class="list-header">
-      <div>
-        <p class="admin-content-eyebrow">Conversation Trace</p>
-        <h2 class="admin-content-title">对话观测</h2>
-      </div>
-      <button class="ghost-button" type="button" :disabled="loading" @click="loadSessions">
-        刷新
-      </button>
-    </header>
-
     <section class="filter-panel">
+      <div class="filter-heading">
+        <h1 class="filter-title">链路检索</h1>
+        <p class="filter-subtitle">按关键词、对话模式和轮次状态查看问答链路。</p>
+      </div>
       <label class="filter-field keyword-field">
         <span>关键词</span>
         <input
@@ -148,6 +142,9 @@ onMounted(loadSessions)
       </label>
       <button class="primary-button" type="button" :disabled="loading" @click="submitFilters">
         查询
+      </button>
+      <button class="ghost-button" type="button" :disabled="loading" @click="loadSessions">
+        刷新
       </button>
     </section>
 
@@ -213,12 +210,11 @@ onMounted(loadSessions)
 <style scoped>
 .observability-list-page {
   display: grid;
-  width: min(100%, 1120px);
-  gap: 16px;
+  width: min(100%, var(--admin-page-width));
+  gap: var(--admin-page-gap);
   margin: 0 auto;
 }
 
-.list-header,
 .filter-panel,
 .table-meta,
 .pagination-bar {
@@ -227,7 +223,6 @@ onMounted(loadSessions)
   gap: 12px;
 }
 
-.list-header,
 .table-meta,
 .pagination-bar {
   justify-content: space-between;
@@ -236,16 +231,35 @@ onMounted(loadSessions)
 .filter-panel,
 .table-panel,
 .error-panel {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: #ffffff;
-  padding: 16px;
-  box-shadow: 0 8px 22px rgb(16 24 40 / 5%);
+  border: 1px solid var(--admin-color-border);
+  border-radius: var(--admin-radius-panel);
+  background: var(--admin-color-card);
+  padding: var(--admin-panel-padding);
+  box-shadow: var(--admin-shadow-panel);
 }
 
 .filter-panel {
   align-items: end;
   flex-wrap: wrap;
+}
+
+.filter-heading {
+  flex: 1 0 100%;
+}
+
+.filter-title {
+  margin: 0;
+  color: var(--admin-color-title);
+  font-size: var(--admin-title-size);
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+.filter-subtitle {
+  margin: 8px 0 0;
+  color: var(--admin-color-muted);
+  font-size: var(--admin-subtitle-size);
+  line-height: 1.6;
 }
 
 .filter-field {
@@ -262,7 +276,7 @@ onMounted(loadSessions)
 .table-meta,
 .session-card-main small,
 .session-card-side small {
-  color: #667085;
+  color: var(--admin-color-muted);
   font-size: 12px;
   font-weight: 700;
 }
@@ -270,34 +284,48 @@ onMounted(loadSessions)
 .filter-field input,
 .filter-field select {
   width: 100%;
-  height: 38px;
-  border: 1px solid #d0d5dd;
-  border-radius: 6px;
-  padding: 0 10px;
-  color: #101828;
+  height: var(--admin-control-height);
+  border: 1px solid var(--admin-color-field-border);
+  border-radius: var(--admin-radius-control);
+  outline: none;
+  padding: 0 12px;
+  color: var(--admin-color-text);
   background: #ffffff;
-  font-size: 14px;
+  font-size: var(--admin-control-font-size);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.filter-field input::placeholder {
+  color: #9aaeaf;
+}
+
+.filter-field input:focus,
+.filter-field select:focus {
+  border-color: #5cc3b8;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
 }
 
 .primary-button,
 .ghost-button {
-  height: 38px;
-  border-radius: 6px;
+  height: var(--admin-control-height);
+  border-radius: var(--admin-radius-control);
   font-weight: 700;
   cursor: pointer;
 }
 
 .primary-button {
-  border: 1px solid #175cd3;
-  background: #175cd3;
+  border: 1px solid #0f766e;
+  background: #0f766e;
   color: #ffffff;
   padding: 0 18px;
 }
 
 .ghost-button {
-  border: 1px solid #d0d5dd;
+  border: 1px solid #c9dde1;
   background: #ffffff;
-  color: #101828;
+  color: #284247;
   padding: 0 14px;
 }
 
@@ -308,6 +336,8 @@ onMounted(loadSessions)
 }
 
 .error-panel {
+  border-color: #f3b3b3;
+  background: #fff7f7;
   color: #b42318;
   font-weight: 700;
 }
@@ -324,10 +354,10 @@ onMounted(loadSessions)
   gap: 16px;
   width: 100%;
   padding: 14px;
-  color: #101828;
-  border: 1px solid #eef2f6;
+  color: #173033;
+  border: 1px solid #d8e6e8;
   border-radius: 8px;
-  background: #ffffff;
+  background: #fbfefe;
   text-align: left;
   cursor: pointer;
   transition:
@@ -337,9 +367,9 @@ onMounted(loadSessions)
 }
 
 .session-card:hover {
-  border-color: #d0d5dd;
-  background: #f9fafb;
-  box-shadow: 0 10px 24px rgb(16 24 40 / 6%);
+  border-color: #95cfc8;
+  background: #eef8f6;
+  box-shadow: 0 10px 24px rgba(17, 78, 84, 0.08);
 }
 
 .session-card-main,
@@ -360,7 +390,7 @@ onMounted(loadSessions)
 }
 
 .session-card-head strong {
-  color: #101828;
+  color: #173033;
   font-size: 15px;
 }
 
@@ -369,9 +399,9 @@ onMounted(loadSessions)
   height: 22px;
   align-items: center;
   padding: 0 8px;
-  color: #175cd3;
+  color: #0f766e;
   border-radius: 999px;
-  background: #eff6ff;
+  background: #eef8f6;
   font-size: 12px;
   font-weight: 800;
 }
@@ -384,13 +414,13 @@ onMounted(loadSessions)
 }
 
 .session-card-text.question {
-  color: #101828;
+  color: #173033;
   font-size: 14px;
   font-weight: 700;
 }
 
 .session-card-text.answer {
-  color: #475467;
+  color: #60787f;
   font-size: 13px;
 }
 
@@ -408,20 +438,20 @@ onMounted(loadSessions)
   min-width: 0;
   margin-top: 3px;
   overflow: hidden;
-  color: #101828;
+  color: #173033;
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .link-text {
-  color: #175cd3;
+  color: #0f766e;
   font-weight: 800;
 }
 
 .empty-text {
   margin: 18px 0 0;
-  color: #667085;
+  color: #60787f;
   font-size: 14px;
 }
 
@@ -430,17 +460,13 @@ onMounted(loadSessions)
 }
 
 @media (max-width: 768px) {
-  .list-header {
-    grid-template-columns: 1fr;
-    align-items: start;
-  }
-
   .filter-panel {
     display: grid;
   }
 
   .filter-field,
-  .primary-button {
+  .primary-button,
+  .ghost-button {
     width: 100%;
   }
 

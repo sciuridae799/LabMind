@@ -8,8 +8,8 @@ const route = useRoute()
 const adminSession = useAdminSession()
 const showTopBar = computed(() => route.meta.layout !== 'fullscreen')
 const isAdminView = computed(() => route.path.startsWith('/admin'))
-const topBarBrandIcon = computed(() => (isAdminView.value ? 'A' : 'S'))
-const topBarBrandText = computed(() => (isAdminView.value ? '后台管理' : '超级智能'))
+const topBarBrandIcon = computed(() => (isAdminView.value ? 'A' : 'LAB'))
+const topBarBrandText = computed(() => (isAdminView.value ? '后台管理' : '实验室 AI 文档助手'))
 const topBarActionText = computed(() => (isAdminView.value ? '回到对话' : '后台管理'))
 const topBarActionTo = computed(() => (isAdminView.value ? '/chat' : '/admin/login'))
 const adminDisplayName = computed(() => adminSession.value?.account ?? '')
@@ -66,30 +66,39 @@ const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).to
 <style scoped>
 .app-shell {
   min-height: 100vh;
-  background: #f8fafc;
+  background: #eef5f7;
 }
 
 .top-bar {
   height: 56px;
-  background-color: #ffffff;
+  background-color: rgba(248, 252, 252, 0.96);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #d8e5e7;
+  box-shadow: 0 1px 0 rgba(17, 78, 84, 0.03);
 }
 
 .logo {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   font-weight: 600;
   font-size: 16px;
-  color: #111827;
+  color: #12282c;
+}
+
+.logo-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .logo-icon {
-  background-color: #2563eb;
+  background-color: #0f766e;
   color: #ffffff;
   padding: 2px 6px;
   border-radius: 4px;
@@ -108,10 +117,10 @@ const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).to
   gap: 10px;
   min-height: 36px;
   padding: 0 12px 0 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d7e5e7;
   border-radius: 999px;
-  background: #f8fafc;
-  color: #111827;
+  background: #f3faf9;
+  color: #12282c;
 }
 
 .top-bar-user-avatar {
@@ -121,8 +130,8 @@ const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).to
   width: 24px;
   height: 24px;
   border-radius: 999px;
-  background: #e0ecff;
-  color: #1d4ed8;
+  background: #d9f3ef;
+  color: #0f766e;
   font-size: 12px;
   font-weight: 700;
 }
@@ -148,10 +157,10 @@ const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).to
   gap: 8px;
   height: 36px;
   padding: 0 14px;
-  border: 1px solid #dbe3f0;
+  border: 1px solid #cfe0e4;
   border-radius: 999px;
   background-color: #ffffff;
-  color: #374151;
+  color: #2f4a4f;
   cursor: pointer;
   text-decoration: none;
   transition:
@@ -162,16 +171,16 @@ const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).to
 }
 
 .top-bar-button:hover {
-  border-color: #bfdbfe;
-  background-color: #eff6ff;
-  color: #1d4ed8;
+  border-color: #8fd8cf;
+  background-color: #eefbf8;
+  color: #0f766e;
 }
 
 .top-bar-button:focus-visible {
   outline: none;
-  border-color: #93c5fd;
-  box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.35);
-  color: #1d4ed8;
+  border-color: #5cc3b8;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.16);
+  color: #0f766e;
 }
 
 .top-bar-button-icon {
@@ -194,16 +203,46 @@ const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).to
 
 @media (max-width: 720px) {
   .top-bar {
-    height: auto;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 12px 16px;
+    height: 64px;
+    align-items: center;
+    gap: 8px;
+    padding: 0 20px;
   }
 
   .top-bar-actions {
     margin-left: auto;
-    flex-wrap: wrap;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
     justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .logo {
+    flex: 1 1 auto;
+    font-size: 15px;
+  }
+
+  .logo-icon {
+    flex: 0 0 auto;
+    font-size: 13px;
+  }
+
+  .top-bar-user {
+    min-height: 34px;
+    padding: 0 8px;
+  }
+
+  .top-bar-user-copy {
+    display: none;
+  }
+
+  .top-bar-button {
+    height: 34px;
+    padding: 0 12px;
+  }
+
+  .top-bar-button-text {
+    font-size: 13px;
   }
 }
 </style>

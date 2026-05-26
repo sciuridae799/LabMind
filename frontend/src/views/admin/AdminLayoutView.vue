@@ -112,7 +112,11 @@ function handleLogout(): void {
   min-height: calc(100vh - 56px);
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  background: #ffffff;
+  background:
+    linear-gradient(rgba(21, 94, 99, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(21, 94, 99, 0.035) 1px, transparent 1px),
+    linear-gradient(135deg, rgba(230, 246, 245, 0.88) 0%, rgba(243, 248, 251, 0.96) 45%, #edf5f7 100%);
+  background-size: 28px 28px, 28px 28px, auto;
   overflow: hidden;
 }
 
@@ -123,8 +127,10 @@ function handleLogout(): void {
   height: 100%;
   flex-shrink: 0;
   padding: 16px 12px;
-  background: #ffffff;
-  border-right: 1px solid #eaeaea;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.74) 0%, rgba(245, 250, 249, 0.94) 100%),
+    repeating-linear-gradient(0deg, rgba(15, 118, 110, 0.035) 0, rgba(15, 118, 110, 0.035) 1px, transparent 1px, transparent 24px);
+  border-right: 1px solid #d8e6e8;
   overflow: hidden;
 }
 
@@ -144,7 +150,7 @@ function handleLogout(): void {
   padding: 10px;
   border-radius: 6px;
   background: transparent;
-  color: #444444;
+  color: #284247;
   font-size: 14px;
   font-weight: 600;
   text-decoration: none;
@@ -178,13 +184,14 @@ function handleLogout(): void {
 }
 
 .admin-nav-link:hover {
-  background: #f1f3f5;
-  color: #222222;
+  background: #e8f3f2;
+  color: #0f766e;
 }
 
 .admin-nav-link.is-active {
-  background: #f3f5f7;
-  color: #111111;
+  background: #eef8f6;
+  color: #0f766e;
+  box-shadow: inset 0 0 0 1px #cae4e0;
 }
 
 .admin-logout-button {
@@ -230,8 +237,60 @@ function handleLogout(): void {
   min-width: 0;
   height: 100%;
   padding: 24px;
-  background: #ffffff;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.66) 0 1px, transparent 1px 100%),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.58) 0 1px, transparent 1px 100%),
+    linear-gradient(180deg, rgba(245, 251, 251, 0.48) 0%, rgba(237, 245, 247, 0.72) 100%);
+  background-size: 56px 56px, 56px 56px, auto;
   overflow-y: auto;
+}
+
+.admin-content :deep(.panel),
+.admin-content :deep(.filter-panel),
+.admin-content :deep(.table-panel),
+.admin-content :deep(.summary-panel),
+.admin-content :deep(.exchange-panel),
+.admin-content :deep(.state-panel),
+.admin-content :deep(.error-panel) {
+  border-color: var(--admin-color-border);
+  background: var(--admin-color-card);
+  box-shadow: var(--admin-shadow-panel);
+}
+
+.admin-content :deep(.overview-page),
+.admin-content :deep(.document-page),
+.admin-content :deep(.route-page),
+.admin-content :deep(.trace-page),
+.admin-content :deep(.observability-list-page),
+.admin-content :deep(.session-trace-page),
+.admin-content :deep(.exchange-detail-page),
+.admin-content :deep(.admin-content-page) {
+  width: min(100%, 1120px);
+  margin: 0 auto;
+}
+
+.admin-content :deep(button:not(.text-action):not(.danger):not(.delete-popover-cancel):not(.delete-popover-confirm)),
+.admin-content :deep(.ghost-button) {
+  border-color: var(--admin-color-field-border);
+}
+
+.admin-content :deep(button:not(:disabled):not(.danger):hover),
+.admin-content :deep(.ghost-button:not(:disabled):hover) {
+  border-color: var(--admin-color-border-strong);
+  background: #e8f7f5;
+  color: var(--admin-color-accent);
+}
+
+.admin-content :deep(input:focus),
+.admin-content :deep(select:focus),
+.admin-content :deep(textarea:focus) {
+  border-color: #5cc3b8;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+}
+
+.admin-content :deep(.status-message),
+.admin-content :deep(.error-panel) {
+  overflow-wrap: anywhere;
 }
 
 @supports (height: 100dvh) {
@@ -243,25 +302,38 @@ function handleLogout(): void {
 
 @media (max-width: 900px) {
   .admin-layout-view {
+    width: 100%;
+    max-width: 100vw;
     height: auto;
+    min-height: auto;
     grid-template-columns: 1fr;
-    overflow: visible;
+    align-content: start;
+    overflow-x: hidden;
+    overflow-y: visible;
   }
 
   .admin-sidebar {
     width: 100%;
+    max-width: 100vw;
     height: auto;
-    padding: 10px 12px;
+    flex: none;
+    padding: 10px 12px 8px;
     border-right: 0;
-    border-bottom: 1px solid #eaeaea;
-    overflow: visible;
+    border-bottom: 1px solid #d8e6e8;
+    overflow: hidden;
   }
 
   .admin-nav {
-    flex-direction: row;
-    gap: 8px;
-    overflow-x: auto;
-    padding-bottom: 2px;
+    width: 100%;
+    max-width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: 40px;
+    flex: none;
+    align-content: start;
+    gap: 6px;
+    overflow: visible;
+    padding-bottom: 0;
     scrollbar-width: none;
   }
 
@@ -270,34 +342,49 @@ function handleLogout(): void {
   }
 
   .admin-nav-link {
-    flex: 0 0 auto;
-    min-height: 40px;
-    padding: 8px 10px;
-    border: 1px solid #eceff3;
-    background: #ffffff;
+    min-height: 38px;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 8px;
+    border: 1px solid #cfe1e4;
+    background: rgba(255, 255, 255, 0.86);
+    font-size: 12px;
     white-space: nowrap;
   }
 
+  .admin-nav-label {
+    flex: 0 1 auto;
+  }
+
   .admin-nav-link.is-active {
-    border-color: #d8e4f8;
-    background: #f5f8fc;
+    border-color: #95cfc8;
+    background: #eef8f6;
   }
 
   .admin-sidebar-footer {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid #f0f0f0;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #d8e6e8;
   }
 
   .admin-logout-button {
-    min-height: 38px;
-    padding: 8px 10px;
+    min-height: 34px;
+    padding: 7px 10px;
+    font-size: 13px;
   }
 
   .admin-content {
+    width: 100%;
+    max-width: 100vw;
+    min-width: 0;
     height: auto;
     padding: 12px;
-    overflow: visible;
+    overflow-x: hidden;
+    overflow-y: visible;
+  }
+
+  .admin-content :deep(*) {
+    min-width: 0;
   }
 }
 </style>

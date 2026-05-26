@@ -246,7 +246,12 @@ onUnmounted(() => {
 <template>
   <section class="document-page">
     <article class="panel">
-      <h1 class="section-title">上传资料并进入路由流程</h1>
+      <div class="section-heading">
+        <div>
+          <h1 class="section-title">上传资料并进入路由流程</h1>
+          <p class="section-subtitle">接入实验室资料，生成可检索、可引用的知识资产。</p>
+        </div>
+      </div>
 
       <div class="form-grid">
         <label class="field">
@@ -531,24 +536,45 @@ onUnmounted(() => {
 
 .document-page {
   display: grid;
-  gap: 16px;
+  gap: var(--admin-page-gap);
 }
 
 .panel {
-  padding: 20px;
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  padding: var(--admin-panel-padding);
+  border: 1px solid var(--admin-color-border);
+  border-radius: var(--admin-radius-panel);
+  background: var(--admin-color-card);
+  box-shadow: var(--admin-shadow-panel);
 }
 
 .section-title,
 .list-title {
   margin: 0;
-  color: #222222;
-  font-size: 22px;
+  color: var(--admin-color-title);
   line-height: 1.2;
   font-weight: 600;
+}
+
+.section-title {
+  font-size: var(--admin-title-size);
+}
+
+.list-title {
+  font-size: 20px;
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-subtitle {
+  margin: 8px 0 0;
+  color: var(--admin-color-muted);
+  font-size: var(--admin-subtitle-size);
+  line-height: 1.6;
 }
 
 .form-grid {
@@ -568,33 +594,33 @@ onUnmounted(() => {
 }
 
 .field-label {
-  color: #555555;
-  font-size: 13px;
+  color: var(--admin-color-subtle);
+  font-size: var(--admin-subtitle-size);
   font-weight: 600;
 }
 
 input {
   width: 100%;
-  height: 44px;
+  height: var(--admin-control-height);
   padding: 0 12px;
-  border: 1px solid #dddddd;
-  border-radius: 8px;
+  border: 1px solid var(--admin-color-field-border);
+  border-radius: var(--admin-radius-control);
   outline: none;
   background: #ffffff;
-  color: #222222;
-  font-size: 13px;
+  color: var(--admin-color-text);
+  font-size: var(--admin-control-font-size);
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
 }
 
 input::placeholder {
-  color: #aaaaaa;
+  color: #9aaeaf;
 }
 
 input:focus {
-  border-color: #c5dcff;
-  box-shadow: 0 0 0 3px rgba(197, 220, 255, 0.35);
+  border-color: #5cc3b8;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
 }
 
 .file-picker {
@@ -603,7 +629,7 @@ input:focus {
   gap: 12px;
   min-height: 44px;
   padding: 4px;
-  border: 1px solid #dddddd;
+  border: 1px solid #c9dde1;
   border-radius: 8px;
   background: #ffffff;
 }
@@ -631,13 +657,13 @@ input:focus {
 }
 
 .file-button {
-  border: 1px solid #e7eaee;
-  background: #f7f8fa;
-  color: #444444;
+  border: 1px solid #cfe1e4;
+  background: #eef8f6;
+  color: #284247;
 }
 
 .file-name {
-  color: #777777;
+  color: #60787f;
   font-size: 13px;
 }
 
@@ -648,21 +674,21 @@ input:focus {
   gap: 12px;
   margin-top: 16px;
   padding: 12px 14px;
-  border: 1px dashed #e5e7eb;
+  border: 1px dashed #b8d8d4;
   border-radius: 8px;
-  background: #fafafa;
+  background: rgba(238, 248, 246, 0.62);
 }
 
 .summary-label {
   margin: 0;
-  color: #999999;
+  color: #6d858b;
   font-size: 12px;
 }
 
 .summary-name {
   display: block;
   margin-top: 4px;
-  color: #222222;
+  color: #173033;
   font-size: 14px;
 }
 
@@ -672,14 +698,14 @@ input:focus {
 }
 
 .button {
-  border: 1px solid #e7eaee;
+  border: 1px solid #c9dde1;
   background: #ffffff;
-  color: #444444;
+  color: #284247;
 }
 
 .button.primary {
-  border-color: #222222;
-  background: #222222;
+  border-color: #0f766e;
+  background: #0f766e;
   color: #ffffff;
 }
 
@@ -705,7 +731,7 @@ input:focus {
 }
 
 .button.primary:hover:not(:disabled) {
-  background: #111111;
+  background: #0d9488;
 }
 
 .list-header {
@@ -718,7 +744,7 @@ input:focus {
 .list-meta,
 .status-message {
   margin: 6px 0 0;
-  color: #777777;
+  color: #60787f;
   font-size: 13px;
 }
 
@@ -734,15 +760,15 @@ input:focus {
   justify-content: center;
   min-height: 120px;
   margin-top: 16px;
-  border: 1px dashed #e5e7eb;
+  border: 1px dashed #b8d8d4;
   border-radius: 8px;
-  color: #777777;
+  color: #60787f;
 }
 
 .document-table {
   display: grid;
   margin-top: 16px;
-  border: 1px solid #eeeeee;
+  border: 1px solid #d8e6e8;
   border-radius: 8px;
   overflow-x: auto;
 }
@@ -755,8 +781,8 @@ input:focus {
   min-width: 980px;
   min-height: 58px;
   padding: 10px 12px;
-  border-top: 1px solid #eeeeee;
-  color: #333333;
+  border-top: 1px solid #d8e6e8;
+  color: #284247;
   font-size: 13px;
 }
 
@@ -767,7 +793,7 @@ input:focus {
 }
 
 .cell-status {
-  color: #2563eb;
+  color: #0f766e;
   font-weight: 600;
 }
 
@@ -778,8 +804,8 @@ input:focus {
 .table-head {
   min-height: 40px;
   border-top: 0;
-  background: #f7f8fa;
-  color: #666666;
+  background: #eef8f6;
+  color: #536d73;
   font-size: 12px;
   font-weight: 700;
 }
@@ -791,7 +817,7 @@ input:focus {
 
 .table-row small {
   margin-top: 4px;
-  color: #888888;
+  color: #60787f;
 }
 
 .modal-mask {
@@ -802,7 +828,7 @@ input:focus {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(20, 20, 20, 0.35);
+  background: rgba(17, 78, 84, 0.34);
 }
 
 .detail-modal,
@@ -813,7 +839,7 @@ input:focus {
   padding: 20px;
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 18px 48px rgba(17, 78, 84, 0.2);
 }
 
 .full-text-modal {
@@ -826,7 +852,7 @@ input:focus {
   justify-content: space-between;
   gap: 16px;
   padding-bottom: 14px;
-  border-bottom: 1px solid #eeeeee;
+  border-bottom: 1px solid #d8e6e8;
 }
 
 .detail-grid {
@@ -834,12 +860,12 @@ input:focus {
   grid-template-columns: 120px minmax(0, 1fr);
   gap: 12px 16px;
   margin-top: 16px;
-  color: #333333;
+  color: #284247;
   font-size: 13px;
 }
 
 .detail-grid span {
-  color: #777777;
+  color: #60787f;
 }
 
 .detail-grid strong {
@@ -850,18 +876,18 @@ input:focus {
 .profile-block {
   margin-top: 18px;
   padding-top: 14px;
-  border-top: 1px solid #eeeeee;
+  border-top: 1px solid #d8e6e8;
 }
 
 .profile-block h3 {
   margin: 0 0 8px;
-  color: #222222;
+  color: #102a2f;
   font-size: 15px;
 }
 
 .profile-block p {
   margin: 0;
-  color: #555555;
+  color: #385156;
   font-size: 13px;
   line-height: 1.7;
 }
@@ -875,16 +901,16 @@ input:focus {
 
 .profile-tags span {
   padding: 5px 8px;
-  border: 1px solid #eeeeee;
+  border: 1px solid #cfe1e4;
   border-radius: 8px;
-  background: #f7f8fa;
-  color: #555555;
+  background: #eef8f6;
+  color: #385156;
   font-size: 12px;
 }
 
 .full-text-loading {
   margin: 16px 0 0;
-  color: #777777;
+  color: #60787f;
   font-size: 13px;
 }
 
@@ -893,15 +919,15 @@ input:focus {
   margin: 16px 0 0;
   overflow: auto;
   padding: 14px;
-  color: #222222;
+  color: #173033;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 13px;
   line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
-  border: 1px solid #eeeeee;
+  border: 1px solid #d8e6e8;
   border-radius: 8px;
-  background: #fafafa;
+  background: #f6fbfb;
 }
 
 @media (max-width: 900px) {

@@ -81,10 +81,26 @@ function parseJsonPayload<T>(rawData: unknown, status: number): T | null {
   }
 }
 
+function buildServiceErrorMessage(status: number): string {
+  if (status >= 500) {
+    return `实验室资料服务暂时不可用（状态码 ${status}），请稍后重试或检查后端服务。`
+  }
+
+  if (status === 404) {
+    return '没有找到对应的实验室资料接口（状态码 404），请检查当前页面或服务路由。'
+  }
+
+  if (status === 401 || status === 403) {
+    return `当前账号没有访问这项实验室资料服务的权限（状态码 ${status}）。`
+  }
+
+  return `实验室资料请求未完成（状态码 ${status}）。`
+}
+
 function readResponseMessage(rawData: unknown, status: number): string {
   const rawText = normalizeRawText(rawData)
   if (!rawText) {
-    return `请求失败，状态码 ${status}`
+    return buildServiceErrorMessage(status)
   }
 
   try {
@@ -101,7 +117,7 @@ function normalizeAxiosError(error: unknown): APIError {
   }
 
   if (axios.isCancel(error)) {
-    return new APIError('请求已取消', 499, error)
+    return new APIError('已停止本次实验室资料请求。', 499, error)
   }
 
   if (axios.isAxiosError(error) && error.response) {
@@ -113,14 +129,14 @@ function normalizeAxiosError(error: unknown): APIError {
   }
 
   if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
-    return new APIError(`请求超时，超过 ${REQUEST_TIMEOUT}ms`, 408, error)
+    return new APIError(`实验室资料服务响应超时，已超过 ${REQUEST_TIMEOUT}ms。`, 408, error)
   }
 
   if (error instanceof Error) {
-    return new APIError(error.message || '网络请求失败', 500, error)
+    return new APIError(error.message || '暂时无法连接实验室资料服务。', 500, error)
   }
 
-  return new APIError('网络请求失败', 500, error)
+  return new APIError('暂时无法连接实验室资料服务。', 500, error)
 }
 
 async function requestWithClient<TResponse, TBody = unknown>(
@@ -161,7 +177,7 @@ async function requestJson<T, TBody = unknown>(
 
 function unwrapApiResponse<T>(
   payload: ApiEnvelope<T> | null,
-  fallbackMessage = '请求失败'
+  fallbackMessage = '实验室资料请求未完成'
 ): T | null {
   const code = String(payload?.code ?? '')
   if (code !== '0') {

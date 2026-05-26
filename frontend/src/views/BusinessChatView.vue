@@ -64,15 +64,15 @@ interface CitationPopover {
 const starterPrompts = [
   {
     icon: 'write',
-    question: '我想写一篇内容（比如文章/文案），你可以帮我从思路到成稿一步步完成吗？'
+    question: '这份实验指导书的实验步骤、提交要求和注意事项是什么？'
   },
   {
     icon: 'chart',
-    question: '我有一段数据或信息需要分析，你能帮我整理重点并给出结论吗？'
+    question: '根据项目 README 帮我梳理本地启动流程和依赖服务。'
   },
   {
     icon: 'plan',
-    question: '我有一个实际问题需要解决，你可以给我一个具体可执行的方案吗？'
+    question: '这个接口文档里的接口怎么调用？请说明参数、返回值和示例。'
   }
 ] as const
 
@@ -1126,7 +1126,7 @@ onBeforeUnmount(() => {
               />
             </svg>
           </span>
-          <span class="nav-item-label">New chat</span>
+          <span class="nav-item-label">新建问答</span>
         </button>
         <RouterLink
           to="/model-config"
@@ -1152,13 +1152,13 @@ onBeforeUnmount(() => {
               />
             </svg>
           </span>
-          <span class="nav-item-label">Config</span>
+          <span class="nav-item-label">模型配置</span>
         </RouterLink>
       </nav>
 
       <div class="history-section">
         <div class="section-header">
-          <span>History</span>
+          <span>查询历史</span>
           <span
             v-if="isHistoryLoading"
             class="section-status"
@@ -1254,14 +1254,14 @@ onBeforeUnmount(() => {
           v-if="hasConversation"
           class="chat-page-header"
         >
-          <h1 class="chat-page-title">{{ activeConversationTitle || '智能对话' }}</h1>
+          <h1 class="chat-page-title">{{ activeConversationTitle || '实验室文档问答' }}</h1>
         </header>
 
         <h1
           v-else
           class="greeting"
         >
-          What should we build?
+          今天要查哪份实验室资料？
         </h1>
 
         <div
@@ -1436,7 +1436,7 @@ onBeforeUnmount(() => {
                   @mouseenter="keepDocContextVisible"
                 >
                   <div class="doc-context-panel">
-                    <span class="doc-context-label">关联文档上下文</span>
+                    <span class="doc-context-label">当前实验资料</span>
                     <div class="doc-select-row">
                       <select
                         v-model="selectedDoc"
@@ -1483,7 +1483,7 @@ onBeforeUnmount(() => {
             >
               <textarea
                 v-model="userQuestion"
-                placeholder="输入你的问题、需求或改动目标，我们直接开始。"
+                placeholder="询问课程讲义、实验指导书、项目 README、接口文档或交接资料。"
                 @compositionstart="handleTextareaCompositionStart"
                 @compositionend="handleTextareaCompositionEnd"
                 @keydown="handleTextareaKeydown"
@@ -1543,7 +1543,7 @@ onBeforeUnmount(() => {
                 v-if="modelConfigStatusMessage || (!isModelConfigLoading && availableModelConfigs.length === 0)"
                 class="model-config-hint"
               >
-                {{ modelConfigStatusMessage || '请先到 Config 配置可用模型 API' }}
+                {{ modelConfigStatusMessage || '请先到模型配置页配置可用模型 API' }}
               </p>
             </div>
           </div>
@@ -1693,53 +1693,57 @@ onBeforeUnmount(() => {
 
 .codex-layout {
   --top-bar-height: 56px;
-  --layout-bg: #ffffff;
-  --layout-text: #333333;
-  --sidebar-bg: #f9f9f9;
-  --sidebar-border: #eaeaea;
-  --nav-text: #444444;
-  --nav-muted: #666666;
-  --nav-hover: #f1f3f5;
-  --nav-primary-bg: #f7f8fa;
-  --nav-primary-border: #e7eaee;
-  --nav-primary-shadow: none;
-  --section-text: #999999;
-  --history-text: #555555;
-  --history-hover: #eeeeee;
-  --main-bg: #ffffff;
-  --title-text: #222222;
-  --panel-bg: #ffffff;
-  --panel-border: #e5e5e5;
-  --panel-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-  --panel-text: #333333;
-  --placeholder-text: #aaaaaa;
-  --tabs-bg: #f5f5f5;
-  --tab-text: #555555;
+  --layout-bg: #edf5f7;
+  --layout-text: #173033;
+  --sidebar-bg: #f5faf9;
+  --sidebar-border: #d8e6e8;
+  --nav-text: #284247;
+  --nav-muted: #657a7f;
+  --nav-hover: #e8f3f2;
+  --nav-primary-bg: #eef8f6;
+  --nav-primary-border: #cae4e0;
+  --nav-primary-shadow: 0 1px 2px rgba(17, 78, 84, 0.06);
+  --section-text: #6d858b;
+  --history-text: #385156;
+  --history-hover: #eaf4f3;
+  --main-bg: #edf5f7;
+  --title-text: #102a2f;
+  --panel-bg: rgba(255, 255, 255, 0.94);
+  --panel-border: #cfe1e4;
+  --panel-shadow: 0 14px 32px rgba(17, 78, 84, 0.08);
+  --panel-text: #173033;
+  --placeholder-text: #789098;
+  --tabs-bg: #e5eff1;
+  --tab-text: #536d73;
   --tab-active-bg: #ffffff;
-  --tab-active-text: #111111;
-  --tab-active-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  --doc-panel-border: #ececec;
-  --doc-panel-bg: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
-  --doc-panel-shadow: 0 10px 20px rgba(15, 23, 42, 0.05);
-  --doc-label: #8a8a8a;
+  --tab-active-text: #0f766e;
+  --tab-active-shadow: 0 1px 5px rgba(17, 78, 84, 0.12);
+  --doc-panel-border: #cce4e1;
+  --doc-panel-bg: linear-gradient(180deg, #ffffff 0%, #f4fbfa 100%);
+  --doc-panel-shadow: 0 16px 34px rgba(17, 78, 84, 0.1);
+  --doc-label: #60787f;
   --doc-select-bg: #ffffff;
-  --doc-select-border: #dddddd;
-  --doc-select-focus: #c5dcff;
-  --toolbar-icon: #888888;
-  --send-bg: #999999;
+  --doc-select-border: #c9dde1;
+  --doc-select-focus: #7dd3c7;
+  --toolbar-icon: #60787f;
+  --send-bg: #0f766e;
   --send-text: #ffffff;
-  --follow-up-border: #e6e9ee;
-  --follow-up-text: #344054;
-  --follow-up-hover: #f6f8fa;
-  --suggestion-border: #edf0f4;
-  --suggestion-text: #475467;
-  --suggestion-hover: #f8fafc;
-  --nav-icon-color: #5b6472;
+  --follow-up-border: #cfe1e4;
+  --follow-up-text: #284247;
+  --follow-up-hover: #edf8f6;
+  --suggestion-border: #d8e6e8;
+  --suggestion-text: #385156;
+  --suggestion-hover: #edf8f6;
+  --nav-icon-color: #50686e;
   display: flex;
   width: 100%;
   height: calc(100vh - var(--top-bar-height));
   min-height: calc(100vh - var(--top-bar-height));
-  background-color: var(--layout-bg);
+  background:
+    linear-gradient(rgba(21, 94, 99, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(21, 94, 99, 0.035) 1px, transparent 1px),
+    linear-gradient(135deg, rgba(230, 246, 245, 0.88) 0%, rgba(243, 248, 251, 0.96) 45%, #edf5f7 100%);
+  background-size: 28px 28px, 28px 28px, auto;
   font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
   color: var(--layout-text);
   overflow: hidden;
@@ -1770,7 +1774,9 @@ select {
   flex-shrink: 0;
   flex-direction: column;
   padding: 16px 12px;
-  background-color: var(--sidebar-bg);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.74) 0%, rgba(245, 250, 249, 0.94) 100%),
+    repeating-linear-gradient(0deg, rgba(15, 118, 110, 0.035) 0, rgba(15, 118, 110, 0.035) 1px, transparent 1px, transparent 24px);
   border-right: 1px solid var(--sidebar-border);
   overflow-y: auto;
   transition:
@@ -1843,8 +1849,8 @@ select {
 }
 
 .nav-item-primary:hover {
-  background-color: #f3f5f7;
-  border-color: #dde2e8;
+  background-color: #e5f4f2;
+  border-color: #b9ddd8;
   transform: none;
 }
 
@@ -1856,7 +1862,7 @@ select {
 }
 
 .nav-item-secondary:hover {
-  border-color: #e5e7eb;
+  border-color: #cfe1e4;
 }
 
 .history-section {
@@ -1908,7 +1914,7 @@ select {
 }
 
 .history-row.active {
-  background-color: #eceff3;
+  background-color: #e3f2f0;
 }
 
 .history-open-button {
@@ -2067,11 +2073,16 @@ select {
   min-width: 0;
   flex: 1;
   flex-direction: column;
-  background-color: var(--main-bg);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.66) 0 1px, transparent 1px 100%),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.58) 0 1px, transparent 1px 100%),
+    linear-gradient(180deg, rgba(245, 251, 251, 0.48) 0%, rgba(237, 245, 247, 0.72) 100%);
+  background-size: 56px 56px, 56px 56px, auto;
   transition: background-color 0.2s ease;
 }
 
 .workspace {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -2079,6 +2090,21 @@ select {
   align-items: center;
   padding: 10vh 24px 32px;
   overflow-y: auto;
+}
+
+.workspace::before {
+  content: '';
+  position: fixed;
+  top: calc(var(--top-bar-height) + 22px);
+  right: 32px;
+  bottom: 24px;
+  left: 292px;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, transparent 42%),
+    repeating-linear-gradient(180deg, transparent 0 32px, rgba(17, 78, 84, 0.025) 32px 33px);
+  border: 1px solid rgba(121, 158, 164, 0.14);
+  border-radius: 8px;
 }
 
 .workspace-has-conversation {
@@ -2089,7 +2115,7 @@ select {
 
 .chat-page-header {
   width: 100%;
-  max-width: 720px;
+  max-width: 780px;
   margin-bottom: 20px;
 }
 
@@ -2105,7 +2131,7 @@ select {
 
 .greeting {
   width: 100%;
-  max-width: 720px;
+  max-width: 780px;
   margin: 0 0 24px;
   color: var(--title-text);
   font-size: 28px;
@@ -2117,7 +2143,7 @@ select {
 
 .interaction-container {
   width: 100%;
-  max-width: 720px;
+  max-width: 780px;
 }
 
 .interaction-container-has-conversation {
@@ -2140,7 +2166,7 @@ select {
 .composer-section-has-conversation {
   flex-shrink: 0;
   padding-top: 12px;
-  background: #ffffff;
+  background: transparent;
 }
 
 .message-list {
@@ -2174,8 +2200,8 @@ select {
   max-width: 100%;
   padding: 13px 16px 12px;
   border-radius: 16px;
-  background: #f3f4f6;
-  box-shadow: inset 0 0 0 1px #ebeef2;
+  background: #eaf3f5;
+  box-shadow: inset 0 0 0 1px #d4e4e7;
 }
 
 .user-bubble-text {
@@ -2206,7 +2232,7 @@ select {
   content: '';
   flex: 1;
   height: 1px;
-  background: #eceff3;
+  background: #d8e6e8;
 }
 
 .thinking-toggle {
@@ -2245,9 +2271,9 @@ select {
 
 .thinking-panel {
   padding: 16px 18px;
-  border: 1px solid #eceff3;
+  border: 1px solid #d8e6e8;
   border-radius: 18px;
-  background: #fafbfc;
+  background: rgba(250, 253, 253, 0.86);
 }
 
 .thinking-list {
@@ -2317,19 +2343,19 @@ select {
 
 .markdown-body :deep(code) {
   padding: 2px 5px;
-  color: #344054;
+  color: #284247;
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 0.92em;
   border-radius: 5px;
-  background: #f2f4f7;
+  background: #eaf3f5;
 }
 
 .markdown-body :deep(pre) {
   padding: 12px 14px;
   overflow-x: auto;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d4e4e7;
   border-radius: 10px;
-  background: #f8fafc;
+  background: #f6fbfb;
 }
 
 .markdown-body :deep(pre code) {
@@ -2377,7 +2403,7 @@ select {
 }
 
 .markdown-body :deep(a) {
-  color: #2563eb;
+  color: #0f766e;
   text-decoration: none;
 }
 
@@ -2393,22 +2419,22 @@ select {
   justify-content: center;
   margin: 0 1px;
   padding: 0 5px;
-  color: #175cd3;
+  color: #0f766e;
   font-size: 12px;
   font-weight: 650;
   line-height: 1;
-  border: 1px solid #b2ccff;
+  border: 1px solid #99d8d0;
   border-radius: 6px;
-  background: #eff6ff;
+  background: #e8f7f5;
   cursor: default;
   vertical-align: baseline;
 }
 
 .markdown-body :deep(.citation-ref:hover),
 .markdown-body :deep(.citation-ref:focus-visible) {
-  color: #1849a9;
-  border-color: #84adff;
-  background: #dbeafe;
+  color: #115e59;
+  border-color: #5cc3b8;
+  background: #d9f3ef;
   outline: none;
 }
 
@@ -2420,11 +2446,11 @@ select {
   max-height: 280px;
   padding: 12px 14px;
   overflow-y: auto;
-  color: #344054;
-  border: 1px solid #d0d5dd;
+  color: #284247;
+  border: 1px solid #c7dde1;
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 18px 42px rgb(16 24 40 / 18%);
+  box-shadow: 0 18px 42px rgba(17, 78, 84, 0.16);
 }
 
 .citation-popover-above {
@@ -2567,11 +2593,11 @@ select {
   align-items: center;
   gap: 8px;
   padding: 0 11px;
-  border: 1px solid #d9e0ea;
+  border: 1px solid #c9dde1;
   border-radius: 10px;
   color: inherit;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-  box-shadow: 0 1px 2px rgb(16 24 40 / 5%);
+  background: linear-gradient(180deg, #ffffff 0%, #f4fbfa 100%);
+  box-shadow: 0 1px 2px rgba(17, 78, 84, 0.05);
   cursor: pointer;
   transition:
     border-color 0.18s ease,
@@ -2580,16 +2606,16 @@ select {
 }
 
 .model-provider-trigger:hover {
-  border-color: #b9c6d8;
+  border-color: #95cfc8;
   background: #ffffff;
 }
 
 .model-provider-select-wrap.open .model-provider-trigger,
 .model-provider-trigger:focus-visible {
-  border-color: #8bb5f8;
+  border-color: #5cc3b8;
   box-shadow:
-    0 0 0 3px rgb(37 99 235 / 12%),
-    0 1px 2px rgb(16 24 40 / 5%);
+    0 0 0 3px rgba(15, 118, 110, 0.14),
+    0 1px 2px rgba(17, 78, 84, 0.05);
 }
 
 .model-provider-select-label {
@@ -2603,7 +2629,7 @@ select {
 .model-provider-current {
   min-width: 0;
   max-width: 170px;
-  color: #182230;
+  color: #173033;
   font-size: 13px;
   font-weight: 650;
   overflow: hidden;
@@ -2615,8 +2641,8 @@ select {
   width: 7px;
   height: 7px;
   margin-left: auto;
-  border-right: 1.5px solid #667085;
-  border-bottom: 1.5px solid #667085;
+  border-right: 1.5px solid #60787f;
+  border-bottom: 1.5px solid #60787f;
   transform: translateY(-2px) rotate(45deg);
 }
 
@@ -2638,10 +2664,10 @@ select {
   max-height: 220px;
   padding: 4px;
   overflow-y: auto;
-  border: 1px solid #d9e0ea;
+  border: 1px solid #c9dde1;
   border-radius: 10px;
   background: #ffffff;
-  box-shadow: 0 16px 36px rgb(16 24 40 / 14%);
+  box-shadow: 0 16px 36px rgba(17, 78, 84, 0.14);
 }
 
 .model-provider-menu-up {
@@ -2670,8 +2696,8 @@ select {
 
 .model-provider-option:hover,
 .model-provider-option.active {
-  color: #175cd3;
-  background: #eff6ff;
+  color: #0f766e;
+  background: #e8f7f5;
 }
 
 .model-config-hint {
@@ -2775,12 +2801,12 @@ select {
 .doc-detail-button {
   height: 42px;
   padding: 0 14px;
-  color: #175cd3;
+  color: #0f766e;
   font-size: 13px;
   font-weight: 650;
-  border: 1px solid #bcd7ff;
+  border: 1px solid #99d8d0;
   border-radius: 8px;
-  background: #eff6ff;
+  background: #e8f7f5;
   cursor: pointer;
 }
 
@@ -2806,7 +2832,7 @@ select {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgb(15 23 42 / 38%);
+  background: rgba(17, 78, 84, 0.34);
 }
 
 .document-detail-modal {
@@ -2816,7 +2842,7 @@ select {
   padding: 20px;
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 18px 48px rgb(15 23 42 / 20%);
+  box-shadow: 0 18px 48px rgba(17, 78, 84, 0.2);
 }
 
 .document-detail-header {
@@ -2897,10 +2923,10 @@ select {
 
 .document-profile-tags span {
   padding: 4px 8px;
-  color: #175cd3;
+  color: #0f766e;
   font-size: 12px;
   border-radius: 999px;
-  background: #eff6ff;
+  background: #e8f7f5;
 }
 
 .input-panel {
@@ -2908,10 +2934,12 @@ select {
   z-index: 1;
   margin-bottom: 24px;
   padding: 16px 16px 14px;
-  background-color: var(--panel-bg);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(249, 253, 253, 0.94) 100%),
+    repeating-linear-gradient(90deg, rgba(15, 118, 110, 0.035) 0, rgba(15, 118, 110, 0.035) 1px, transparent 1px, transparent 34px);
   border: 1px solid var(--panel-border);
   border-radius: 14px;
-  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--panel-shadow);
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease,
@@ -2975,11 +3003,11 @@ select {
 
 .send-btn:disabled {
   cursor: not-allowed;
-  background-color: #c5cbd3;
+  background-color: #a8b9bd;
 }
 
 .send-btn:not(:disabled):hover {
-  background-color: #2563eb;
+  background-color: #0d9488;
 }
 
 .suggestions-list {
@@ -3009,7 +3037,7 @@ select {
 }
 
 .suggestion-item:hover {
-  color: #2563eb;
+  color: #0f766e;
 }
 
 .suggestion-icon {
@@ -3019,9 +3047,9 @@ select {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  color: #667085;
+  color: #60787f;
   line-height: 1;
-  border: 1px solid #d9dee6;
+  border: 1px solid #cfe1e4;
   border-radius: 999px;
   background: #ffffff;
   transition:
@@ -3036,9 +3064,9 @@ select {
 }
 
 .suggestion-item:hover .suggestion-icon {
-  color: #2563eb;
-  border-color: #9dbcf8;
-  background: #eff6ff;
+  color: #0f766e;
+  border-color: #8fd8cf;
+  background: #e8f7f5;
 }
 
 .suggestion-item:disabled {
@@ -3054,7 +3082,7 @@ select {
 .send-btn:focus-visible,
 .suggestion-item:focus-visible,
 .follow-up-item:focus-visible {
-  outline: 2px solid #c5dcff;
+  outline: 2px solid #7dd3c7;
   outline-offset: 2px;
 }
 
@@ -3075,7 +3103,12 @@ select {
   .sidebar {
     width: 100%;
     border-right: 0;
-    border-bottom: 1px solid #eaeaea;
+    border-bottom: 1px solid #d8e6e8;
+  }
+
+  .workspace::before {
+    left: 16px;
+    right: 16px;
   }
 
   .workspace {
@@ -3100,6 +3133,16 @@ select {
 
   .chat-page-header {
     margin-bottom: 16px;
+  }
+
+  .greeting {
+    margin-bottom: 20px;
+    font-size: 25px;
+  }
+
+  .mode-btn {
+    padding: 6px 12px;
+    font-size: 12px;
   }
 
   .input-toolbar {

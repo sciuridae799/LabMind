@@ -79,7 +79,12 @@ onMounted(() => {
 <template>
   <section class="overview-page">
     <article class="panel">
-      <h1 class="section-title">当前状态</h1>
+      <div class="section-heading">
+        <div>
+          <h1 class="section-title">当前状态</h1>
+          <p class="section-subtitle">文档接入、解析、策略和索引的整体状态</p>
+        </div>
+      </div>
       <p
         v-if="statusMessage"
         class="status-message"
@@ -110,47 +115,68 @@ onMounted(() => {
 
 .overview-page {
   display: grid;
+  gap: var(--admin-page-gap);
 }
 
 .panel {
-  padding: 20px;
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  padding: var(--admin-panel-padding);
+  border: 1px solid var(--admin-color-border);
+  border-radius: var(--admin-radius-panel);
+  background: var(--admin-color-card);
+  box-shadow: var(--admin-shadow-panel);
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .section-title {
   margin: 0;
-  color: #222222;
-  font-size: 22px;
+  color: var(--admin-color-title);
+  font-size: var(--admin-title-size);
   line-height: 1.2;
   font-weight: 600;
 }
 
+.section-subtitle {
+  margin: 8px 0 0;
+  color: var(--admin-color-muted);
+  font-size: var(--admin-subtitle-size);
+  line-height: 1.6;
+}
+
 .status-message {
-  margin: 10px 0 0;
-  color: #b42318;
-  font-size: 13px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--admin-color-danger-border);
+  border-radius: var(--admin-radius-control);
+  background: var(--admin-color-danger-soft);
+  color: var(--admin-color-danger);
+  font-size: var(--admin-subtitle-size);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
   margin-top: 18px;
 }
 
 .stat-card {
   padding: 16px;
-  border: 1px solid #f0f0f0;
-  border-radius: 8px;
-  background: #fafafa;
+  border: 1px solid #d8e6e8;
+  border-radius: var(--admin-radius-panel);
+  background: var(--admin-color-card-soft);
 }
 
 .stat-title {
   margin: 0;
-  color: #777777;
+  color: var(--admin-color-muted);
   font-size: 12px;
   font-weight: 700;
 }
@@ -158,7 +184,7 @@ onMounted(() => {
 .stat-value {
   display: block;
   margin-top: 10px;
-  color: #222222;
+  color: var(--admin-color-text);
   font-size: 24px;
   line-height: 1;
   font-weight: 600;
@@ -166,24 +192,14 @@ onMounted(() => {
 
 .stat-note {
   margin: 10px 0 0;
-  color: #555555;
-  font-size: 13px;
+  color: var(--admin-color-subtle);
+  font-size: var(--admin-subtitle-size);
   line-height: 1.6;
-}
-
-@media (max-width: 1080px) {
-  .stats-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 768px) {
   .panel {
-    padding: 18px;
-  }
-
-  .section-title {
-    font-size: 20px;
+    padding: var(--admin-panel-padding);
   }
 
   .stats-grid {

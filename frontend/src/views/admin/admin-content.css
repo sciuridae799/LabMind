@@ -1,3 +1,31 @@
+:root {
+  --admin-color-text: #173033;
+  --admin-color-title: #102a2f;
+  --admin-color-muted: #60787f;
+  --admin-color-subtle: #385156;
+  --admin-color-accent: #0f766e;
+  --admin-color-accent-hover: #0d9488;
+  --admin-color-accent-soft: #eef8f6;
+  --admin-color-border: #cfe1e4;
+  --admin-color-border-strong: #95cfc8;
+  --admin-color-field-border: #c9dde1;
+  --admin-color-card: rgba(255, 255, 255, 0.94);
+  --admin-color-card-soft: #fbfefe;
+  --admin-color-danger: #b42318;
+  --admin-color-danger-border: #f3b3b3;
+  --admin-color-danger-soft: #fff7f7;
+  --admin-shadow-panel: 0 10px 24px rgba(17, 78, 84, 0.06);
+  --admin-radius-panel: 8px;
+  --admin-radius-control: 8px;
+  --admin-page-width: 1120px;
+  --admin-page-gap: 18px;
+  --admin-panel-padding: 22px;
+  --admin-title-size: 24px;
+  --admin-subtitle-size: 13px;
+  --admin-control-height: 42px;
+  --admin-control-font-size: 13px;
+}
+
 .admin-content-page,
 .admin-content-panel,
 .admin-content-panel * {
@@ -6,20 +34,20 @@
 
 .admin-content-page {
   display: grid;
-  gap: 20px;
+  gap: var(--admin-page-gap);
 }
 
 .admin-content-panel {
-  padding: 24px;
-  border: 1px solid #e5e5e5;
-  border-radius: 16px;
-  background: #ffffff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  padding: var(--admin-panel-padding);
+  border: 1px solid var(--admin-color-border);
+  border-radius: var(--admin-radius-panel);
+  background: var(--admin-color-card);
+  box-shadow: var(--admin-shadow-panel);
 }
 
 .admin-content-eyebrow {
   margin: 0;
-  color: #999999;
+  color: var(--admin-color-muted);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -28,15 +56,15 @@
 
 .admin-content-title {
   margin: 10px 0 0;
-  color: #222222;
-  font-size: 24px;
+  color: var(--admin-color-title);
+  font-size: var(--admin-title-size);
   line-height: 1.2;
 }
 
 .admin-content-copy {
   margin: 14px 0 0;
   max-width: 720px;
-  color: #555555;
+  color: var(--admin-color-subtle);
   font-size: 14px;
   line-height: 1.7;
 }
@@ -46,10 +74,10 @@
   align-items: center;
   min-height: 28px;
   padding: 0 10px;
-  border: 1px solid #e7eaee;
-  border-radius: 8px;
-  background: #f7f8fa;
-  color: #333333;
+  border: 1px solid var(--admin-color-border);
+  border-radius: var(--admin-radius-control);
+  background: var(--admin-color-accent-soft);
+  color: var(--admin-color-text);
   font-family:
     ui-monospace,
     SFMono-Regular,
@@ -64,11 +92,11 @@
 }
 
 @media (max-width: 768px) {
-  .admin-content-panel {
-    padding: 22px;
+  :root {
+    --admin-panel-padding: 18px;
   }
 
-  .admin-content-title {
-    font-size: 22px;
+  .admin-content-panel {
+    padding: var(--admin-panel-padding);
   }
 }

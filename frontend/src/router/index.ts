@@ -12,7 +12,7 @@ const routes: RouteRecordRaw[] = [
     name: 'BusinessChat',
     component: () => import('../views/BusinessChatView.vue'),
     meta: {
-      title: '业务对话'
+      title: '实验室文档问答'
     }
   },
   {
@@ -145,7 +145,7 @@ router.beforeEach((to) => {
 
 router.afterEach((to) => {
   const title = typeof to.meta.title === 'string' ? to.meta.title : ''
-  document.title = title ? `${title} - 超级智能` : '超级智能'
+  document.title = title ? `${title} - 实验室 AI 文档助手` : '实验室 AI 文档助手'
 })
 
 export default router

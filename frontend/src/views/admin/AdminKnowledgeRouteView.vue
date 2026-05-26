@@ -141,8 +141,8 @@ onMounted(() => {
     <article class="panel route-preview-panel">
       <div class="section-heading">
         <div>
-          <h1 class="section-title">知识路由</h1>
-          <p class="section-subtitle">验证问题如何命中文档，并查看当前可参与路由的资产。</p>
+          <h1 class="section-title">路由试算</h1>
+          <p class="section-subtitle">输入问题后预览候选文档和命中依据。</p>
         </div>
         <div class="metric-strip">
           <div>
@@ -319,22 +319,22 @@ onMounted(() => {
 
 .route-page {
   display: grid;
-  gap: 14px;
-  color: #20242c;
+  gap: var(--admin-page-gap);
+  color: #173033;
 }
 
 .panel {
-  padding: 18px;
-  border: 1px solid #e6eaf0;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 12px 30px rgba(32, 36, 44, 0.06);
+  padding: var(--admin-panel-padding);
+  border: 1px solid var(--admin-color-border);
+  border-radius: var(--admin-radius-panel);
+  background: var(--admin-color-card);
+  box-shadow: var(--admin-shadow-panel);
 }
 
 .route-preview-panel {
-  border-color: #dbe6f4;
+  border-color: var(--admin-color-border);
   background:
-    linear-gradient(180deg, #f8fbff 0%, #ffffff 70%);
+    linear-gradient(180deg, rgba(238, 248, 246, 0.74) 0%, rgba(255, 255, 255, 0.94) 68%);
 }
 
 .section-heading,
@@ -352,13 +352,23 @@ onMounted(() => {
 .asset-detail h3,
 .tag-block h4 {
   margin: 0;
-  color: #222222;
+  color: var(--admin-color-title);
   font-weight: 700;
 }
 
 .section-title {
-  font-size: 26px;
+  font-size: var(--admin-title-size);
   line-height: 1.15;
+}
+
+.list-title {
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.asset-detail h3 {
+  font-size: 18px;
+  line-height: 1.3;
 }
 
 .section-subtitle,
@@ -371,8 +381,8 @@ onMounted(() => {
 .summary-text,
 dt,
 dd {
-  color: #777777;
-  font-size: 13px;
+  color: var(--admin-color-muted);
+  font-size: var(--admin-subtitle-size);
   line-height: 1.55;
 }
 
@@ -393,15 +403,15 @@ dd {
 
 .metric-strip div {
   padding: 10px 12px;
-  border: 1px solid #e1e8f2;
+  border: 1px solid #d8e6e8;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(251, 254, 254, 0.88);
 }
 
 .metric-strip span,
 .route-input label span {
   display: block;
-  color: #6b7280;
+  color: #60787f;
   font-size: 12px;
   line-height: 1.3;
 }
@@ -409,8 +419,8 @@ dd {
 .metric-strip strong {
   display: block;
   margin-top: 4px;
-  color: #111827;
-  font-size: 22px;
+  color: #173033;
+  font-size: 20px;
   line-height: 1.1;
 }
 
@@ -438,12 +448,12 @@ input {
   width: 100%;
   height: 42px;
   padding: 0 12px;
-  border: 1px solid #d9dee7;
-  border-radius: 8px;
+  border: 1px solid var(--admin-color-field-border);
+  border-radius: var(--admin-radius-control);
   outline: none;
   background: #ffffff;
-  color: #20242c;
-  font-size: 13px;
+  color: var(--admin-color-text);
+  font-size: var(--admin-control-font-size);
 }
 
 .route-input label input {
@@ -451,8 +461,8 @@ input {
 }
 
 input:focus {
-  border-color: #8fb8ff;
-  box-shadow: 0 0 0 3px rgba(143, 184, 255, 0.2);
+  border-color: #5cc3b8;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
 }
 
 .button {
@@ -461,17 +471,18 @@ input:focus {
   justify-content: center;
   min-height: 42px;
   padding: 0 16px;
-  border: 1px solid #20242c;
+  border: 1px solid #c9dde1;
   border-radius: 8px;
   background: #ffffff;
-  color: #20242c;
+  color: #284247;
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .button.primary {
-  background: #20242c;
+  border-color: #0f766e;
+  background: #0f766e;
   color: #ffffff;
 }
 
@@ -492,15 +503,15 @@ input:focus {
 
 .candidate-item {
   padding: 14px;
-  border: 1px solid #e6eaf0;
+  border: 1px solid #d8e6e8;
   border-radius: 8px;
-  background: #ffffff;
+  background: #fbfefe;
 }
 
 .candidate-main strong,
 .asset-row strong {
   display: block;
-  color: #222222;
+  color: #173033;
   font-size: 15px;
 }
 
@@ -511,8 +522,8 @@ input:focus {
 
 .candidate-score b {
   display: block;
-  color: #175cd3;
-  font-size: 22px;
+  color: #0f766e;
+  font-size: 20px;
 }
 
 .asset-layout {
@@ -530,7 +541,7 @@ input:focus {
 .asset-row {
   width: 100%;
   padding: 12px;
-  border: 1px solid #e6eaf0;
+  border: 1px solid #d8e6e8;
   border-radius: 8px;
   background: #ffffff;
   text-align: left;
@@ -538,17 +549,17 @@ input:focus {
 }
 
 .asset-row.is-active {
-  border-color: #9ec5fe;
-  background: #f5f9ff;
-  box-shadow: inset 3px 0 0 #2f80ed;
+  border-color: #95cfc8;
+  background: #eef8f6;
+  box-shadow: inset 3px 0 0 #0f766e;
 }
 
 .asset-detail {
   min-width: 0;
   padding: 16px;
-  border: 1px solid #e6eaf0;
+  border: 1px solid #d8e6e8;
   border-radius: 8px;
-  background: #fbfcfe;
+  background: #fbfefe;
 }
 
 .route-badge {
@@ -556,10 +567,10 @@ input:focus {
   align-items: center;
   min-height: 28px;
   padding: 0 10px;
-  border: 1px solid #b7e4c7;
+  border: 1px solid #b8d8d4;
   border-radius: 999px;
-  background: #f0fff4;
-  color: #176b35;
+  background: #eef8f6;
+  color: #0f766e;
   font-size: 12px;
   font-weight: 700;
 }
@@ -577,11 +588,11 @@ dd {
 }
 
 dt {
-  color: #999999;
+  color: #60787f;
 }
 
 dd {
-  color: #333333;
+  color: #173033;
   font-weight: 600;
   word-break: break-word;
 }
@@ -605,8 +616,8 @@ dd {
   max-width: 100%;
   padding: 4px 8px;
   border-radius: 999px;
-  background: #f1f3f5;
-  color: #444444;
+  background: #eef8f6;
+  color: #0f766e;
   font-size: 12px;
   line-height: 1.35;
   word-break: break-word;
@@ -642,11 +653,7 @@ dd {
 
 @media (max-width: 520px) {
   .panel {
-    padding: 14px;
-  }
-
-  .section-title {
-    font-size: 24px;
+    padding: var(--admin-panel-padding);
   }
 
   .route-input,

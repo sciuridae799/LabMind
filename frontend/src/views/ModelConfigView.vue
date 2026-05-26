@@ -266,22 +266,22 @@ onMounted(() => {
         to="/chat"
         class="sidebar-action"
       >
-        Back to chat
+        返回问答
       </RouterLink>
     </aside>
 
     <main class="config-main">
       <header class="config-header">
         <div>
-          <h1>Model Config</h1>
-          <p>API Key 可以稍后补充；只有完整启用的配置会出现在聊天页。</p>
+          <h1>模型配置</h1>
+          <p>管理实验室文档助手可用的模型服务；只有完整启用的配置会出现在聊天页。</p>
         </div>
         <button
           type="button"
           class="primary-action"
           @click="startCreate"
         >
-          + Add
+          新增模型
         </button>
       </header>
 
@@ -355,7 +355,7 @@ onMounted(() => {
                   :disabled="togglingEnabledId === config.id"
                   @click="toggleConfigEnabled(config)"
                 >
-                  {{ config.enabled ? 'Enabled' : 'Disabled' }}
+                  {{ config.enabled ? '已启用' : '已停用' }}
                 </button>
                 <div class="row-actions">
                   <button
@@ -364,7 +364,7 @@ onMounted(() => {
                     :disabled="deletingId === config.id"
                     @click="requestDeleteConfig(config)"
                   >
-                    Delete
+                    删除
                   </button>
                   <div
                     v-if="deleteConfirmConfigId === config.id"
@@ -379,7 +379,7 @@ onMounted(() => {
                         :disabled="deletingId.length > 0"
                         @click="cancelDeleteConfig"
                       >
-                        Cancel
+                        取消
                       </button>
                       <button
                         type="button"
@@ -387,7 +387,7 @@ onMounted(() => {
                         :disabled="deletingId.length > 0"
                         @click="confirmDeleteConfig(config)"
                       >
-                        Delete
+                        删除
                       </button>
                     </div>
                   </div>
@@ -408,7 +408,7 @@ onMounted(() => {
           </div>
 
           <label>
-            <span>Provider</span>
+            <span>供应商</span>
             <select
               v-model="form.provider"
               @change="handleProviderChange"
@@ -440,7 +440,7 @@ onMounted(() => {
           </label>
 
           <label>
-            <span>Model</span>
+            <span>模型</span>
             <select
               v-model="form.modelName"
               required
@@ -457,7 +457,7 @@ onMounted(() => {
           </label>
 
           <label>
-            <span>Name</span>
+            <span>显示名称</span>
             <input
               v-model="form.displayName"
               required
@@ -482,7 +482,7 @@ onMounted(() => {
               v-model="form.enabled"
               type="checkbox"
             >
-            <span>Enabled</span>
+            <span>启用</span>
           </label>
 
           <div class="form-actions">
@@ -491,14 +491,14 @@ onMounted(() => {
               class="secondary-action"
               @click="resetForm"
             >
-              Cancel
+              取消
             </button>
             <button
               type="submit"
               class="primary-action"
               :disabled="isSaving"
             >
-              Save
+              保存
             </button>
           </div>
         </form>
@@ -516,15 +516,21 @@ onMounted(() => {
 .model-config-page {
   display: flex;
   min-height: calc(100vh - 56px);
-  color: #182230;
-  background: #f8fafc;
+  color: #173033;
+  background:
+    linear-gradient(rgba(21, 94, 99, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(21, 94, 99, 0.035) 1px, transparent 1px),
+    linear-gradient(135deg, rgba(230, 246, 245, 0.88) 0%, rgba(243, 248, 251, 0.96) 45%, #edf5f7 100%);
+  background-size: 28px 28px, 28px 28px, auto;
 }
 
 .config-sidebar {
-  width: 238px;
-  padding: 18px 14px;
-  border-right: 1px solid #e5e7eb;
-  background: #ffffff;
+  width: 260px;
+  padding: 16px 12px;
+  border-right: 1px solid #d8e6e8;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.74) 0%, rgba(245, 250, 249, 0.94) 100%),
+    repeating-linear-gradient(0deg, rgba(15, 118, 110, 0.035) 0, rgba(15, 118, 110, 0.035) 1px, transparent 1px, transparent 24px);
 }
 
 .sidebar-action {
@@ -533,13 +539,20 @@ onMounted(() => {
   width: 100%;
   height: 42px;
   padding: 0 12px;
-  color: #344054;
+  color: #284247;
   font-size: 14px;
   font-weight: 600;
   text-decoration: none;
-  border: 1px solid #e1e5eb;
+  border: 1px solid #cae4e0;
   border-radius: 8px;
-  background: #ffffff;
+  background: #eef8f6;
+  box-shadow: 0 1px 2px rgba(17, 78, 84, 0.06);
+}
+
+.sidebar-action:hover {
+  color: #0f766e;
+  border-color: #95cfc8;
+  background: #e5f4f2;
 }
 
 .config-main {
@@ -562,12 +575,13 @@ onMounted(() => {
   font-size: 22px;
   font-weight: 650;
   letter-spacing: 0;
+  color: #102a2f;
 }
 
 .config-header p {
   max-width: 640px;
   margin: 6px 0 0;
-  color: #667085;
+  color: #60787f;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -585,10 +599,10 @@ onMounted(() => {
 
 .config-content {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) 390px;
   gap: 18px;
   align-items: start;
-  max-width: 1040px;
+  max-width: 1120px;
   margin: 0 auto;
 }
 
@@ -601,7 +615,7 @@ onMounted(() => {
 .empty-text {
   margin: 0;
   padding: 28px 0;
-  color: #667085;
+  color: #60787f;
   font-size: 14px;
 }
 
@@ -610,10 +624,10 @@ onMounted(() => {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
   padding: 14px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #cfe1e4;
   border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgb(16 24 40 / 3%);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 24px rgba(17, 78, 84, 0.06);
   transition:
     border-color 0.18s ease,
     box-shadow 0.18s ease;
@@ -621,8 +635,8 @@ onMounted(() => {
 }
 
 .config-row:hover {
-  border-color: #cfd8e6;
-  box-shadow: 0 8px 24px rgb(16 24 40 / 6%);
+  border-color: #95cfc8;
+  box-shadow: 0 14px 30px rgba(17, 78, 84, 0.1);
 }
 
 .config-row.dragging {
@@ -631,8 +645,8 @@ onMounted(() => {
 }
 
 .config-row.drag-over {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
 }
 
 .config-row.disabled {
@@ -662,7 +676,7 @@ onMounted(() => {
 }
 
 .drag-handle {
-  color: #98a2b3;
+  color: #789098;
   font-size: 15px;
   line-height: 1;
   cursor: grab;
@@ -670,7 +684,7 @@ onMounted(() => {
 
 .config-name {
   min-width: 0;
-  color: #182230;
+  color: #173033;
   font-size: 15px;
   font-weight: 650;
   overflow-wrap: anywhere;
@@ -678,13 +692,13 @@ onMounted(() => {
 
 .config-meta {
   margin-top: 5px;
-  color: #475467;
+  color: #385156;
   font-size: 13px;
 }
 
 .config-url {
   margin-top: 4px;
-  color: #667085;
+  color: #60787f;
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -700,17 +714,17 @@ onMounted(() => {
 .config-default {
   flex: 0 0 auto;
   padding: 3px 8px;
-  color: #1849a9;
+  color: #0f766e;
   font-size: 11px;
   font-weight: 700;
   line-height: 1.2;
-  border: 1px solid #b2ddff;
+  border: 1px solid #99d8d0;
   border-radius: 999px;
-  background: #eff8ff;
+  background: #e8f7f5;
 }
 
 .config-badge {
-  color: #175cd3;
+  color: #0f766e;
   font-size: 12px;
 }
 
@@ -722,11 +736,11 @@ onMounted(() => {
 }
 
 .config-badge.muted {
-  color: #667085;
+  color: #60787f;
 }
 
 .config-toggle:disabled {
-  color: #98a2b3;
+  color: #789098;
   cursor: not-allowed;
 }
 
@@ -738,7 +752,7 @@ onMounted(() => {
 
 .text-action {
   padding: 0;
-  color: #2563eb;
+  color: #0f766e;
   font-size: 12px;
   border: 0;
   background: transparent;
@@ -750,7 +764,7 @@ onMounted(() => {
 }
 
 .text-action:disabled {
-  color: #98a2b3;
+  color: #789098;
   cursor: not-allowed;
 }
 
@@ -762,12 +776,12 @@ onMounted(() => {
   flex-direction: column;
   gap: 7px;
   padding: 12px;
-  color: #344054;
+  color: #284247;
   text-align: left;
   border: 1px solid #f2b8b5;
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 18px 40px rgb(16 24 40 / 16%);
+  box-shadow: 0 18px 40px rgba(17, 78, 84, 0.16);
 }
 
 .config-delete-popover {
@@ -782,7 +796,7 @@ onMounted(() => {
 }
 
 .delete-popover span {
-  color: #667085;
+  color: #60787f;
   font-size: 12px;
   line-height: 1.45;
 }
@@ -805,8 +819,8 @@ onMounted(() => {
 }
 
 .delete-popover-cancel {
-  color: #344054;
-  border: 1px solid #d0d5dd;
+  color: #284247;
+  border: 1px solid #c9dde1;
   background: #ffffff;
 }
 
@@ -826,11 +840,13 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 13px;
-  padding: 18px;
-  border: 1px solid #e5e7eb;
+  padding: 20px;
+  border: 1px solid #cfe1e4;
   border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgb(16 24 40 / 3%);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(249, 253, 253, 0.94) 100%),
+    repeating-linear-gradient(90deg, rgba(15, 118, 110, 0.035) 0, rgba(15, 118, 110, 0.035) 1px, transparent 1px, transparent 34px);
+  box-shadow: 0 14px 32px rgba(17, 78, 84, 0.08);
 }
 
 .form-heading {
@@ -844,10 +860,11 @@ onMounted(() => {
   margin: 0;
   font-size: 16px;
   font-weight: 650;
+  color: #102a2f;
 }
 
 .form-heading span {
-  color: #667085;
+  color: #60787f;
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -859,7 +876,7 @@ onMounted(() => {
 }
 
 .config-form label > span {
-  color: #475467;
+  color: #385156;
   font-size: 12px;
   font-weight: 600;
 }
@@ -869,9 +886,9 @@ onMounted(() => {
   width: 100%;
   height: 40px;
   padding: 0 11px;
-  color: #182230;
+  color: #173033;
   font-size: 13px;
-  border: 1px solid #d0d5dd;
+  border: 1px solid #c9dde1;
   border-radius: 8px;
   outline: none;
   background: #ffffff;
@@ -879,8 +896,8 @@ onMounted(() => {
 
 .config-form input:focus,
 .config-form select:focus {
-  border-color: #8bb5f8;
-  box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
+  border-color: #5cc3b8;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
 }
 
 .enabled-toggle {
@@ -906,25 +923,26 @@ onMounted(() => {
   padding: 0 13px;
   font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
   border-radius: 7px;
   cursor: pointer;
 }
 
 .primary-action {
   color: #ffffff;
-  border: 1px solid #1d4ed8;
-  background: #2563eb;
+  border: 1px solid #0f766e;
+  background: #0f766e;
 }
 
 .secondary-action {
-  color: #344054;
-  border: 1px solid #d0d5dd;
+  color: #284247;
+  border: 1px solid #c9dde1;
   background: #ffffff;
 }
 
 .primary-action:disabled {
-  border-color: #98a2b3;
-  background: #98a2b3;
+  border-color: #a8b9bd;
+  background: #a8b9bd;
   cursor: not-allowed;
 }
 
@@ -936,11 +954,24 @@ onMounted(() => {
   .config-sidebar {
     width: 100%;
     border-right: 0;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid #d8e6e8;
   }
 
   .config-main {
     padding: 26px 18px 36px;
+  }
+
+  .config-header {
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .config-header h1 {
+    font-size: 21px;
+  }
+
+  .config-header p {
+    font-size: 12px;
   }
 
   .config-content {
