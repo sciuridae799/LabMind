@@ -37,6 +37,7 @@ public class KnowledgeRouteTraceServiceImpl implements KnowledgeRouteTraceServic
     @Transactional
     public void recordRouteTrace(
             String traceId,
+            String workspaceId,
             String conversationId,
             Long exchangeId,
             String question,
@@ -58,6 +59,7 @@ public class KnowledgeRouteTraceServiceImpl implements KnowledgeRouteTraceServic
         KnowledgeRouteTraceData traceData = new KnowledgeRouteTraceData();
         traceData.setId(snowflakeIdGenerator.nextId());
         traceData.setTraceId(traceId);
+        traceData.setWorkspaceId(workspaceId);
         traceData.setConversationId(conversationId);
         traceData.setExchangeId(exchangeId);
         traceData.setQuestion(question);

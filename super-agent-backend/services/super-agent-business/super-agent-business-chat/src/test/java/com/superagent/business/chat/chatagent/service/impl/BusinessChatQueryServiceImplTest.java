@@ -21,10 +21,14 @@ import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatToo
 import com.superagent.business.chat.chatagent.persistence.model.BusinessChatSessionListRow;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
+import com.superagent.business.chat.auth.AuthRole;
+import com.superagent.business.chat.auth.AuthSessionContext;
+import com.superagent.business.chat.auth.AuthSessionHolder;
 import com.superagent.common.frame.exception.BaseException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -59,6 +63,14 @@ class BusinessChatQueryServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        AuthSessionHolder.set(new AuthSessionContext(
+                "token-1",
+                "1001",
+                "admin",
+                "管理员",
+                AuthRole.SUPER_ADMIN,
+                "workspace-1",
+                "工作组"));
         businessChatQueryService = new BusinessChatQueryServiceImpl(
                 businessChatDialogueMapper,
                 businessChatExchangeMapper,
@@ -71,10 +83,16 @@ class BusinessChatQueryServiceImplTest {
                 new ObjectMapper());
     }
 
+    @AfterEach
+    void tearDown() {
+        AuthSessionHolder.clear();
+    }
+
     @Test
     void shouldReturnMappedSessionPage() {
         BusinessChatSessionListRequest request = new BusinessChatSessionListRequest();
         request.setKeyword("链路");
+        request.setWorkspaceId("workspace-1");
         request.setChatMode("ALL");
         request.setTurnStatus("ALL");
         request.setPageNo("1");
@@ -90,8 +108,8 @@ class BusinessChatQueryServiceImplTest {
         row.setLastReply("这条链路会先编排再执行");
         row.setUpdateTime(LocalDateTime.of(2026, 4, 23, 11, 30, 0));
 
-        when(businessChatDialogueMapper.countSessionPageRows("链路", null, null, 1)).thenReturn(1L);
-        when(businessChatDialogueMapper.selectSessionPageRows("链路", null, null, 1, 0, 20))
+        when(businessChatDialogueMapper.countSessionPageRows("workspace-1", "", "链路", null, null, 1)).thenReturn(1L);
+        when(businessChatDialogueMapper.selectSessionPageRows("workspace-1", "", "链路", null, null, 1, 0, 20))
                 .thenReturn(List.of(row));
 
         var pageVo = businessChatQueryService.listSessionsPage(request);
@@ -105,6 +123,32 @@ class BusinessChatQueryServiceImplTest {
         assertThat(pageVo.getSessions().getFirst().getTitle()).isEqualTo("链路执行过程");
         assertThat(pageVo.getSessions().getFirst().getChatMode()).isEqualTo("OPEN_ENDED");
         assertThat(pageVo.getSessions().getFirst().getTurnStatus()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void shouldScopeGuestSessionPageByCurrentAuthToken() {
+        AuthSessionHolder.set(new AuthSessionContext(
+                "guest-token-1",
+                "guest",
+                "guest",
+                "访客",
+                AuthRole.GUEST,
+                "public-demo",
+                "访客体验资料库"));
+        BusinessChatSessionListRequest request = new BusinessChatSessionListRequest();
+        request.setWorkspaceId("public-demo");
+        request.setChatMode("ALL");
+        request.setTurnStatus("ALL");
+        request.setPageNo("1");
+        request.setPageSize("20");
+
+        when(businessChatDialogueMapper.countSessionPageRows("public-demo", "guest-token-1", null, null, null, 1))
+                .thenReturn(0L);
+
+        var pageVo = businessChatQueryService.listSessionsPage(request);
+
+        assertThat(pageVo.getTotalSize()).isZero();
+        assertThat(pageVo.getSessions()).isEmpty();
     }
 
     @Test

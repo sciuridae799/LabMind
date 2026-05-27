@@ -36,6 +36,9 @@ import com.superagent.business.chat.chatagent.api.vo.BusinessChatExchangeTraceSt
 import com.superagent.business.chat.chatagent.api.vo.BusinessChatExchangeUsageSummaryVo;
 import com.superagent.business.chat.chatagent.api.vo.BusinessChatModelCallTraceVo;
 import com.superagent.business.chat.chatagent.api.vo.BusinessChatToolCallTraceVo;
+import com.superagent.business.chat.auth.AuthRole;
+import com.superagent.business.chat.auth.AuthSessionContext;
+import com.superagent.business.chat.auth.AuthSessionHolder;
 import com.superagent.business.chat.support.BusinessInputValidator;
 import com.superagent.common.frame.exception.BaseException;
 import java.math.BigDecimal;
@@ -82,9 +85,12 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
         long pageNo = BusinessInputValidator.parsePositiveLong(request.getPageNo(), "pageNo");
         long pageSize = BusinessInputValidator.parsePositiveLong(request.getPageSize(), "pageSize");
         String keyword = BusinessInputValidator.normalizeOptionalText(request.getKeyword());
+        String authSessionToken = currentAuthSessionToken();
         Integer chatModeCode = resolveChatModeCode(request.getChatMode());
         Integer turnStatusCode = resolveTurnStatusCode(request.getTurnStatus());
         long totalSize = businessChatDialogueMapper.countSessionPageRows(
+                request.getWorkspaceId(),
+                authSessionToken,
                 keyword,
                 chatModeCode,
                 turnStatusCode,
@@ -94,6 +100,8 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
         List<BusinessChatSessionListItemVo> sessionList = totalSize == 0
                 ? List.of()
                 : businessChatDialogueMapper.selectSessionPageRows(
+                                request.getWorkspaceId(),
+                                authSessionToken,
                                 keyword,
                                 chatModeCode,
                                 turnStatusCode,
@@ -120,6 +128,8 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
         BusinessChatDialogueData dialogueData = businessChatDialogueMapper.selectOne(
                 Wrappers.<BusinessChatDialogueData>lambdaQuery()
                         .eq(BusinessChatDialogueData::getDialogueCode, conversationId)
+                        .eq(BusinessChatDialogueData::getWorkspaceId, request.getWorkspaceId())
+                        .eq(BusinessChatDialogueData::getAuthSessionToken, currentAuthSessionToken())
                         .eq(BusinessChatDialogueData::getStatus, NORMAL_STATUS)
                         .last("limit 1"));
         if (dialogueData == null) {
@@ -127,16 +137,18 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
                     BusinessChatErrorCode.CHAT_SESSION_NOT_FOUND,
                     "conversationId was not found: " + conversationId);
         }
-        businessChatSessionStateService.activate(conversationId);
+        businessChatSessionStateService.activate(conversationId, request.getWorkspaceId(), currentAuthSessionToken());
 
         BusinessChatMemorySummaryData summaryData = businessChatMemorySummaryMapper.selectOne(
                 Wrappers.<BusinessChatMemorySummaryData>lambdaQuery()
                         .eq(BusinessChatMemorySummaryData::getDialogueCode, conversationId)
+                        .eq(BusinessChatMemorySummaryData::getWorkspaceId, request.getWorkspaceId())
                         .eq(BusinessChatMemorySummaryData::getStatus, NORMAL_STATUS)
                         .last("limit 1"));
         List<BusinessChatSessionExchangeVo> exchangeList = businessChatExchangeMapper.selectList(
                         Wrappers.<BusinessChatExchangeData>lambdaQuery()
                                 .eq(BusinessChatExchangeData::getDialogueCode, conversationId)
+                                .eq(BusinessChatExchangeData::getWorkspaceId, request.getWorkspaceId())
                                 .eq(BusinessChatExchangeData::getStatus, NORMAL_STATUS)
                                 .orderByAsc(BusinessChatExchangeData::getCreateTime)
                                 .orderByAsc(BusinessChatExchangeData::getId))
@@ -161,17 +173,19 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
     }
 
     @Override
-    public String getActiveConversationId() {
-        return businessChatSessionStateService.getActiveConversationId();
+    public String getActiveConversationId(String workspaceId, String authSessionToken) {
+        return businessChatSessionStateService.getActiveConversationId(workspaceId, authSessionToken);
     }
 
     @Override
     public BusinessChatExchangeDetailVo getExchangeDetail(BusinessChatExchangeDetailRequest request) {
         String conversationId = BusinessInputValidator.normalizeRequiredText(request.getConversationId(), "conversationId");
         long exchangeId = BusinessInputValidator.parsePositiveLong(request.getExchangeId(), "exchangeId");
+        requireVisibleDialogue(conversationId, request.getWorkspaceId());
         BusinessChatExchangeData exchangeData = businessChatExchangeMapper.selectOne(
                 Wrappers.<BusinessChatExchangeData>lambdaQuery()
                         .eq(BusinessChatExchangeData::getDialogueCode, conversationId)
+                        .eq(BusinessChatExchangeData::getWorkspaceId, request.getWorkspaceId())
                         .eq(BusinessChatExchangeData::getId, exchangeId)
                         .eq(BusinessChatExchangeData::getStatus, NORMAL_STATUS)
                         .last("limit 1"));
@@ -183,6 +197,7 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
         List<BusinessChatExchangeTraceStageData> stageDataList = businessChatExchangeTraceStageMapper.selectList(
                 Wrappers.<BusinessChatExchangeTraceStageData>lambdaQuery()
                         .eq(BusinessChatExchangeTraceStageData::getDialogueCode, conversationId)
+                        .eq(BusinessChatExchangeTraceStageData::getWorkspaceId, request.getWorkspaceId())
                         .eq(BusinessChatExchangeTraceStageData::getExchangeId, exchangeId)
                         .eq(BusinessChatExchangeTraceStageData::getStatus, NORMAL_STATUS)
                         .orderByAsc(BusinessChatExchangeTraceStageData::getStageOrder)
@@ -219,6 +234,21 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
         return detailVo;
     }
 
+    private void requireVisibleDialogue(String conversationId, String workspaceId) {
+        BusinessChatDialogueData dialogueData = businessChatDialogueMapper.selectOne(
+                Wrappers.<BusinessChatDialogueData>lambdaQuery()
+                        .eq(BusinessChatDialogueData::getDialogueCode, conversationId)
+                        .eq(BusinessChatDialogueData::getWorkspaceId, workspaceId)
+                        .eq(BusinessChatDialogueData::getAuthSessionToken, currentAuthSessionToken())
+                        .eq(BusinessChatDialogueData::getStatus, NORMAL_STATUS)
+                        .last("limit 1"));
+        if (dialogueData == null) {
+            throw new BaseException(
+                    BusinessChatErrorCode.CHAT_SESSION_NOT_FOUND,
+                    "conversationId was not found: " + conversationId);
+        }
+    }
+
     private BusinessChatSessionListItemVo buildSessionListItem(BusinessChatSessionListRow row) {
         BusinessChatSessionListItemVo itemVo = new BusinessChatSessionListItemVo();
         itemVo.setConversationId(row.getConversationId());
@@ -230,6 +260,11 @@ public class BusinessChatQueryServiceImpl implements BusinessChatQueryService {
         itemVo.setLastReply(row.getLastReply());
         itemVo.setUpdateTime(row.getUpdateTime());
         return itemVo;
+    }
+
+    private String currentAuthSessionToken() {
+        AuthSessionContext session = AuthSessionHolder.required();
+        return session.role() == AuthRole.GUEST ? session.token() : "";
     }
 
     private BusinessChatExchangeUsageSummaryVo buildUsageSummary(

@@ -8,6 +8,8 @@ public class BusinessChatSessionListRequest {
 
     private String keyword;
 
+    private String workspaceId;
+
     @NotBlank(message = "chatMode must not be blank")
     private String chatMode;
 

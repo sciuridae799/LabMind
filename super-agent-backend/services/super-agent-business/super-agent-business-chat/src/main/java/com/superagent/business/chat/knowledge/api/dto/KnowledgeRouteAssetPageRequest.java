@@ -7,6 +7,8 @@ public class KnowledgeRouteAssetPageRequest {
 
     private String keyword;
 
+    private String workspaceId;
+
     private String knowledgeScopeCode;
 
     private String pageNo = "1";

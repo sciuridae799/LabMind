@@ -14,6 +14,14 @@ export default defineConfig({
       '/manage': {
         target: 'http://127.0.0.1:8080',
         changeOrigin: true
+      },
+      '/auth': {
+        target: 'http://127.0.0.1:8080',
+        changeOrigin: true
+      },
+      '/admin': {
+        target: 'http://127.0.0.1:8080',
+        changeOrigin: true
       }
     }
   }

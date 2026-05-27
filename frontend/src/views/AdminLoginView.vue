@@ -1,27 +1,64 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
-import { loginAdmin } from '../shared/auth/adminAuth'
+import { authApi } from '../shared/api/auth'
+import { setAuthSession } from '../shared/auth/authSession'
 
+const route = useRoute()
 const router = useRouter()
 const account = ref('')
 const password = ref('')
 const errorMessage = ref('')
+const isSubmitting = ref(false)
 
-function handleSubmit(): void {
+function resolveRedirectPath(): string {
+  const redirect = route.query.redirect
+  return typeof redirect === 'string' && redirect.startsWith('/') ? redirect : '/chat'
+}
+
+async function handleSubmit(): Promise<void> {
+  if (isSubmitting.value) {
+    return
+  }
+
   errorMessage.value = ''
-
+  isSubmitting.value = true
   try {
-    loginAdmin(account.value, password.value)
-    void router.replace('/admin/dashboard')
-  } catch (error) {
-    if (error instanceof Error) {
-      errorMessage.value = error.message
-      return
+    const session = await authApi.login({
+      account: account.value.trim(),
+      password: password.value
+    })
+    if (!session) {
+      throw new Error('登录响应缺少账号信息')
     }
+    setAuthSession(session)
+    await router.replace(resolveRedirectPath())
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '登录失败'
+  } finally {
+    isSubmitting.value = false
+  }
+}
 
-    throw error
+async function handleGuestLogin(): Promise<void> {
+  if (isSubmitting.value) {
+    return
+  }
+
+  errorMessage.value = ''
+  isSubmitting.value = true
+  try {
+    const session = await authApi.loginGuest()
+    if (!session) {
+      throw new Error('访客登录响应缺少账号信息')
+    }
+    setAuthSession(session)
+    await router.replace('/chat')
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '访客登录失败'
+  } finally {
+    isSubmitting.value = false
   }
 }
 
@@ -35,18 +72,15 @@ function clearErrorMessage(): void {
 </script>
 
 <template>
-  <main class="admin-login-view">
+  <main class="login-view">
     <section class="login-card">
-      <div class="header-row">
-        <p class="eyebrow">Admin Access</p>
-        <RouterLink
-          to="/chat"
-          class="back-link"
-        >
-          返回对话
-        </RouterLink>
+      <div class="brand-block">
+        <span class="brand-mark">LAB</span>
+        <div>
+          <p class="eyebrow">Workspace Access</p>
+          <h1>实验室文档工作台</h1>
+        </div>
       </div>
-      <h1>管理后台登录</h1>
 
       <form
         class="login-form"
@@ -55,9 +89,9 @@ function clearErrorMessage(): void {
         <label class="field">
           <span>账号</span>
           <input
-            type="text"
             v-model.trim="account"
-            placeholder="请输入管理员账号"
+            type="text"
+            placeholder="请输入管理员分配的账号"
             autocomplete="username"
             required
             @input="clearErrorMessage"
@@ -66,8 +100,8 @@ function clearErrorMessage(): void {
         <label class="field">
           <span>密码</span>
           <input
+            v-model="password"
             type="password"
-            v-model.trim="password"
             placeholder="请输入密码"
             autocomplete="current-password"
             required
@@ -83,89 +117,88 @@ function clearErrorMessage(): void {
         <button
           type="submit"
           class="submit-button"
+          :disabled="isSubmitting"
         >
-          登录管理后台
+          {{ isSubmitting ? '登录中' : '登录工作台' }}
         </button>
       </form>
+
+      <div class="guest-panel">
+        <div>
+          <strong>访客体验</strong>
+          <p>访问默认资料库，可体验问答和只读后台。</p>
+        </div>
+        <button
+          type="button"
+          class="guest-button"
+          @click="handleGuestLogin"
+        >
+          访客进入
+        </button>
+      </div>
+
+      <p class="register-note">
+        暂不开放自助注册。需要账号或工作组权限，请联系超级管理员开通。
+      </p>
     </section>
   </main>
 </template>
 
 <style scoped>
-.admin-login-view {
+.login-view {
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: 24px;
   background:
-    radial-gradient(circle at top left, rgba(255, 222, 189, 0.82), transparent 32%),
-    radial-gradient(circle at bottom right, rgba(191, 219, 254, 0.72), transparent 32%),
-    linear-gradient(180deg, #fbf7ef 0%, #eef4fb 100%);
+    linear-gradient(rgba(21, 94, 99, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(21, 94, 99, 0.035) 1px, transparent 1px),
+    linear-gradient(135deg, rgba(230, 246, 245, 0.92) 0%, rgba(243, 248, 251, 0.98) 52%, #edf5f7 100%);
+  background-size: 28px 28px, 28px 28px, auto;
 }
 
 .login-card {
   width: min(460px, 100%);
-  padding: 32px;
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.1);
-  backdrop-filter: blur(16px);
+  padding: 28px;
+  border: 1px solid var(--admin-color-border);
+  border-radius: 8px;
+  background: var(--admin-color-card);
+  box-shadow: var(--admin-shadow-panel);
 }
 
-.header-row {
+.brand-block {
   display: flex;
+  gap: 14px;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+}
+
+.brand-mark {
+  display: inline-flex;
+  width: 56px;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--admin-color-accent);
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 800;
 }
 
 .eyebrow {
   margin: 0;
+  color: var(--admin-color-muted);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #b45309;
-}
-
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  padding: 0 14px;
-  border: 1px solid rgba(148, 163, 184, 0.26);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #334155;
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-  transition:
-    border-color 0.2s ease,
-    background-color 0.2s ease,
-    color 0.2s ease,
-    transform 0.2s ease;
-}
-
-.back-link:hover {
-  border-color: rgba(37, 99, 235, 0.22);
-  background: rgba(239, 246, 255, 0.92);
-  color: #1d4ed8;
-  transform: translateY(-1px);
-}
-
-.back-link:focus-visible {
-  outline: 2px solid rgba(59, 130, 246, 0.45);
-  outline-offset: 2px;
 }
 
 h1 {
-  margin: 12px 0 0;
-  font-size: 34px;
-  line-height: 1.08;
-  color: #0f172a;
+  margin: 6px 0 0;
+  color: var(--admin-color-title);
+  font-size: 26px;
+  line-height: 1.2;
 }
 
 .login-form {
@@ -176,35 +209,103 @@ h1 {
 
 .field {
   display: grid;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #334155;
+  gap: 6px;
+  color: var(--admin-color-subtle);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .field input {
-  height: 46px;
-  padding: 0 14px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 14px;
+  height: var(--admin-control-height);
+  padding: 0 12px;
+  border: 1px solid var(--admin-color-field-border);
+  border-radius: var(--admin-radius-control);
+  outline: none;
   background: #ffffff;
+  color: var(--admin-color-text);
+  font-size: var(--admin-control-font-size);
+}
+
+.field input:focus {
+  border-color: #5cc3b8;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
 }
 
 .error-message {
-  margin: -2px 0 0;
-  color: #b91c1c;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--admin-color-danger-border);
+  border-radius: var(--admin-radius-control);
+  background: var(--admin-color-danger-soft);
+  color: var(--admin-color-danger);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
+}
+
+.submit-button,
+.guest-button {
+  height: var(--admin-control-height);
+  border-radius: var(--admin-radius-control);
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .submit-button {
-  height: 46px;
-  margin-top: 4px;
-  border: 0;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #2563eb 0%, #0f62fe 100%);
+  border: 1px solid var(--admin-color-accent);
+  background: var(--admin-color-accent);
   color: #ffffff;
-  font-weight: 700;
-  cursor: pointer;
+}
+
+.submit-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.guest-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px dashed #b8d8d4;
+  border-radius: 8px;
+  background: rgba(238, 248, 246, 0.66);
+}
+
+.guest-panel strong {
+  color: var(--admin-color-title);
+  font-size: 14px;
+}
+
+.guest-panel p,
+.register-note {
+  margin: 4px 0 0;
+  color: var(--admin-color-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.guest-button {
+  flex: 0 0 auto;
+  padding: 0 14px;
+  border: 1px solid var(--admin-color-field-border);
+  background: #ffffff;
+  color: var(--admin-color-text);
+}
+
+.register-note {
+  margin-top: 14px;
+}
+
+@media (max-width: 520px) {
+  .login-card {
+    padding: 22px;
+  }
+
+  .guest-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 </style>

@@ -7,6 +7,8 @@ public class KnowledgeDocumentUploadMetaRequest {
 
     private String documentName;
 
+    private String workspaceId;
+
     private String operatorId;
 
     private String knowledgeScopeCode;

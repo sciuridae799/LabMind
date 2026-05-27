@@ -3,6 +3,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE IF NOT EXISTS public.super_agent_document_embedding (
     id BIGINT NOT NULL,
     document_id BIGINT NOT NULL,
+    workspace_id VARCHAR(64) NOT NULL,
     task_id BIGINT NOT NULL,
     plan_id BIGINT,
     parent_block_id BIGINT NOT NULL,
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS public.super_agent_document_embedding (
 COMMENT ON TABLE public.super_agent_document_embedding IS '文档切块向量表';
 COMMENT ON COLUMN public.super_agent_document_embedding.id IS '主键id，直接复用 MySQL chunk 主键';
 COMMENT ON COLUMN public.super_agent_document_embedding.document_id IS '文档id';
+COMMENT ON COLUMN public.super_agent_document_embedding.workspace_id IS '所属工作组id';
 COMMENT ON COLUMN public.super_agent_document_embedding.task_id IS '索引任务id';
 COMMENT ON COLUMN public.super_agent_document_embedding.plan_id IS '策略方案id';
 COMMENT ON COLUMN public.super_agent_document_embedding.parent_block_id IS '所属父块id';
@@ -50,6 +52,9 @@ COMMENT ON COLUMN public.super_agent_document_embedding.status IS '1:正常 0:�
 
 CREATE INDEX IF NOT EXISTS idx_super_agent_document_embedding_document_id
     ON public.super_agent_document_embedding (document_id);
+
+CREATE INDEX IF NOT EXISTS idx_super_agent_document_embedding_workspace
+    ON public.super_agent_document_embedding (workspace_id, document_id, status);
 
 CREATE INDEX IF NOT EXISTS idx_super_agent_document_embedding_task_id
     ON public.super_agent_document_embedding (task_id);

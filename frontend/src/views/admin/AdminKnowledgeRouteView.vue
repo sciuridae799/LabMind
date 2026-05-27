@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { manageApi } from '../../shared/api/manage'
+import { useAuthSession } from '../../shared/auth/authSession'
 
 interface RouteCandidate {
   documentId: string
@@ -52,6 +53,7 @@ const statusMessage = ref('')
 const assetStatusMessage = ref('')
 const isRouting = ref(false)
 const isLoadingAssets = ref(false)
+const authSession = useAuthSession()
 
 const selectedAsset = computed(() => {
   return assets.value.find((asset) => asset.documentId === selectedAssetId.value) || assets.value[0] || null
@@ -80,6 +82,7 @@ async function loadRouteAssets(targetPage = pageNo.value): Promise<void> {
   assetStatusMessage.value = ''
   try {
     const page = normalizeAssetPage(await manageApi.queryKnowledgeRouteAssetPage({
+      workspaceId: authSession.value?.workspaceId,
       keyword: assetKeyword.value.trim(),
       pageNo: String(targetPage),
       pageSize: String(pageSize)
@@ -113,6 +116,7 @@ async function previewRoute(): Promise<void> {
   statusMessage.value = ''
   try {
     candidates.value = await manageApi.previewKnowledgeRoute({
+      workspaceId: authSession.value?.workspaceId,
       question: normalizedQuestion,
       limit: '10'
     }) as RouteCandidate[]

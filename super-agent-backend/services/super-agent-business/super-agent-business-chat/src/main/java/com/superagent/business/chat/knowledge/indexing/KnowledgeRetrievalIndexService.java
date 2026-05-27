@@ -283,6 +283,7 @@ public class KnowledgeRetrievalIndexService {
         KnowledgeDocumentParentBlockData data = new KnowledgeDocumentParentBlockData();
         data.setId(parentBlockId);
         data.setDocumentId(documentData.getId());
+        data.setWorkspaceId(documentData.getWorkspaceId());
         data.setTaskId(taskId);
         data.setPlanId(documentData.getCurrentPlanId());
         data.setParentNo(parentNo);
@@ -313,6 +314,7 @@ public class KnowledgeRetrievalIndexService {
         KnowledgeDocumentChunkData data = new KnowledgeDocumentChunkData();
         data.setId(chunkId);
         data.setDocumentId(documentData.getId());
+        data.setWorkspaceId(documentData.getWorkspaceId());
         data.setTaskId(taskId);
         data.setPlanId(documentData.getCurrentPlanId());
         data.setParentBlockId(parentBlockId);
@@ -339,12 +341,14 @@ public class KnowledgeRetrievalIndexService {
         try {
             String metadataJson = objectMapper.writeValueAsString(Map.of(
                     "documentName", documentData.getDocumentName(),
+                    "workspaceId", documentData.getWorkspaceId(),
                     "scopeCode", nullToEmpty(documentData.getKnowledgeScopeCode()),
                     "scopeName", nullToEmpty(documentData.getKnowledgeScopeName()),
                     "businessCategory", nullToEmpty(documentData.getBusinessCategory())));
             return new KnowledgeRetrievalIndexChunk(
                     chunkData.getId(),
                     chunkData.getDocumentId(),
+                    chunkData.getWorkspaceId(),
                     chunkData.getTaskId(),
                     chunkData.getPlanId(),
                     chunkData.getParentBlockId(),

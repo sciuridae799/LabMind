@@ -7,8 +7,10 @@ import {
   type BusinessChatSessionListItem,
   type BusinessChatMode
 } from '../../shared/api/chat'
+import { useAuthSession } from '../../shared/auth/authSession'
 
 const router = useRouter()
+const authSession = useAuthSession()
 
 const keyword = ref('')
 const chatMode = ref<'ALL' | BusinessChatMode>('ALL')
@@ -63,6 +65,7 @@ async function loadSessions(): Promise<void> {
   errorMessage.value = ''
   try {
     const page = await chatApi.listSessionsPage({
+      workspaceId: authSession.value?.workspaceId,
       keyword: keyword.value,
       chatMode: chatMode.value,
       turnStatus: turnStatus.value,

@@ -2,6 +2,7 @@
 CREATE TABLE IF NOT EXISTS super_agent_document (
     id BIGINT NOT NULL COMMENT '主键id',
     document_name VARCHAR(255) NOT NULL COMMENT '文档名称',
+    workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
     original_file_name VARCHAR(255) NOT NULL COMMENT '原始文件名',
     file_type TINYINT NOT NULL COMMENT '文件类型 1:PDF 2:DOC 3:DOCX 4:TXT 5:MD 6:HTML 7:PPT 8:PPTX',
     mime_type VARCHAR(128) DEFAULT NULL COMMENT 'MIME类型',
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS super_agent_document (
     edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
     PRIMARY KEY (id),
+    KEY idx_document_workspace (workspace_id, status, create_time),
     KEY idx_object_name (object_name),
     KEY idx_parse_status (parse_status),
     KEY idx_strategy_status (strategy_status),
@@ -156,6 +158,7 @@ CREATE TABLE IF NOT EXISTS super_agent_document_structure_node (
 CREATE TABLE IF NOT EXISTS super_agent_document_parent_block (
     id BIGINT NOT NULL COMMENT '主键id',
     document_id BIGINT NOT NULL COMMENT '文档id',
+    workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
     task_id BIGINT NOT NULL COMMENT '索引任务id',
     plan_id BIGINT DEFAULT NULL COMMENT '策略方案id',
     parent_no INT NOT NULL COMMENT '父块序号',
@@ -176,6 +179,7 @@ CREATE TABLE IF NOT EXISTS super_agent_document_parent_block (
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
     PRIMARY KEY (id),
     UNIQUE KEY uk_task_parent_no (task_id, parent_no),
+    KEY idx_parent_workspace (workspace_id, document_id),
     KEY idx_document_id (document_id),
     KEY idx_task_id (task_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档父块表';
@@ -183,6 +187,7 @@ CREATE TABLE IF NOT EXISTS super_agent_document_parent_block (
 CREATE TABLE IF NOT EXISTS super_agent_document_chunk (
     id BIGINT NOT NULL COMMENT '主键id',
     document_id BIGINT NOT NULL COMMENT '文档id',
+    workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
     task_id BIGINT NOT NULL COMMENT '索引任务id',
     plan_id BIGINT DEFAULT NULL COMMENT '策略方案id',
     parent_block_id BIGINT NOT NULL COMMENT '所属父块id',
@@ -204,6 +209,7 @@ CREATE TABLE IF NOT EXISTS super_agent_document_chunk (
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
     PRIMARY KEY (id),
     UNIQUE KEY uk_task_chunk_no (task_id, chunk_no),
+    KEY idx_chunk_workspace (workspace_id, document_id),
     KEY idx_document_id (document_id),
     KEY idx_parent_block_id (parent_block_id),
     KEY idx_vector_status (vector_status)

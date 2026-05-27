@@ -17,6 +17,10 @@ public class BusinessChatDialogueData extends BaseTableData {
 
     private String dialogueCode;
 
+    private String workspaceId;
+
+    private String authSessionToken;
+
     private String dialogueTitle;
 
     private Integer dialogueStage;

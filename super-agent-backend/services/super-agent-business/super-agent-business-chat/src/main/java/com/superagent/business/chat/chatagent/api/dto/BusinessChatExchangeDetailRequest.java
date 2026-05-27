@@ -9,6 +9,8 @@ public class BusinessChatExchangeDetailRequest {
     @NotBlank(message = "conversationId must not be blank")
     private String conversationId;
 
+    private String workspaceId;
+
     @NotBlank(message = "exchangeId must not be blank")
     private String exchangeId;
 }

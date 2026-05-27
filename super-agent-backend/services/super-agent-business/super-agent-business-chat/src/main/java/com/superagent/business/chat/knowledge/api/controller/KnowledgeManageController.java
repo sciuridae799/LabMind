@@ -7,6 +7,7 @@ import com.superagent.business.chat.knowledge.api.dto.KnowledgeDocumentUploadMet
 import com.superagent.business.chat.knowledge.api.dto.KnowledgeRouteAssetPageRequest;
 import com.superagent.business.chat.knowledge.api.dto.KnowledgeRoutePreviewRequest;
 import com.superagent.business.chat.knowledge.api.dto.KnowledgeRouteTracePageRequest;
+import com.superagent.business.chat.auth.service.AuthWorkspaceScopeService;
 import com.superagent.business.chat.knowledge.document.service.KnowledgeManageService;
 import com.superagent.business.chat.knowledge.api.vo.KnowledgeDocumentPageVo;
 import com.superagent.business.chat.knowledge.api.vo.KnowledgeDocumentProfileVo;
@@ -39,27 +40,33 @@ public class KnowledgeManageController {
 
     private final KnowledgeManageService knowledgeManageService;
 
+    private final AuthWorkspaceScopeService workspaceScopeService;
+
     @PostMapping(value = "/document/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<KnowledgeDocumentVo> uploadDocument(
             @RequestPart("file") MultipartFile file,
             @Valid @RequestPart("meta") KnowledgeDocumentUploadMetaRequest meta) {
+        meta.setWorkspaceId(workspaceScopeService.resolveWritableWorkspace(meta.getWorkspaceId()));
         return ApiResponse.ok(knowledgeManageService.uploadDocument(file, meta));
     }
 
     @PostMapping("/document/page/query")
     public ApiResponse<KnowledgeDocumentPageVo> queryDocumentPage(
             @RequestBody KnowledgeDocumentPageRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveReadableWorkspace(request.getWorkspaceId()));
         return ApiResponse.ok(knowledgeManageService.queryDocumentPage(request));
     }
 
     @PostMapping("/document/detail/query")
     public ApiResponse<KnowledgeDocumentVo> queryDocumentDetail(
             @Valid @RequestBody KnowledgeDocumentIdRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveReadableWorkspace(request.getWorkspaceId()));
         return ApiResponse.ok(knowledgeManageService.queryDocumentDetail(request));
     }
 
     @PostMapping("/document/delete")
     public ApiResponse<Void> deleteDocument(@Valid @RequestBody KnowledgeDocumentIdRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveWritableWorkspace(request.getWorkspaceId()));
         knowledgeManageService.deleteDocument(request);
         return ApiResponse.ok();
     }
@@ -67,42 +74,49 @@ public class KnowledgeManageController {
     @PostMapping("/document/strategy/plan/query")
     public ApiResponse<KnowledgeDocumentStrategyPlanVo> queryStrategyPlan(
             @Valid @RequestBody KnowledgeDocumentIdRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveReadableWorkspace(request.getWorkspaceId()));
         return ApiResponse.ok(knowledgeManageService.queryStrategyPlan(request));
     }
 
     @PostMapping("/document/strategy/confirm")
     public ApiResponse<KnowledgeDocumentStrategyPlanVo> confirmStrategy(
             @Valid @RequestBody KnowledgeDocumentStrategyConfirmRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveWritableWorkspace(request.getWorkspaceId()));
         return ApiResponse.ok(knowledgeManageService.confirmStrategy(request));
     }
 
     @PostMapping("/knowledge/document/profile/detail")
     public ApiResponse<KnowledgeDocumentProfileVo> queryDocumentProfile(
             @Valid @RequestBody KnowledgeDocumentIdRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveReadableWorkspace(request.getWorkspaceId()));
         return ApiResponse.ok(knowledgeManageService.queryDocumentProfile(request));
     }
 
     @PostMapping("/knowledge/document/parsed-text/query")
     public ApiResponse<String> queryDocumentParsedText(
             @Valid @RequestBody KnowledgeDocumentIdRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveReadableWorkspace(request.getWorkspaceId()));
         return ApiResponse.ok(knowledgeManageService.queryDocumentParsedText(request));
     }
 
     @PostMapping("/knowledge/route/preview")
     public ApiResponse<List<KnowledgeRouteCandidateVo>> previewRoute(
             @Valid @RequestBody KnowledgeRoutePreviewRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveReadableWorkspace(request.getWorkspaceId()));
         return ApiResponse.ok(knowledgeManageService.previewRoute(request));
     }
 
     @PostMapping("/knowledge/route/asset/page/query")
     public ApiResponse<KnowledgeRouteAssetPageVo> queryRouteAssetPage(
             @RequestBody KnowledgeRouteAssetPageRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveReadableWorkspace(request.getWorkspaceId()));
         return ApiResponse.ok(knowledgeManageService.queryRouteAssetPage(request));
     }
 
     @PostMapping("/knowledge/route/trace/page/query")
     public ApiResponse<KnowledgeRouteTracePageVo> queryRouteTracePage(
             @RequestBody KnowledgeRouteTracePageRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveReadableWorkspace(request.getWorkspaceId()));
         return ApiResponse.ok(knowledgeManageService.queryRouteTracePage(request));
     }
 }

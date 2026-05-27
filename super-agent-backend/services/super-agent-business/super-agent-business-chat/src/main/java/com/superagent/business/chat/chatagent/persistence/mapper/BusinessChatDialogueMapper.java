@@ -38,12 +38,16 @@ public interface BusinessChatDialogueMapper extends BaseMapper<BusinessChatDialo
             "    SELECT e.id",
             "    FROM super_agent_chat_exchange e",
             "    WHERE e.dialogue_code = d.dialogue_code",
+            "      AND e.workspace_id = #{workspaceId}",
             "      AND e.status = #{status}",
             "    ORDER BY e.create_time DESC, e.id DESC",
             "    LIMIT 1",
             ")",
             "AND le.status = #{status}",
             "WHERE d.status = #{status}",
+            "  AND d.workspace_id = #{workspaceId}",
+            "  AND d.auth_session_token = #{authSessionToken}",
+            "  AND le.workspace_id = #{workspaceId}",
             "<if test=\"keyword != null and keyword != ''\">",
             "  AND (d.dialogue_code LIKE CONCAT('%', #{keyword}, '%')",
             "       OR d.dialogue_title LIKE CONCAT('%', #{keyword}, '%')",
@@ -58,6 +62,8 @@ public interface BusinessChatDialogueMapper extends BaseMapper<BusinessChatDialo
             "</script>"
     })
     long countSessionPageRows(
+            @Param("workspaceId") String workspaceId,
+            @Param("authSessionToken") String authSessionToken,
             @Param("keyword") String keyword,
             @Param("chatModeCode") Integer chatModeCode,
             @Param("turnStatusCode") Integer turnStatusCode,
@@ -94,12 +100,16 @@ public interface BusinessChatDialogueMapper extends BaseMapper<BusinessChatDialo
             "    SELECT e.id",
             "    FROM super_agent_chat_exchange e",
             "    WHERE e.dialogue_code = d.dialogue_code",
+            "      AND e.workspace_id = #{workspaceId}",
             "      AND e.status = #{status}",
             "    ORDER BY e.create_time DESC, e.id DESC",
             "    LIMIT 1",
             ")",
             "AND le.status = #{status}",
             "WHERE d.status = #{status}",
+            "  AND d.workspace_id = #{workspaceId}",
+            "  AND d.auth_session_token = #{authSessionToken}",
+            "  AND le.workspace_id = #{workspaceId}",
             "<if test=\"keyword != null and keyword != ''\">",
             "  AND (d.dialogue_code LIKE CONCAT('%', #{keyword}, '%')",
             "       OR d.dialogue_title LIKE CONCAT('%', #{keyword}, '%')",
@@ -116,6 +126,8 @@ public interface BusinessChatDialogueMapper extends BaseMapper<BusinessChatDialo
             "</script>"
     })
     List<BusinessChatSessionListRow> selectSessionPageRows(
+            @Param("workspaceId") String workspaceId,
+            @Param("authSessionToken") String authSessionToken,
             @Param("keyword") String keyword,
             @Param("chatModeCode") Integer chatModeCode,
             @Param("turnStatusCode") Integer turnStatusCode,

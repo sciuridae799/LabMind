@@ -17,6 +17,8 @@ public class KnowledgeDocumentChunkData extends BaseTableData {
 
     private Long documentId;
 
+    private String workspaceId;
+
     private Long taskId;
 
     private Long planId;

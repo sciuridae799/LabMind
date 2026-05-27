@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { manageApi } from '../../shared/api/manage'
+import { useAuthSession } from '../../shared/auth/authSession'
 
 interface DocumentRow {
   parseStatus: string
@@ -16,6 +17,7 @@ interface DocumentPageResponse {
 const documentRows = ref<DocumentRow[]>([])
 const totalSize = ref(0)
 const statusMessage = ref('')
+const authSession = useAuthSession()
 
 const parsedSuccessCount = computed(() => {
   return documentRows.value.filter((row) => row.parseStatus === '3').length
@@ -59,6 +61,7 @@ function normalizeError(error: unknown): string {
 async function loadDashboardStats(): Promise<void> {
   try {
     const response = await manageApi.queryDocumentPage({
+      workspaceId: authSession.value?.workspaceId ?? '',
       keyword: '',
       pageNo: '1',
       pageSize: '1000'
@@ -82,7 +85,7 @@ onMounted(() => {
       <div class="section-heading">
         <div>
           <h1 class="section-title">当前状态</h1>
-          <p class="section-subtitle">文档接入、解析、策略和索引的整体状态</p>
+          <p class="section-subtitle">{{ authSession?.workspaceName || '当前工作组' }} 的文档接入、解析、策略和索引状态</p>
         </div>
       </div>
       <p

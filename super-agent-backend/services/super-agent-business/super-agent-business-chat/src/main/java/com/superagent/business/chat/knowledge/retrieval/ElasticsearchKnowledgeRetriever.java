@@ -32,6 +32,7 @@ public class ElasticsearchKnowledgeRetriever {
                     .body(Map.of(
                             "chunkId", chunk.chunkId(),
                             "documentId", chunk.documentId(),
+                            "workspaceId", chunk.workspaceId(),
                             "parentBlockId", chunk.parentBlockId(),
                             "chunkNo", chunk.chunkNo(),
                             "documentName", documentName,

@@ -70,6 +70,7 @@ class KnowledgeRouteTraceServiceImplTest {
 
         service.recordRouteTrace(
                 "trace-1",
+                "workspace-1",
                 "conversation-1",
                 2001L,
                 "原始问题",

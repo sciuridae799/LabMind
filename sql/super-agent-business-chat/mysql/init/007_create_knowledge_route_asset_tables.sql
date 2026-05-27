@@ -2,6 +2,7 @@
 CREATE TABLE IF NOT EXISTS super_agent_knowledge_document_profile (
     id BIGINT NOT NULL COMMENT '主键id',
     document_id BIGINT NOT NULL COMMENT '文档id',
+    workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
     scope_code VARCHAR(64) NOT NULL COMMENT '知识范围编码',
     topic_code VARCHAR(64) NOT NULL COMMENT '知识专题编码',
     profile_status TINYINT NOT NULL DEFAULT '1' COMMENT '画像状态 1:已生成 2:已失效',
@@ -17,6 +18,7 @@ CREATE TABLE IF NOT EXISTS super_agent_knowledge_document_profile (
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
     PRIMARY KEY (id),
     UNIQUE KEY uk_document_profile (document_id, profile_version),
+    KEY idx_profile_workspace (workspace_id, document_id, status),
     KEY idx_scope_topic (scope_code, topic_code),
     KEY idx_profile_status (profile_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识文档画像表';
@@ -24,6 +26,7 @@ CREATE TABLE IF NOT EXISTS super_agent_knowledge_document_profile (
 CREATE TABLE IF NOT EXISTS super_agent_knowledge_route_trace (
     id BIGINT NOT NULL COMMENT '主键id',
     trace_id VARCHAR(64) NOT NULL COMMENT '路由追踪编号',
+    workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
     conversation_id VARCHAR(64) DEFAULT NULL COMMENT '会话编号',
     exchange_id BIGINT DEFAULT NULL COMMENT '轮次id',
     question TEXT NOT NULL COMMENT '原始问题',
@@ -44,6 +47,7 @@ CREATE TABLE IF NOT EXISTS super_agent_knowledge_route_trace (
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
     PRIMARY KEY (id),
     UNIQUE KEY uk_trace_id (trace_id),
+    KEY idx_route_trace_workspace (workspace_id, status, create_time),
     KEY idx_conversation_exchange (conversation_id, exchange_id),
     KEY idx_scope_topic (selected_scope_code, selected_topic_code),
     KEY idx_route_status (route_status),

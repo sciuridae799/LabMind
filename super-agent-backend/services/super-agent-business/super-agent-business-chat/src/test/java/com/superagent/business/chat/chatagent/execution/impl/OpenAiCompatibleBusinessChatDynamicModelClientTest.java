@@ -348,6 +348,8 @@ class OpenAiCompatibleBusinessChatDynamicModelClientTest {
                 2001L,
                 "请回答",
                 "conversation-1",
+                "workspace-1",
+                "",
                 BusinessChatMode.OPEN_ENDED,
                 modelConfig,
                 null,

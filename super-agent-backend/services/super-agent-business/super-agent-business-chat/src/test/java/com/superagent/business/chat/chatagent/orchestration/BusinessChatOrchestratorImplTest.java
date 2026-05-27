@@ -104,6 +104,8 @@ class BusinessChatOrchestratorImplTest {
                 knowledgeRetrievalService,
                 traceStageRunner);
         lenient().when(knowledgeRetrievalService.retrieve(any())).thenReturn(KnowledgeRetrievalResult.empty());
+        lenient().when(knowledgeManageService.filterDocumentIdsByWorkspace(any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -498,6 +500,8 @@ class BusinessChatOrchestratorImplTest {
                 2001L,
                 question,
                 "conversation-1",
+                "workspace-1",
+                "",
                 chatMode,
                 new BusinessChatModelApiConfigSnapshot(
                         3001L,

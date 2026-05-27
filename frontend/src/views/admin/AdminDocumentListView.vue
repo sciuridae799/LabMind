@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { authApi } from '../../shared/api/auth'
 import { manageApi } from '../../shared/api/manage'
+import { canWriteDocuments, useAuthSession, type WorkspaceSummary } from '../../shared/auth/authSession'
 
 interface DocumentRow {
   documentId: string
@@ -46,7 +48,27 @@ const isDetailLoading = ref(false)
 const fullTextDocument = ref<DocumentRow | null>(null)
 const fullTextContent = ref('')
 const isFullTextLoading = ref(false)
+const authSession = useAuthSession()
+const workspaceRows = ref<WorkspaceSummary[]>([])
+const selectedWorkspaceId = ref(authSession.value?.workspaceId ?? '')
+const workspaceStatusMessage = ref('')
 let refreshTimer: ReturnType<typeof window.setTimeout> | null = null
+
+const isSuperAdmin = computed(() => authSession.value?.role === 'super_admin')
+const isGuest = computed(() => authSession.value?.role === 'guest')
+const canManageDocuments = computed(() => canWriteDocuments())
+const currentWorkspaceId = computed(() => {
+  if (isSuperAdmin.value) {
+    return selectedWorkspaceId.value
+  }
+  return authSession.value?.workspaceId ?? ''
+})
+const currentWorkspaceName = computed(() => {
+  if (isSuperAdmin.value) {
+    return workspaceRows.value.find((workspace) => workspace.workspaceId === selectedWorkspaceId.value)?.workspaceName || '请选择工作组'
+  }
+  return authSession.value?.workspaceName ?? ''
+})
 
 const hasParsingDocuments = computed(() => documentRows.value.some((row) => {
   return row.parseStatus === '1' || row.parseStatus === '2'
@@ -103,6 +125,7 @@ async function loadDocuments(options: { silent?: boolean } = {}): Promise<void> 
   }
   try {
     const response = await manageApi.queryDocumentPage({
+      workspaceId: currentWorkspaceId.value,
       keyword: keyword.value,
       pageNo: '1',
       pageSize: '20'
@@ -128,6 +151,14 @@ async function loadDocuments(options: { silent?: boolean } = {}): Promise<void> 
 }
 
 async function uploadDocument(): Promise<void> {
+  if (!canManageDocuments.value) {
+    statusMessage.value = '访客只能查看默认资料库，不能上传或编辑文档'
+    return
+  }
+  if (!currentWorkspaceId.value) {
+    statusMessage.value = '请选择要接入文档的工作组'
+    return
+  }
   if (!selectedFile.value || isUploading.value) {
     statusMessage.value = '请选择要上传的文件'
     return
@@ -138,6 +169,7 @@ async function uploadDocument(): Promise<void> {
   try {
     await manageApi.uploadDocument({
       file: selectedFile.value,
+      workspaceId: currentWorkspaceId.value,
       ...formState.value
     })
     resetForm()
@@ -194,6 +226,10 @@ function closeDocumentFullText(): void {
 }
 
 async function deleteDocument(row: DocumentRow): Promise<void> {
+  if (!canManageDocuments.value) {
+    statusMessage.value = '访客只能查看默认资料库，不能删除文档'
+    return
+  }
   if (deletingDocumentId.value) {
     return
   }
@@ -207,6 +243,7 @@ async function deleteDocument(row: DocumentRow): Promise<void> {
   statusMessage.value = ''
   try {
     await manageApi.deleteDocument({
+      workspaceId: currentWorkspaceId.value,
       documentId: row.documentId
     })
     if (detailDocument.value?.documentId === row.documentId) {
@@ -234,7 +271,36 @@ function documentStatusText(row: DocumentRow): string {
   return '待解析'
 }
 
+async function loadWorkspaces(): Promise<void> {
+  if (!isSuperAdmin.value) {
+    workspaceRows.value = authSession.value
+      ? [{
+          workspaceId: authSession.value.workspaceId,
+          workspaceName: authSession.value.workspaceName
+        }]
+      : []
+    return
+  }
+
+  workspaceStatusMessage.value = ''
+  try {
+    const workspaces = await authApi.listWorkspaces()
+    workspaceRows.value = workspaces ?? []
+    if (!workspaceRows.value.some((workspace) => workspace.workspaceId === selectedWorkspaceId.value)) {
+      selectedWorkspaceId.value = workspaceRows.value[0]?.workspaceId ?? ''
+    }
+  } catch (error) {
+    workspaceRows.value = []
+    workspaceStatusMessage.value = normalizeError(error)
+  }
+}
+
 onMounted(() => {
+  void loadWorkspaces()
+  void loadDocuments()
+})
+
+watch(currentWorkspaceId, () => {
   void loadDocuments()
 })
 
@@ -249,11 +315,46 @@ onUnmounted(() => {
       <div class="section-heading">
         <div>
           <h1 class="section-title">上传资料并进入路由流程</h1>
-          <p class="section-subtitle">接入实验室资料，生成可检索、可引用的知识资产。</p>
+          <p class="section-subtitle">
+            当前工作组：{{ currentWorkspaceName || '未选择工作组' }}
+          </p>
         </div>
       </div>
 
-      <div class="form-grid">
+      <label
+        v-if="isSuperAdmin"
+        class="field workspace-field"
+      >
+        <span class="field-label">目标工作组</span>
+        <select v-model="selectedWorkspaceId">
+          <option value="">请选择工作组</option>
+          <option
+            v-for="workspace in workspaceRows"
+            :key="workspace.workspaceId"
+            :value="workspace.workspaceId"
+          >
+            {{ workspace.workspaceName }}
+          </option>
+        </select>
+      </label>
+      <p
+        v-if="workspaceStatusMessage"
+        class="status-message"
+      >
+        {{ workspaceStatusMessage }}
+      </p>
+
+      <div
+        v-if="isGuest"
+        class="readonly-notice"
+      >
+        访客正在查看默认资料库，只能浏览文档和链路状态，不能上传、删除或编辑资料。
+      </div>
+
+      <div
+        v-if="canManageDocuments"
+        class="form-grid"
+      >
         <label class="field">
           <span class="field-label">文档名称</span>
           <input
@@ -319,7 +420,10 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="upload-summary">
+      <div
+        v-if="canManageDocuments"
+        class="upload-summary"
+      >
         <div class="summary-copy">
           <p class="summary-label">支持 PDF / Word / TXT / MD / HTML / PPT</p>
           <strong class="summary-name">{{ selectedFile?.name || '尚未选择文件' }}</strong>
@@ -428,6 +532,7 @@ onUnmounted(() => {
             <button
               type="button"
               class="button danger compact"
+              v-if="canManageDocuments"
               :disabled="deletingDocumentId === row.documentId"
               @click="deleteDocument(row)"
             >
@@ -599,7 +704,8 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-input {
+input,
+select {
   width: 100%;
   height: var(--admin-control-height);
   padding: 0 12px;
@@ -618,9 +724,25 @@ input::placeholder {
   color: #9aaeaf;
 }
 
-input:focus {
+input:focus,
+select:focus {
   border-color: #5cc3b8;
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+}
+
+.workspace-field {
+  margin-top: 16px;
+}
+
+.readonly-notice {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px dashed #b8d8d4;
+  border-radius: var(--admin-radius-panel);
+  background: rgba(238, 248, 246, 0.64);
+  color: var(--admin-color-subtle);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .file-picker {

@@ -10,4 +10,6 @@ public class BusinessChatSessionDetailRequest {
     @NotBlank(message = "conversationId must not be blank")
     @Size(max = 64, message = "conversationId length must be less than or equal to 64")
     private String conversationId;
+
+    private String workspaceId;
 }

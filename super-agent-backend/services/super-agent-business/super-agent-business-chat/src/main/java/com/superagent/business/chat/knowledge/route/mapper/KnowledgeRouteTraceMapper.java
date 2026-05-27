@@ -16,13 +16,17 @@ public interface KnowledgeRouteTraceMapper extends BaseMapper<KnowledgeRouteTrac
             "SELECT COUNT(1)",
             "FROM super_agent_knowledge_route_trace",
             "WHERE status = #{status}",
+            "  AND workspace_id = #{workspaceId}",
             "<if test=\"keyword != null and keyword != ''\">",
             "  AND (question LIKE CONCAT('%', #{keyword}, '%')",
             "       OR conversation_id LIKE CONCAT('%', #{keyword}, '%'))",
             "</if>",
             "</script>"
     })
-    long countTraceRows(@Param("keyword") String keyword, @Param("status") Integer status);
+    long countTraceRows(
+            @Param("workspaceId") String workspaceId,
+            @Param("keyword") String keyword,
+            @Param("status") Integer status);
 
     @Select({
             "<script>",
@@ -39,6 +43,7 @@ public interface KnowledgeRouteTraceMapper extends BaseMapper<KnowledgeRouteTrac
             "  create_time AS createTime",
             "FROM super_agent_knowledge_route_trace",
             "WHERE status = #{status}",
+            "  AND workspace_id = #{workspaceId}",
             "<if test=\"keyword != null and keyword != ''\">",
             "  AND (question LIKE CONCAT('%', #{keyword}, '%')",
             "       OR conversation_id LIKE CONCAT('%', #{keyword}, '%'))",
@@ -48,6 +53,7 @@ public interface KnowledgeRouteTraceMapper extends BaseMapper<KnowledgeRouteTrac
             "</script>"
     })
     List<KnowledgeRouteTraceRow> selectTraceRows(
+            @Param("workspaceId") String workspaceId,
             @Param("keyword") String keyword,
             @Param("status") Integer status,
             @Param("offset") long offset,

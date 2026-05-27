@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { manageApi } from '../../shared/api/manage'
+import { useAuthSession } from '../../shared/auth/authSession'
 
 interface RouteCandidate {
   documentId: string
@@ -42,6 +43,7 @@ const pageSize = 20
 const totalSize = ref(0)
 const statusMessage = ref('')
 const isLoading = ref(false)
+const authSession = useAuthSession()
 
 const selectedTrace = computed(() => {
   return traces.value.find((trace) => trace.exchangeId === selectedExchangeId.value) || traces.value[0] || null
@@ -70,6 +72,7 @@ async function loadTraces(targetPage = pageNo.value): Promise<void> {
   statusMessage.value = ''
   try {
     const page = normalizeTracePage(await manageApi.queryKnowledgeRouteTracePage({
+      workspaceId: authSession.value?.workspaceId,
       keyword: keyword.value.trim(),
       pageNo: String(targetPage),
       pageSize: String(pageSize)

@@ -5,6 +5,7 @@ type DocumentId = string | number | bigint
 
 export interface UploadDocumentInput {
   file: File
+  workspaceId?: string
   documentName?: string
   operatorId?: string | number | bigint | null
   knowledgeScopeCode?: string
@@ -368,6 +369,7 @@ function stringifyManagePayload(payload: ManageObject): ManageObject {
 export const manageApi: ManageApi = {
   uploadDocument({
     file,
+    workspaceId,
     documentName,
     operatorId,
     knowledgeScopeCode,
@@ -382,6 +384,7 @@ export const manageApi: ManageApi = {
 
     const meta = stringifyManagePayload({
       documentName: documentName || '',
+      workspaceId: workspaceId || '',
       operatorId: operatorId ?? '',
       knowledgeScopeCode: knowledgeScopeCode || '',
       knowledgeScopeName: knowledgeScopeName || '',

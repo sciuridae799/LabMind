@@ -26,6 +26,9 @@ import com.superagent.business.chat.chatagent.service.BusinessChatService;
 import com.superagent.business.chat.chatagent.trace.BusinessChatTraceStage;
 import com.superagent.business.chat.chatagent.trace.BusinessChatTraceStageRunner;
 import com.superagent.business.chat.chatagent.api.vo.BusinessChatStreamEvent;
+import com.superagent.business.chat.auth.AuthRole;
+import com.superagent.business.chat.auth.AuthSessionContext;
+import com.superagent.business.chat.auth.AuthSessionHolder;
 import com.superagent.business.chat.support.BusinessInputValidator;
 import com.superagent.business.chat.knowledge.api.dto.KnowledgeDocumentIdRequest;
 import com.superagent.business.chat.knowledge.retrieval.KnowledgeRetrievalParentEvidence;
@@ -147,13 +150,18 @@ public class BusinessChatServiceImpl implements BusinessChatService {
         BusinessChatMode chatMode = BusinessChatMode.fromValue(request.getChatMode());
         BusinessChatModelApiConfigSnapshot modelConfig =
                 modelApiConfigService.getRequiredAvailableSnapshot(request.getModelConfigId());
+        String workspaceId = BusinessInputValidator.normalizeRequiredText(request.getWorkspaceId(), "workspaceId");
+        AuthSessionContext session = AuthSessionHolder.required();
+        String authSessionToken = session.role() == AuthRole.GUEST ? session.token() : "";
         // 当前文档模式在入口绑定文档快照。后续执行全程使用同一个 documentId/name，
         // 避免中途前端切换选择后影响已经开始的一轮回答。
-        KnowledgeDocumentVo selectedDocument = loadSelectedDocument(chatMode, request.getSelectedDocumentId());
+        KnowledgeDocumentVo selectedDocument = loadSelectedDocument(chatMode, workspaceId, request.getSelectedDocumentId());
         long startAtEpochMillis = System.currentTimeMillis();
         return new BusinessChatStartPlan(
                 question,
                 conversationId,
+                workspaceId,
+                authSessionToken,
                 chatMode,
                 modelConfig,
                 selectedDocument == null ? null : Long.valueOf(selectedDocument.getDocumentId()),
@@ -165,13 +173,17 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                 startAtEpochMillis);
     }
 
-    private KnowledgeDocumentVo loadSelectedDocument(BusinessChatMode chatMode, String selectedDocumentId) {
+    private KnowledgeDocumentVo loadSelectedDocument(
+            BusinessChatMode chatMode,
+            String workspaceId,
+            String selectedDocumentId) {
         if (chatMode != BusinessChatMode.CURRENT_DOCUMENT) {
             return null;
         }
         long documentId = BusinessInputValidator.parsePositiveLong(selectedDocumentId, "selectedDocumentId");
         KnowledgeDocumentIdRequest request = new KnowledgeDocumentIdRequest();
         request.setDocumentId(String.valueOf(documentId));
+        request.setWorkspaceId(workspaceId);
         return knowledgeManageService.queryDocumentDetail(request);
     }
 

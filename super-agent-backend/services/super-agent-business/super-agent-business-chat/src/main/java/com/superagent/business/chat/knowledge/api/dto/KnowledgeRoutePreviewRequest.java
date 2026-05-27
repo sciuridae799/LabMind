@@ -9,5 +9,7 @@ public class KnowledgeRoutePreviewRequest {
     @NotBlank(message = "question must not be blank")
     private String question;
 
+    private String workspaceId;
+
     private String limit = "10";
 }

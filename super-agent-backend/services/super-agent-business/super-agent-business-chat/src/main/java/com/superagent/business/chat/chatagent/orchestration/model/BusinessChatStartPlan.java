@@ -6,6 +6,8 @@ import java.time.Duration;
 public record BusinessChatStartPlan(
         String question,
         String conversationId,
+        String workspaceId,
+        String authSessionToken,
         BusinessChatMode chatMode,
         BusinessChatModelApiConfigSnapshot modelConfig,
         Long selectedDocumentId,

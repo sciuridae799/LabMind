@@ -17,6 +17,7 @@ public interface KnowledgeRouteTraceService {
      */
     void recordRouteTrace(
             String traceId,
+            String workspaceId,
             String conversationId,
             Long exchangeId,
             String question,

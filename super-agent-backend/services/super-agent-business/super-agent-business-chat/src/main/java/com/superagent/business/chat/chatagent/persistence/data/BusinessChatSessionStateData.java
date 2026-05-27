@@ -17,6 +17,10 @@ public class BusinessChatSessionStateData extends BaseTableData {
 
     private String stateKey;
 
+    private String workspaceId;
+
+    private String authSessionToken;
+
     private String activeConversationId;
 
     private Integer status;

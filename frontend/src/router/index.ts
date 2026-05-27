@@ -1,17 +1,27 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
-import { isAdminAuthenticated } from '../shared/auth/adminAuth'
+import { hasAnyRole, isAuthenticated, type AuthRole } from '../shared/auth/authSession'
 
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    redirect: '/chat'
+    redirect: '/login'
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('../views/AdminLoginView.vue'),
+    meta: {
+      layout: 'fullscreen',
+      title: '登录'
+    }
   },
   {
     path: '/chat',
     name: 'BusinessChat',
     component: () => import('../views/BusinessChatView.vue'),
     meta: {
+      requiresAuth: true,
       title: '实验室文档问答'
     }
   },
@@ -20,23 +30,20 @@ const routes: RouteRecordRaw[] = [
     name: 'ModelConfig',
     component: () => import('../views/ModelConfigView.vue'),
     meta: {
+      requiresAuth: true,
+      roles: ['super_admin'],
       title: '模型配置'
     }
   },
   {
     path: '/admin/login',
-    name: 'AdminLogin',
-    component: () => import('../views/AdminLoginView.vue'),
-    meta: {
-      layout: 'fullscreen',
-      title: '管理后台登录'
-    }
+    redirect: '/login'
   },
   {
     path: '/admin',
     component: () => import('../views/admin/AdminLayoutView.vue'),
     meta: {
-      requiresAdminAuth: true
+      requiresAuth: true
     },
     children: [
       {
@@ -96,7 +103,26 @@ const routes: RouteRecordRaw[] = [
         name: 'AdminApiCatalog',
         component: () => import('../pages/ApiCatalogPage.vue'),
         meta: {
+          roles: ['super_admin'],
           title: '前端 API 目录'
+        }
+      },
+      {
+        path: 'users',
+        name: 'AdminUsers',
+        component: () => import('../views/admin/AdminUserManagementView.vue'),
+        meta: {
+          roles: ['super_admin'],
+          title: '账号管理'
+        }
+      },
+      {
+        path: 'workspaces',
+        name: 'AdminWorkspaces',
+        component: () => import('../views/admin/AdminWorkspaceManagementView.vue'),
+        meta: {
+          roles: ['super_admin'],
+          title: '工作组管理'
         }
       },
       {
@@ -128,15 +154,25 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  if (to.meta.requiresAdminAuth && !isAdminAuthenticated()) {
+  if (to.meta.requiresAuth && !isAuthenticated()) {
     return {
-      name: 'AdminLogin'
+      name: 'Login',
+      query: {
+        redirect: to.fullPath
+      }
     }
   }
 
-  if (to.name === 'AdminLogin' && isAdminAuthenticated()) {
+  const roles = Array.isArray(to.meta.roles) ? to.meta.roles as AuthRole[] : undefined
+  if (roles && !hasAnyRole(roles)) {
     return {
       name: 'AdminDashboard'
+    }
+  }
+
+  if (to.name === 'Login' && isAuthenticated()) {
+    return {
+      name: 'BusinessChat'
     }
   }
 

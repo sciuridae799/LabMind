@@ -14,8 +14,12 @@ import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExc
 import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatMemorySummaryMapper;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
+import com.superagent.business.chat.auth.AuthRole;
+import com.superagent.business.chat.auth.AuthSessionContext;
+import com.superagent.business.chat.auth.AuthSessionHolder;
 import com.superagent.common.frame.exception.BaseException;
 import com.superagent.redisson.servicelease.lease.RedisLeaseManager;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -47,6 +51,14 @@ class BusinessChatSessionServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        AuthSessionHolder.set(new AuthSessionContext(
+                "token-1",
+                "1001",
+                "admin",
+                "管理员",
+                AuthRole.SUPER_ADMIN,
+                "workspace-1",
+                "工作组"));
         businessChatSessionService = new BusinessChatSessionServiceImpl(
                 redisLeaseManager,
                 businessChatDialogueMapper,
@@ -56,10 +68,16 @@ class BusinessChatSessionServiceImplTest {
                 businessChatSessionStateService);
     }
 
+    @AfterEach
+    void tearDown() {
+        AuthSessionHolder.clear();
+    }
+
     @Test
     void shouldDeleteConversationArchiveWhenLeaseIsAcquired() {
         BusinessChatDeleteSessionRequest request = new BusinessChatDeleteSessionRequest();
         request.setConversationId("conversation-1");
+        request.setWorkspaceId("workspace-1");
 
         BusinessChatDialogueData dialogueData = new BusinessChatDialogueData();
         dialogueData.setDialogueCode("conversation-1");
@@ -74,7 +92,7 @@ class BusinessChatSessionServiceImplTest {
         verify(businessChatExchangeMapper).update(any(), any());
         verify(businessChatMemorySummaryMapper).update(any(), any());
         verify(businessChatExchangeTraceStageMapper).update(any(), any());
-        verify(businessChatSessionStateService).clearIfActive("conversation-1");
+        verify(businessChatSessionStateService).clearIfActive("conversation-1", "workspace-1", "");
         verify(redisLeaseManager).release(any(), any());
     }
 
@@ -82,6 +100,7 @@ class BusinessChatSessionServiceImplTest {
     void shouldRejectDeleteWhenConversationIsRunning() {
         BusinessChatDeleteSessionRequest request = new BusinessChatDeleteSessionRequest();
         request.setConversationId("conversation-1");
+        request.setWorkspaceId("workspace-1");
 
         when(redisLeaseManager.acquire(any(), any(), any())).thenReturn(false);
 
@@ -98,6 +117,7 @@ class BusinessChatSessionServiceImplTest {
     void shouldThrowWhenConversationDoesNotExist() {
         BusinessChatDeleteSessionRequest request = new BusinessChatDeleteSessionRequest();
         request.setConversationId("conversation-missing");
+        request.setWorkspaceId("workspace-1");
 
         when(redisLeaseManager.acquire(any(), any(), any())).thenReturn(true);
         when(redisLeaseManager.release(any(), any())).thenReturn(true);

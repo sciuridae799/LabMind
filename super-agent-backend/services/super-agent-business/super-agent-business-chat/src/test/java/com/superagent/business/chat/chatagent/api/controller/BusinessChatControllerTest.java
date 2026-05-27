@@ -15,6 +15,7 @@ import com.superagent.business.chat.chatagent.service.BusinessChatService;
 import com.superagent.business.chat.chatagent.api.vo.BusinessChatSessionDetailVo;
 import com.superagent.business.chat.chatagent.api.vo.BusinessChatSessionListPageVo;
 import com.superagent.business.chat.chatagent.api.vo.BusinessChatExchangeDetailVo;
+import com.superagent.business.chat.auth.service.AuthWorkspaceScopeService;
 import com.superagent.business.chat.knowledge.document.service.KnowledgeManageService;
 import com.superagent.common.web.advice.DefaultExceptionHandler;
 import java.util.List;
@@ -49,7 +50,7 @@ class BusinessChatControllerTest {
             }
 
             @Override
-            public String getActiveConversationId() {
+            public String getActiveConversationId(String workspaceId, String authSessionToken) {
                 return null;
             }
         };
@@ -99,13 +100,19 @@ class BusinessChatControllerTest {
             }
         };
         KnowledgeManageService knowledgeManageService = org.mockito.Mockito.mock(KnowledgeManageService.class);
+        AuthWorkspaceScopeService workspaceScopeService = org.mockito.Mockito.mock(AuthWorkspaceScopeService.class);
+        org.mockito.Mockito.when(workspaceScopeService.resolveReadableWorkspace(org.mockito.Mockito.any()))
+                .thenReturn("workspace-1");
+        org.mockito.Mockito.when(workspaceScopeService.resolveWritableWorkspace(org.mockito.Mockito.any()))
+                .thenReturn("workspace-1");
         mockMvc = MockMvcBuilders.standaloneSetup(new BusinessChatController(
                         businessChatService,
                         businessChatQueryService,
                         businessChatSessionService,
                         businessChatSessionStateService,
                         modelApiConfigService,
-                        knowledgeManageService))
+                        knowledgeManageService,
+                        workspaceScopeService))
                 .setControllerAdvice(new DefaultExceptionHandler())
                 .build();
     }

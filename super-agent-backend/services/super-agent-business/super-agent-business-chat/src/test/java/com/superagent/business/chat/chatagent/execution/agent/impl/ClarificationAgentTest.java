@@ -85,6 +85,8 @@ class ClarificationAgentTest {
                 2001L,
                 "问题",
                 "conversation-1",
+                "workspace-1",
+                "",
                 BusinessChatMode.KNOWLEDGE_BASE,
                 new BusinessChatModelApiConfigSnapshot(
                         3001L,

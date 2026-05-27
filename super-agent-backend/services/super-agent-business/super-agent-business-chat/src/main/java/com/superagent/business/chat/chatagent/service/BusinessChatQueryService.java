@@ -39,5 +39,5 @@ public interface BusinessChatQueryService {
 
     BusinessChatExchangeDetailVo getExchangeDetail(BusinessChatExchangeDetailRequest request);
 
-    String getActiveConversationId();
+    String getActiveConversationId(String workspaceId, String authSessionToken);
 }

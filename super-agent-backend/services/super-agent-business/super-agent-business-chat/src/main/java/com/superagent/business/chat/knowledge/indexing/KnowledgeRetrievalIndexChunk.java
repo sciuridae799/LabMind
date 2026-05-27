@@ -3,6 +3,7 @@ package com.superagent.business.chat.knowledge.indexing;
 public record KnowledgeRetrievalIndexChunk(
         Long chunkId,
         Long documentId,
+        String workspaceId,
         Long taskId,
         Long planId,
         Long parentBlockId,

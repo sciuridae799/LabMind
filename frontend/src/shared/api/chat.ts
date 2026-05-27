@@ -63,6 +63,7 @@ export interface OpenChatStreamPayload extends JsonObject {
   conversationId?: string
   chatMode: BusinessChatMode
   modelConfigId: string
+  workspaceId?: string
   selectedDocumentId?: string
 }
 
@@ -125,6 +126,7 @@ export interface BusinessChatStreamEvent {
 }
 
 export interface SessionListQuery {
+  workspaceId?: string
   keyword?: string
   chatMode?: string
   turnStatus?: string

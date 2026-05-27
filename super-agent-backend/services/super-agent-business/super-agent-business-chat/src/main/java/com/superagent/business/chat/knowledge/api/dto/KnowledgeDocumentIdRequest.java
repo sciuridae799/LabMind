@@ -8,4 +8,6 @@ public class KnowledgeDocumentIdRequest {
 
     @NotBlank(message = "documentId must not be blank")
     private String documentId;
+
+    private String workspaceId;
 }

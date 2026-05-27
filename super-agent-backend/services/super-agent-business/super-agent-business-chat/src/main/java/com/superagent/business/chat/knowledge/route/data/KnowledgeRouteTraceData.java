@@ -17,6 +17,8 @@ public class KnowledgeRouteTraceData extends BaseTableData {
 
     private String traceId;
 
+    private String workspaceId;
+
     private String conversationId;
 
     private Long exchangeId;

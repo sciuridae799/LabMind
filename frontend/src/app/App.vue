@@ -1,19 +1,125 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
-import { useAdminSession } from '../shared/auth/adminAuth'
+import { authApi } from '../shared/api/auth'
+import { logoutAuthSession, setAuthSession, useAuthSession } from '../shared/auth/authSession'
 
 const route = useRoute()
-const adminSession = useAdminSession()
+const router = useRouter()
+const authSession = useAuthSession()
 const showTopBar = computed(() => route.meta.layout !== 'fullscreen')
 const isAdminView = computed(() => route.path.startsWith('/admin'))
 const topBarBrandIcon = computed(() => (isAdminView.value ? 'A' : 'LAB'))
 const topBarBrandText = computed(() => (isAdminView.value ? '后台管理' : '实验室 AI 文档助手'))
 const topBarActionText = computed(() => (isAdminView.value ? '回到对话' : '后台管理'))
-const topBarActionTo = computed(() => (isAdminView.value ? '/chat' : '/admin/login'))
-const adminDisplayName = computed(() => adminSession.value?.account ?? '')
-const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).toUpperCase())
+const topBarActionTo = computed(() => (isAdminView.value ? '/chat' : '/admin/dashboard'))
+const userDisplayName = computed(() => authSession.value?.displayName ?? authSession.value?.account ?? '')
+const userDisplayInitial = computed(() => userDisplayName.value.slice(0, 1).toUpperCase())
+const roleLabel = computed(() => {
+  if (authSession.value?.role === 'super_admin') {
+    return '超级管理员'
+  }
+  if (authSession.value?.role === 'user') {
+    return '成员'
+  }
+  if (authSession.value?.role === 'guest') {
+    return '访客'
+  }
+  return ''
+})
+const workspaceLabel = computed(() => authSession.value?.workspaceName ?? '')
+const routeSessionKey = computed(() => {
+  const session = authSession.value
+  if (!session) {
+    return 'anonymous'
+  }
+  if (session.role === 'guest') {
+    return `guest:${session.token}`
+  }
+  return `${session.userId}:${session.workspaceId}`
+})
+const routeWorkspaceKey = computed(() => {
+  return `${route.fullPath}:${routeSessionKey.value}`
+})
+const availableWorkspaces = computed(() => authSession.value?.accessibleWorkspaces ?? [])
+const canSwitchWorkspace = computed(() => availableWorkspaces.value.length > 1)
+const isWorkspaceMenuOpen = ref(false)
+const isWorkspaceSwitching = ref(false)
+const workspaceStatusMessage = ref('')
+const topBarUserElement = ref<HTMLElement | null>(null)
+
+function closeWorkspaceMenu(): void {
+  isWorkspaceMenuOpen.value = false
+  workspaceStatusMessage.value = ''
+}
+
+function handleDocumentClick(event: MouseEvent): void {
+  if (!isWorkspaceMenuOpen.value) {
+    return
+  }
+  const target = event.target
+  if (target instanceof Node && topBarUserElement.value?.contains(target)) {
+    return
+  }
+  closeWorkspaceMenu()
+}
+
+async function toggleWorkspaceMenu(): Promise<void> {
+  if (!authSession.value) {
+    return
+  }
+  if (isWorkspaceMenuOpen.value) {
+    closeWorkspaceMenu()
+    return
+  }
+  isWorkspaceMenuOpen.value = true
+  workspaceStatusMessage.value = ''
+  try {
+    const session = await authApi.queryCurrentSession()
+    if (session) {
+      setAuthSession(session)
+    }
+  } catch (error) {
+    workspaceStatusMessage.value = error instanceof Error ? error.message : '工作组列表加载失败'
+  }
+}
+
+async function switchWorkspace(workspaceId: string): Promise<void> {
+  const currentWorkspaceId = authSession.value?.workspaceId
+  if (!workspaceId || workspaceId === currentWorkspaceId || isWorkspaceSwitching.value) {
+    return
+  }
+
+  isWorkspaceSwitching.value = true
+  workspaceStatusMessage.value = ''
+  try {
+    const session = await authApi.switchWorkspace(workspaceId)
+    if (session) {
+      setAuthSession(session)
+    }
+    closeWorkspaceMenu()
+  } catch (error) {
+    workspaceStatusMessage.value = error instanceof Error ? error.message : '工作组切换失败'
+  } finally {
+    isWorkspaceSwitching.value = false
+  }
+}
+
+async function handleLogout(): Promise<void> {
+  try {
+    await authApi.logout()
+  } finally {
+    logoutAuthSession()
+    await router.replace('/login')
+  }
+}
+
+document.addEventListener('click', handleDocumentClick)
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleDocumentClick)
+})
 </script>
 
 <template>
@@ -28,14 +134,73 @@ const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).to
       </div>
       <div class="top-bar-actions">
         <div
-          v-if="isAdminView && adminSession"
+          v-if="authSession"
           class="top-bar-user"
+          ref="topBarUserElement"
         >
-          <span class="top-bar-user-avatar">{{ adminDisplayInitial }}</span>
-          <span class="top-bar-user-copy">
-            <span class="top-bar-user-name">{{ adminDisplayName }}</span>
-            <span class="top-bar-user-role">管理员</span>
-          </span>
+          <button
+            type="button"
+            class="top-bar-user-trigger"
+            :class="{ 'top-bar-user-trigger-open': isWorkspaceMenuOpen }"
+            :aria-expanded="isWorkspaceMenuOpen"
+            @click.stop="toggleWorkspaceMenu"
+          >
+            <span class="top-bar-user-avatar">{{ userDisplayInitial }}</span>
+            <span class="top-bar-user-copy">
+              <span class="top-bar-user-name">{{ userDisplayName }}</span>
+              <span class="top-bar-user-role">{{ roleLabel }} · {{ workspaceLabel }}</span>
+            </span>
+            <span
+              class="top-bar-user-caret"
+              aria-hidden="true"
+            >
+              <svg viewBox="0 0 20 20">
+                <path
+                  d="m6 8 4 4 4-4"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.7"
+                />
+              </svg>
+            </span>
+          </button>
+          <div
+            v-if="isWorkspaceMenuOpen"
+            class="workspace-menu"
+          >
+            <div class="workspace-menu-header">
+              <span>当前工作组</span>
+              <strong>{{ workspaceLabel }}</strong>
+            </div>
+            <div class="workspace-menu-list">
+              <button
+                v-for="workspace in availableWorkspaces"
+                :key="workspace.workspaceId"
+                type="button"
+                class="workspace-menu-item"
+                :class="{ active: workspace.workspaceId === authSession.workspaceId }"
+                :disabled="workspace.workspaceId === authSession.workspaceId || isWorkspaceSwitching"
+                @click="switchWorkspace(workspace.workspaceId)"
+              >
+                <span>{{ workspace.workspaceName }}</span>
+                <small>{{ workspace.workspaceId }}</small>
+              </button>
+            </div>
+            <p
+              v-if="!canSwitchWorkspace && !workspaceStatusMessage"
+              class="workspace-menu-status"
+            >
+              当前账号只有一个可访问工作组
+            </p>
+            <p
+              v-if="workspaceStatusMessage"
+              class="workspace-menu-status workspace-menu-error"
+            >
+              {{ workspaceStatusMessage }}
+            </p>
+          </div>
         </div>
         <RouterLink
           :to="topBarActionTo"
@@ -56,10 +221,33 @@ const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).to
           </span>
           <span class="top-bar-button-text">{{ topBarActionText }}</span>
         </RouterLink>
+        <button
+          v-if="authSession"
+          type="button"
+          class="top-bar-button top-bar-logout-button"
+          @click="handleLogout"
+        >
+          <span
+            class="top-bar-button-icon"
+            aria-hidden="true"
+          >
+            <svg viewBox="0 0 20 20">
+              <path
+                d="M8 4.75H6.75A1.75 1.75 0 0 0 5 6.5v7a1.75 1.75 0 0 0 1.75 1.75H8M11 6.75l3.25 3.25L11 13.25M14 10H8"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
+          <span class="top-bar-button-text">退出</span>
+        </button>
       </div>
     </header>
 
-    <RouterView />
+    <RouterView :key="routeWorkspaceKey" />
   </div>
 </template>
 
@@ -112,6 +300,10 @@ const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).to
 }
 
 .top-bar-user {
+  position: relative;
+}
+
+.top-bar-user-trigger {
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -121,6 +313,26 @@ const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).to
   border-radius: 999px;
   background: #f3faf9;
   color: #12282c;
+  cursor: pointer;
+  font: inherit;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+.top-bar-user-trigger:hover,
+.top-bar-user-trigger-open {
+  border-color: #8fd8cf;
+  background: #eefbf8;
+  color: #0f766e;
+}
+
+.top-bar-user-trigger:focus-visible {
+  outline: none;
+  border-color: #5cc3b8;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.16);
 }
 
 .top-bar-user-avatar {
@@ -151,6 +363,115 @@ const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).to
   font-size: 11px;
 }
 
+.top-bar-user-caret {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  color: #6d858a;
+}
+
+.top-bar-user-caret svg {
+  width: 16px;
+  height: 16px;
+}
+
+.workspace-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: min(320px, calc(100vw - 32px));
+  padding: 10px;
+  border: 1px solid #cfe0e4;
+  border-radius: 10px;
+  background: rgba(250, 253, 253, 0.98);
+  box-shadow: 0 18px 40px rgba(31, 66, 72, 0.16);
+}
+
+.workspace-menu-header {
+  display: grid;
+  gap: 3px;
+  padding: 4px 4px 10px;
+  border-bottom: 1px solid #e1ecee;
+}
+
+.workspace-menu-header span {
+  color: #6d858a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workspace-menu-header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #132c31;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-menu-list {
+  display: grid;
+  gap: 6px;
+  max-height: 260px;
+  overflow: auto;
+  padding-top: 8px;
+}
+
+.workspace-menu-item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 54px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #294448;
+  cursor: pointer;
+  text-align: left;
+}
+
+.workspace-menu-item:hover:not(:disabled) {
+  border-color: #b8dedb;
+  background: #eef8f7;
+}
+
+.workspace-menu-item.active {
+  border-color: #88d2ca;
+  background: #e6f6f3;
+  color: #0f766e;
+}
+
+.workspace-menu-item span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-menu-item small {
+  min-width: 0;
+  overflow: hidden;
+  color: #6d858a;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-menu-status {
+  margin: 8px 2px 0;
+  color: #6d858a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workspace-menu-error {
+  color: #b91c1c;
+}
+
 .top-bar-button {
   display: inline-flex;
   align-items: center;
@@ -163,11 +484,22 @@ const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).to
   color: #2f4a4f;
   cursor: pointer;
   text-decoration: none;
+  font: inherit;
   transition:
     border-color 160ms ease,
     background-color 160ms ease,
     box-shadow 160ms ease,
     color 160ms ease;
+}
+
+.top-bar-logout-button {
+  color: #b91c1c;
+}
+
+.top-bar-logout-button:hover {
+  border-color: #fecaca;
+  background-color: #fef2f2;
+  color: #991b1b;
 }
 
 .top-bar-button:hover {
@@ -227,12 +559,16 @@ const adminDisplayInitial = computed(() => adminDisplayName.value.slice(0, 1).to
     font-size: 13px;
   }
 
-  .top-bar-user {
+  .top-bar-user-trigger {
     min-height: 34px;
     padding: 0 8px;
   }
 
   .top-bar-user-copy {
+    display: none;
+  }
+
+  .top-bar-user-caret {
     display: none;
   }
 

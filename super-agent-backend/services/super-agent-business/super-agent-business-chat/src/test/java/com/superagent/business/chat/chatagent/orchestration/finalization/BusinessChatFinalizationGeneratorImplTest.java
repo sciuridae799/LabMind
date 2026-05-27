@@ -113,6 +113,8 @@ class BusinessChatFinalizationGeneratorImplTest {
                 2001L,
                 "同一会话切换模型是否生效？",
                 "conversation-1",
+                "workspace-1",
+                "",
                 BusinessChatMode.OPEN_ENDED,
                 modelConfig,
                 null,

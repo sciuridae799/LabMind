@@ -17,7 +17,7 @@ import org.springframework.util.StringUtils;
 /**
  * 管理端聊天页状态服务。
  *
- * <p>它维护一个全局当前会话游标，不表达会话业务终态；会话是否存在仍以 dialogue 主表为准。</p>
+ * <p>它按工作组和访客登录会话维护当前会话游标，不表达会话业务终态；会话是否存在仍以 dialogue 主表为准。</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -35,14 +35,17 @@ public class BusinessChatSessionStateServiceImpl implements BusinessChatSessionS
 
     @Override
     @Transactional
-    public void activate(String conversationId) {
+    public void activate(String conversationId, String workspaceId, String authSessionToken) {
         String normalizedConversationId = normalizeConversationId(conversationId);
-        // CHAT_PAGE 是管理端聊天页的全局游标，只保存当前正在查看或执行的会话编号。
-        BusinessChatSessionStateData stateData = loadChatPageState();
+        String normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
+        String normalizedAuthSessionToken = normalizeAuthSessionToken(authSessionToken);
+        BusinessChatSessionStateData stateData = loadChatPageState(normalizedWorkspaceId, normalizedAuthSessionToken);
         if (stateData == null) {
             stateData = new BusinessChatSessionStateData();
             stateData.setId(snowflakeIdGenerator.nextId());
             stateData.setStateKey(CHAT_PAGE_STATE_KEY);
+            stateData.setWorkspaceId(normalizedWorkspaceId);
+            stateData.setAuthSessionToken(normalizedAuthSessionToken);
             stateData.setActiveConversationId(normalizedConversationId);
             stateData.setStatus(NORMAL_STATUS);
             sessionStateMapper.insert(stateData);
@@ -55,11 +58,15 @@ public class BusinessChatSessionStateServiceImpl implements BusinessChatSessionS
 
     @Override
     @Transactional
-    public void clearIfActive(String conversationId) {
+    public void clearIfActive(String conversationId, String workspaceId, String authSessionToken) {
         String normalizedConversationId = normalizeConversationId(conversationId);
+        String normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
+        String normalizedAuthSessionToken = normalizeAuthSessionToken(authSessionToken);
         // 只清理仍指向本轮会话的游标，避免旧请求结束时误清掉新激活的会话。
         sessionStateMapper.update(null, Wrappers.<BusinessChatSessionStateData>lambdaUpdate()
                 .eq(BusinessChatSessionStateData::getStateKey, CHAT_PAGE_STATE_KEY)
+                .eq(BusinessChatSessionStateData::getWorkspaceId, normalizedWorkspaceId)
+                .eq(BusinessChatSessionStateData::getAuthSessionToken, normalizedAuthSessionToken)
                 .eq(BusinessChatSessionStateData::getActiveConversationId, normalizedConversationId)
                 .eq(BusinessChatSessionStateData::getStatus, NORMAL_STATUS)
                 .set(BusinessChatSessionStateData::getActiveConversationId, null));
@@ -67,16 +74,22 @@ public class BusinessChatSessionStateServiceImpl implements BusinessChatSessionS
 
     @Override
     @Transactional
-    public void clearActive() {
+    public void clearActive(String workspaceId, String authSessionToken) {
+        String normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
+        String normalizedAuthSessionToken = normalizeAuthSessionToken(authSessionToken);
         sessionStateMapper.update(null, Wrappers.<BusinessChatSessionStateData>lambdaUpdate()
                 .eq(BusinessChatSessionStateData::getStateKey, CHAT_PAGE_STATE_KEY)
+                .eq(BusinessChatSessionStateData::getWorkspaceId, normalizedWorkspaceId)
+                .eq(BusinessChatSessionStateData::getAuthSessionToken, normalizedAuthSessionToken)
                 .eq(BusinessChatSessionStateData::getStatus, NORMAL_STATUS)
                 .set(BusinessChatSessionStateData::getActiveConversationId, null));
     }
 
     @Override
-    public String getActiveConversationId() {
-        BusinessChatSessionStateData stateData = loadChatPageState();
+    public String getActiveConversationId(String workspaceId, String authSessionToken) {
+        String normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
+        String normalizedAuthSessionToken = normalizeAuthSessionToken(authSessionToken);
+        BusinessChatSessionStateData stateData = loadChatPageState(normalizedWorkspaceId, normalizedAuthSessionToken);
         if (stateData == null || !StringUtils.hasText(stateData.getActiveConversationId())) {
             return null;
         }
@@ -86,15 +99,19 @@ public class BusinessChatSessionStateServiceImpl implements BusinessChatSessionS
         BusinessChatDialogueData dialogueData = dialogueMapper.selectOne(
                 Wrappers.<BusinessChatDialogueData>lambdaQuery()
                         .eq(BusinessChatDialogueData::getDialogueCode, conversationId)
+                        .eq(BusinessChatDialogueData::getWorkspaceId, normalizedWorkspaceId)
+                        .eq(BusinessChatDialogueData::getAuthSessionToken, normalizedAuthSessionToken)
                         .eq(BusinessChatDialogueData::getStatus, NORMAL_STATUS)
                         .last("limit 1"));
         return dialogueData == null ? null : conversationId;
     }
 
-    private BusinessChatSessionStateData loadChatPageState() {
+    private BusinessChatSessionStateData loadChatPageState(String workspaceId, String authSessionToken) {
         return sessionStateMapper.selectOne(
                 Wrappers.<BusinessChatSessionStateData>lambdaQuery()
                         .eq(BusinessChatSessionStateData::getStateKey, CHAT_PAGE_STATE_KEY)
+                        .eq(BusinessChatSessionStateData::getWorkspaceId, workspaceId)
+                        .eq(BusinessChatSessionStateData::getAuthSessionToken, authSessionToken)
                         .eq(BusinessChatSessionStateData::getStatus, NORMAL_STATUS)
                         .last("limit 1"));
     }
@@ -105,5 +122,18 @@ public class BusinessChatSessionStateServiceImpl implements BusinessChatSessionS
             throw new BaseException(BaseCode.INVALID_PARAMETER, "conversationId must not be blank");
         }
         return normalizedConversationId;
+    }
+
+    private String normalizeWorkspaceId(String workspaceId) {
+        String normalizedWorkspaceId = workspaceId == null ? null : workspaceId.strip();
+        if (!StringUtils.hasText(normalizedWorkspaceId)) {
+            throw new BaseException(BaseCode.INVALID_PARAMETER, "workspaceId must not be blank");
+        }
+        return normalizedWorkspaceId;
+    }
+
+    private String normalizeAuthSessionToken(String authSessionToken) {
+        String normalizedAuthSessionToken = authSessionToken == null ? "" : authSessionToken.strip();
+        return StringUtils.hasText(normalizedAuthSessionToken) ? normalizedAuthSessionToken : "";
     }
 }

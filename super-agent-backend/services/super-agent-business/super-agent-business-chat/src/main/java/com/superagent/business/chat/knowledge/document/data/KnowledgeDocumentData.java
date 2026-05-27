@@ -17,6 +17,8 @@ public class KnowledgeDocumentData extends BaseTableData {
 
     private String documentName;
 
+    private String workspaceId;
+
     private String originalFileName;
 
     private Integer fileType;

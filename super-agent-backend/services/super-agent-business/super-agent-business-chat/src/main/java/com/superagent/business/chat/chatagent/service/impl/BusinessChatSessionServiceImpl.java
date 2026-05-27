@@ -14,6 +14,9 @@ import com.superagent.business.chat.chatagent.runtime.BusinessChatConversationLe
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionService;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
+import com.superagent.business.chat.auth.AuthRole;
+import com.superagent.business.chat.auth.AuthSessionContext;
+import com.superagent.business.chat.auth.AuthSessionHolder;
 import com.superagent.business.chat.support.BusinessInputValidator;
 import com.superagent.common.frame.exception.BaseException;
 import com.superagent.redisson.servicelease.lease.RedisLeaseManager;
@@ -56,6 +59,8 @@ public class BusinessChatSessionServiceImpl implements BusinessChatSessionServic
     @Transactional
     public void deleteSession(BusinessChatDeleteSessionRequest request) {
         String conversationId = normalizeConversationId(request.getConversationId());
+        String workspaceId = BusinessInputValidator.normalizeRequiredText(request.getWorkspaceId(), "workspaceId");
+        String authSessionToken = currentAuthSessionToken();
         String leaseKey = BusinessChatConversationLeaseKeys.conversationLeaseKey(conversationId);
         String ownerToken = UUID.randomUUID().toString();
         // 删除和流式生成共用同一把会话锁，保证不会一边写 RUNNING exchange，一边把会话归档软删。
@@ -69,6 +74,8 @@ public class BusinessChatSessionServiceImpl implements BusinessChatSessionServic
             BusinessChatDialogueData dialogueData = businessChatDialogueMapper.selectOne(
                     Wrappers.<BusinessChatDialogueData>lambdaQuery()
                             .eq(BusinessChatDialogueData::getDialogueCode, conversationId)
+                            .eq(BusinessChatDialogueData::getWorkspaceId, workspaceId)
+                            .eq(BusinessChatDialogueData::getAuthSessionToken, authSessionToken)
                             .eq(BusinessChatDialogueData::getStatus, NORMAL_STATUS)
                             .last("limit 1"));
             if (dialogueData == null) {
@@ -82,27 +89,32 @@ public class BusinessChatSessionServiceImpl implements BusinessChatSessionServic
                     null,
                     Wrappers.<BusinessChatDialogueData>update()
                             .eq("dialogue_code", conversationId)
+                            .eq("workspace_id", workspaceId)
+                            .eq("auth_session_token", authSessionToken)
                             .eq("status", NORMAL_STATUS)
                             .set("status", DELETED_STATUS));
             businessChatExchangeMapper.update(
                     null,
                     Wrappers.<BusinessChatExchangeData>update()
                             .eq("dialogue_code", conversationId)
+                            .eq("workspace_id", workspaceId)
                             .eq("status", NORMAL_STATUS)
                             .set("status", DELETED_STATUS));
             businessChatMemorySummaryMapper.update(
                     null,
                     Wrappers.<BusinessChatMemorySummaryData>update()
                             .eq("dialogue_code", conversationId)
+                            .eq("workspace_id", workspaceId)
                             .eq("status", NORMAL_STATUS)
                             .set("status", DELETED_STATUS));
             businessChatExchangeTraceStageMapper.update(
                     null,
                     Wrappers.<BusinessChatExchangeTraceStageData>update()
                             .eq("dialogue_code", conversationId)
+                            .eq("workspace_id", workspaceId)
                             .eq("status", NORMAL_STATUS)
                             .set("status", DELETED_STATUS));
-            businessChatSessionStateService.clearIfActive(conversationId);
+            businessChatSessionStateService.clearIfActive(conversationId, workspaceId, authSessionToken);
         } finally {
             boolean released = redisLeaseManager.release(leaseKey, ownerToken);
             if (!released) {
@@ -115,5 +127,10 @@ public class BusinessChatSessionServiceImpl implements BusinessChatSessionServic
 
     private String normalizeConversationId(String conversationId) {
         return BusinessInputValidator.normalizeRequiredText(conversationId, "conversationId");
+    }
+
+    private String currentAuthSessionToken() {
+        AuthSessionContext session = AuthSessionHolder.required();
+        return session.role() == AuthRole.GUEST ? session.token() : "";
     }
 }

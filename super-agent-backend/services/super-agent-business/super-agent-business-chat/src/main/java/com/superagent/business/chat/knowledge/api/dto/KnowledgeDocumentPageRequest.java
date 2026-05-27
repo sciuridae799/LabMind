@@ -7,6 +7,8 @@ public class KnowledgeDocumentPageRequest {
 
     private String keyword;
 
+    private String workspaceId;
+
     private String knowledgeScopeCode;
 
     private String pageNo = "1";

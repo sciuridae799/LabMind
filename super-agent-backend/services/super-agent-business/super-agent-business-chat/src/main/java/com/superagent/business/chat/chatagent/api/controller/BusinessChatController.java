@@ -14,6 +14,10 @@ import com.superagent.business.chat.chatagent.service.BusinessChatSessionService
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
 import com.superagent.business.chat.chatagent.service.BusinessChatService;
 import com.superagent.business.chat.chatagent.api.vo.BusinessChatActiveSessionVo;
+import com.superagent.business.chat.auth.AuthRole;
+import com.superagent.business.chat.auth.AuthSessionContext;
+import com.superagent.business.chat.auth.AuthSessionHolder;
+import com.superagent.business.chat.auth.service.AuthWorkspaceScopeService;
 import com.superagent.business.chat.chatagent.api.vo.BusinessChatExchangeDetailVo;
 import com.superagent.business.chat.chatagent.api.vo.BusinessChatModelApiConfigVo;
 import com.superagent.business.chat.chatagent.api.vo.BusinessChatSessionDetailVo;
@@ -55,51 +59,62 @@ public class BusinessChatController {
 
     private final KnowledgeManageService knowledgeManageService;
 
+    private final AuthWorkspaceScopeService workspaceScopeService;
+
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<BusinessChatStreamEvent>> streamChat(
             @Valid @RequestBody BusinessChatStreamRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveReadableWorkspace(request.getWorkspaceId()));
         return businessChatService.streamChat(request);
     }
 
     @PostMapping("/session/list")
     public ApiResponse<BusinessChatSessionListPageVo> listSessionsPage(
             @Valid @RequestBody BusinessChatSessionListRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveReadableWorkspace(request.getWorkspaceId()));
         return ApiResponse.ok(businessChatQueryService.listSessionsPage(request));
     }
 
     @PostMapping("/session/detail")
     public ApiResponse<BusinessChatSessionDetailVo> getSession(
             @Valid @RequestBody BusinessChatSessionDetailRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveReadableWorkspace(request.getWorkspaceId()));
         return ApiResponse.ok(businessChatQueryService.getSession(request));
     }
 
     @PostMapping("/exchange/detail")
     public ApiResponse<BusinessChatExchangeDetailVo> getExchangeDetail(
             @Valid @RequestBody BusinessChatExchangeDetailRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveReadableWorkspace(request.getWorkspaceId()));
         return ApiResponse.ok(businessChatQueryService.getExchangeDetail(request));
     }
 
     @PostMapping("/session/active")
     public ApiResponse<BusinessChatActiveSessionVo> getActiveSession() {
+        String workspaceId = workspaceScopeService.resolveReadableWorkspace(null);
         BusinessChatActiveSessionVo vo = new BusinessChatActiveSessionVo();
-        vo.setConversationId(businessChatQueryService.getActiveConversationId());
+        vo.setConversationId(businessChatQueryService.getActiveConversationId(workspaceId, currentAuthSessionToken()));
         return ApiResponse.ok(vo);
     }
 
     @PostMapping("/session/active/clear")
     public ApiResponse<Void> clearActiveSession() {
-        businessChatSessionStateService.clearActive();
+        businessChatSessionStateService.clearActive(
+                workspaceScopeService.resolveReadableWorkspace(null),
+                currentAuthSessionToken());
         return ApiResponse.ok();
     }
 
     @PostMapping("/session/delete")
     public ApiResponse<Void> deleteSession(@Valid @RequestBody BusinessChatDeleteSessionRequest request) {
+        request.setWorkspaceId(workspaceScopeService.resolveWritableWorkspace(request.getWorkspaceId()));
         businessChatSessionService.deleteSession(request);
         return ApiResponse.ok();
     }
 
     @PostMapping("/model-config/list")
     public ApiResponse<List<BusinessChatModelApiConfigVo>> listModelConfigs() {
+        workspaceScopeService.requireSuperAdmin();
         return ApiResponse.ok(modelApiConfigService.listAll());
     }
 
@@ -116,24 +131,33 @@ public class BusinessChatController {
     @PostMapping("/model-config/save")
     public ApiResponse<BusinessChatModelApiConfigVo> saveModelConfig(
             @Valid @RequestBody BusinessChatModelApiConfigSaveRequest request) {
+        workspaceScopeService.requireSuperAdmin();
         return ApiResponse.ok(modelApiConfigService.save(request));
     }
 
     @PostMapping("/model-config/delete")
     public ApiResponse<Void> deleteModelConfig(@Valid @RequestBody BusinessChatModelApiConfigIdRequest request) {
+        workspaceScopeService.requireSuperAdmin();
         modelApiConfigService.delete(request);
         return ApiResponse.ok();
     }
 
     @PostMapping("/model-config/clear-api-key")
     public ApiResponse<Void> clearModelConfigApiKey(@Valid @RequestBody BusinessChatModelApiConfigIdRequest request) {
+        workspaceScopeService.requireSuperAdmin();
         modelApiConfigService.clearApiKey(request);
         return ApiResponse.ok();
     }
 
     @PostMapping("/model-config/move")
     public ApiResponse<Void> moveModelConfig(@Valid @RequestBody BusinessChatModelApiConfigMoveRequest request) {
+        workspaceScopeService.requireSuperAdmin();
         modelApiConfigService.move(request);
         return ApiResponse.ok();
+    }
+
+    private String currentAuthSessionToken() {
+        AuthSessionContext session = AuthSessionHolder.required();
+        return session.role() == AuthRole.GUEST ? session.token() : "";
     }
 }

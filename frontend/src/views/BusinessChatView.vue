@@ -16,6 +16,7 @@ import {
   type BusinessChatStreamEvent
 } from '../shared/api/chat'
 import { manageApi } from '../shared/api/manage'
+import { useAuthSession } from '../shared/auth/authSession'
 
 interface ConversationHistoryItem {
   conversationId: string
@@ -108,6 +109,8 @@ const conversationScrollRegion = ref<HTMLElement | null>(null)
 const shouldAutoScroll = ref(true)
 const isTextareaComposing = ref(false)
 const modelPickerElement = ref<HTMLElement | null>(null)
+const authSession = useAuthSession()
+const canManageModelConfig = computed(() => authSession.value?.role === 'super_admin')
 const isModelPickerOpen = ref(false)
 const modelPickerPlacement = ref<'up' | 'down'>('up')
 const activeCitationPopover = ref<CitationPopover | null>(null)
@@ -760,6 +763,7 @@ async function openSelectedDocumentDetail(): Promise<void> {
 
   try {
     detailProfile.value = await manageApi.queryDocumentProfile({
+      workspaceId: authSession.value?.workspaceId,
       documentId: document.documentId
     }) as DocumentProfile
   } catch (error) {
@@ -985,6 +989,7 @@ async function handleSend(): Promise<void> {
       conversationId: currentConversationId,
       chatMode: currentMode.value,
       modelConfigId: currentModelConfigId.value,
+      workspaceId: authSession.value?.workspaceId,
       selectedDocumentId: currentMode.value === 'CURRENT_DOCUMENT' ? selectedDoc.value : undefined
     },
     {
@@ -1129,6 +1134,7 @@ onBeforeUnmount(() => {
           <span class="nav-item-label">新建问答</span>
         </button>
         <RouterLink
+          v-if="canManageModelConfig"
           to="/model-config"
           class="nav-item nav-item-secondary"
         >

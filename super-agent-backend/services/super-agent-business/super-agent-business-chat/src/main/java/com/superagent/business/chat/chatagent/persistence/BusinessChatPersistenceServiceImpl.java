@@ -81,6 +81,8 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
         // 这一步是流式执行前的持久化锚点，后续成功、失败、中止都只更新这条 exchange。
         BusinessChatDialogueData dialogueData = loadOrCreateDialogue(startPlan);
         dialogueData.setDialogueStage(BusinessChatDialogueStage.RUNNING.getDatabaseCode());
+        dialogueData.setWorkspaceId(startPlan.workspaceId());
+        dialogueData.setAuthSessionToken(startPlan.authSessionToken());
         dialogueData.setChatMode(startPlan.chatMode().getDatabaseCode());
         dialogueData.setSelectedDocumentId(startPlan.selectedDocumentId());
         dialogueData.setSelectedDocumentName(startPlan.selectedDocumentName());
@@ -89,6 +91,7 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
         BusinessChatExchangeData exchangeData = new BusinessChatExchangeData();
         exchangeData.setId(snowflakeIdGenerator.nextId());
         exchangeData.setDialogueCode(startPlan.conversationId());
+        exchangeData.setWorkspaceId(startPlan.workspaceId());
         exchangeData.setUserPrompt(startPlan.question());
         exchangeData.setReplyContent("");
         exchangeData.setReasoningNoteList("[]");
@@ -98,7 +101,10 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
         exchangeData.setExchangeState(BusinessChatExchangeState.RUNNING.getDatabaseCode());
         exchangeData.setStatus(NORMAL_STATUS);
         businessChatExchangeMapper.insert(exchangeData);
-        businessChatSessionStateService.activate(startPlan.conversationId());
+        businessChatSessionStateService.activate(
+                startPlan.conversationId(),
+                startPlan.workspaceId(),
+                startPlan.authSessionToken());
 
         // 任务快照：数据库主键、会话编号、锁信息、计时起点。
         // RuntimeContext 不再反查这些入口信息，避免执行中读到被其他请求更新后的 dialogue 状态。
@@ -107,6 +113,8 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
                 exchangeData.getId(),
                 startPlan.question(),
                 startPlan.conversationId(),
+                startPlan.workspaceId(),
+                startPlan.authSessionToken(),
                 startPlan.chatMode(),
                 startPlan.modelConfig(),
                 startPlan.selectedDocumentId(),
@@ -171,17 +179,20 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
         BusinessChatMemorySummaryData summaryData = businessChatMemorySummaryMapper.selectOne(
                 Wrappers.<BusinessChatMemorySummaryData>lambdaQuery()
                         .eq(BusinessChatMemorySummaryData::getDialogueCode, finalizedTurn.taskInfo().conversationId())
+                        .eq(BusinessChatMemorySummaryData::getWorkspaceId, finalizedTurn.taskInfo().workspaceId())
                         .eq(BusinessChatMemorySummaryData::getStatus, NORMAL_STATUS)
                         .last("limit 1"));
         long exchangeCount = businessChatExchangeMapper.selectCount(
                 Wrappers.<BusinessChatExchangeData>lambdaQuery()
                         .eq(BusinessChatExchangeData::getDialogueCode, finalizedTurn.taskInfo().conversationId())
+                        .eq(BusinessChatExchangeData::getWorkspaceId, finalizedTurn.taskInfo().workspaceId())
                         .eq(BusinessChatExchangeData::getStatus, NORMAL_STATUS));
 
         if (summaryData == null) {
             summaryData = new BusinessChatMemorySummaryData();
             summaryData.setId(snowflakeIdGenerator.nextId());
             summaryData.setDialogueCode(finalizedTurn.taskInfo().conversationId());
+            summaryData.setWorkspaceId(finalizedTurn.taskInfo().workspaceId());
             summaryData.setCompressionCount(0);
             summaryData.setSummaryVersion(1);
             summaryData.setStatus(NORMAL_STATUS);
@@ -235,6 +246,7 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
         BusinessChatExchangeTraceStageData traceStageData = new BusinessChatExchangeTraceStageData();
         traceStageData.setId(snowflakeIdGenerator.nextId());
         traceStageData.setDialogueCode(runtimeContext.getTaskInfo().conversationId());
+        traceStageData.setWorkspaceId(runtimeContext.getTaskInfo().workspaceId());
         traceStageData.setExchangeId(runtimeContext.getTaskInfo().exchangeId());
         traceStageData.setTraceId(runtimeContext.getTaskInfo().traceId());
         traceStageData.setStageCode(stageCode);
@@ -302,6 +314,8 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
         BusinessChatDialogueData dialogueData = businessChatDialogueMapper.selectOne(
                 Wrappers.<BusinessChatDialogueData>lambdaQuery()
                         .eq(BusinessChatDialogueData::getDialogueCode, startPlan.conversationId())
+                        .eq(BusinessChatDialogueData::getWorkspaceId, startPlan.workspaceId())
+                        .eq(BusinessChatDialogueData::getAuthSessionToken, startPlan.authSessionToken())
                         .eq(BusinessChatDialogueData::getStatus, NORMAL_STATUS)
                         .last("limit 1"));
         if (dialogueData != null) {
@@ -311,6 +325,8 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
         dialogueData = new BusinessChatDialogueData();
         dialogueData.setId(snowflakeIdGenerator.nextId());
         dialogueData.setDialogueCode(startPlan.conversationId());
+        dialogueData.setWorkspaceId(startPlan.workspaceId());
+        dialogueData.setAuthSessionToken(startPlan.authSessionToken());
         dialogueData.setDialogueTitle("");
         dialogueData.setDialogueStage(BusinessChatDialogueStage.IDLE.getDatabaseCode());
         dialogueData.setChatMode(startPlan.chatMode().getDatabaseCode());

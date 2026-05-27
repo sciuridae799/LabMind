@@ -2,6 +2,8 @@
 CREATE TABLE IF NOT EXISTS super_agent_chat_dialogue (
     id BIGINT NOT NULL COMMENT '主键id',
     dialogue_code VARCHAR(64) NOT NULL COMMENT '业务会话编号',
+    workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
+    auth_session_token VARCHAR(128) NOT NULL DEFAULT '' COMMENT '访客登录会话token，用于隔离访客历史',
     dialogue_title VARCHAR(100) NOT NULL DEFAULT '' COMMENT '会话标题',
     dialogue_stage TINYINT(1) NOT NULL DEFAULT '1' COMMENT '1:空闲 2:进行中',
     chat_mode TINYINT(1) NOT NULL DEFAULT '1' COMMENT '1:当前文档问答 2:自动知识问答 3:开放式提问',
@@ -11,6 +13,8 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_dialogue (
     edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
     PRIMARY KEY (id),
+    KEY idx_dialogue_guest_session (workspace_id, auth_session_token, status),
+    KEY idx_super_agent_chat_dialogue_workspace (workspace_id, dialogue_code, status),
     KEY idx_super_agent_chat_dialogue_code_status (dialogue_code, status),
     KEY idx_super_agent_chat_dialogue_stage_status (dialogue_stage, status),
     KEY idx_super_agent_chat_dialogue_edit_time (edit_time)
@@ -19,6 +23,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_dialogue (
 CREATE TABLE IF NOT EXISTS super_agent_chat_exchange (
     id BIGINT NOT NULL COMMENT '主键id',
     dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
+    workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
     user_prompt TEXT NOT NULL COMMENT '用户提问',
     reply_content LONGTEXT NOT NULL COMMENT '助手回答内容',
     reasoning_note_list JSON NOT NULL COMMENT '过程提示与思考片段',
@@ -34,6 +39,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_exchange (
     edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
     PRIMARY KEY (id),
+    KEY idx_super_agent_chat_exchange_workspace (workspace_id, dialogue_code, status),
     KEY idx_super_agent_chat_exchange_dialogue_status (dialogue_code, status),
     KEY idx_super_agent_chat_exchange_state_status (exchange_state, status),
     KEY idx_super_agent_chat_exchange_create_time (create_time)
@@ -42,6 +48,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_exchange (
 CREATE TABLE IF NOT EXISTS super_agent_chat_memory_summary (
     id BIGINT NOT NULL COMMENT '主键id',
     dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
+    workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
     covered_exchange_id BIGINT NOT NULL DEFAULT '0' COMMENT '长期摘要已覆盖到的最后一条exchangeId',
     covered_exchange_count INT NOT NULL DEFAULT '0' COMMENT '长期摘要已覆盖的轮次数',
     compression_count INT NOT NULL DEFAULT '0' COMMENT '累计压缩次数',
@@ -53,6 +60,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_memory_summary (
     edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
     PRIMARY KEY (id),
+    KEY idx_super_agent_chat_memory_summary_workspace (workspace_id, dialogue_code, status),
     UNIQUE KEY uk_super_agent_chat_memory_summary_dialogue (dialogue_code),
     KEY idx_super_agent_chat_memory_summary_cover (covered_exchange_id),
     KEY idx_super_agent_chat_memory_summary_edit_time (edit_time)
@@ -61,6 +69,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_memory_summary (
 CREATE TABLE IF NOT EXISTS super_agent_chat_exchange_trace_stage (
     id BIGINT NOT NULL COMMENT '主键id',
     dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
+    workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
     exchange_id BIGINT NOT NULL COMMENT '所属轮次id',
     trace_id VARCHAR(64) NOT NULL COMMENT '本轮执行trace id',
     stage_code VARCHAR(64) NOT NULL COMMENT '阶段编码',
@@ -80,6 +89,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_exchange_trace_stage (
     edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
     PRIMARY KEY (id),
+    KEY idx_super_agent_chat_trace_workspace (workspace_id, dialogue_code, exchange_id, status),
     KEY idx_super_agent_chat_trace_exchange (exchange_id, stage_order),
     KEY idx_super_agent_chat_trace_dialogue (dialogue_code, exchange_id),
     KEY idx_super_agent_chat_trace_trace_id (trace_id),
@@ -142,11 +152,15 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_tool_call_trace (
 CREATE TABLE IF NOT EXISTS super_agent_chat_session_state (
     id BIGINT NOT NULL COMMENT '主键id',
     state_key VARCHAR(64) NOT NULL COMMENT '状态键，当前为全局聊天页状态',
+    workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
+    auth_session_token VARCHAR(128) NOT NULL DEFAULT '' COMMENT '访客登录会话token，用于隔离访客当前会话',
     active_conversation_id VARCHAR(64) DEFAULT NULL COMMENT '聊天页刷新时应恢复的活动会话编号',
     create_time DATETIME DEFAULT NULL COMMENT '创建时间',
     edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
     PRIMARY KEY (id),
-    UNIQUE KEY uk_super_agent_chat_session_state_key (state_key),
+    UNIQUE KEY uk_chat_state_workspace_scope_key (workspace_id, auth_session_token, state_key),
+    KEY idx_super_agent_chat_session_state_workspace (workspace_id, state_key, status),
+    KEY idx_chat_state_guest_session (workspace_id, auth_session_token, status),
     KEY idx_super_agent_chat_session_state_conversation (active_conversation_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='业务聊天页活动会话状态表';

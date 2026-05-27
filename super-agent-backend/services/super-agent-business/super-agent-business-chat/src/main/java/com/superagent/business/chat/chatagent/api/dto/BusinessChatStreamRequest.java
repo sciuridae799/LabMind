@@ -19,5 +19,7 @@ public class BusinessChatStreamRequest {
     @NotBlank(message = "modelConfigId must not be blank")
     private String modelConfigId;
 
+    private String workspaceId;
+
     private String selectedDocumentId;
 }

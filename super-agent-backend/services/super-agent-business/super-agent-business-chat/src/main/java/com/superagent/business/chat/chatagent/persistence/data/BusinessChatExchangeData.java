@@ -17,6 +17,8 @@ public class BusinessChatExchangeData extends BaseTableData {
 
     private String dialogueCode;
 
+    private String workspaceId;
+
     private String userPrompt;
 
     private String replyContent;

@@ -7,6 +7,7 @@ import type {
   StreamEventHandlers,
   StreamRequest
 } from './types'
+import { readAuthSessionSnapshot } from '../auth/authSession'
 
 const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || '').trim()
 const REQUEST_TIMEOUT = 30000
@@ -52,6 +53,20 @@ const streamClient = axios.create({
     Accept: 'text/event-stream'
   }
 })
+
+function buildAuthHeaders(): Record<string, string> {
+  const session = readAuthSessionSnapshot()
+  if (!session) {
+    return {}
+  }
+
+  return {
+    Authorization: `Bearer ${session.token}`,
+    'X-Super-Agent-Role': session.role,
+    'X-Super-Agent-Workspace-Id': session.workspaceId,
+    'X-Super-Agent-User-Id': session.userId
+  }
+}
 
 function normalizeRawText(rawData: unknown): string {
   if (typeof rawData === 'string') {
@@ -148,7 +163,10 @@ async function requestWithClient<TResponse, TBody = unknown>(
     return await client.request<TResponse>({
       url: path,
       method: options.method,
-      headers: options.headers,
+      headers: {
+        ...buildAuthHeaders(),
+        ...options.headers
+      },
       data: options.body,
       signal: options.signal
     })
@@ -324,6 +342,7 @@ export function openEventStream<TEvent extends ApiRecord = JsonObject>(
       const response = await streamClient.request<ReadableStream<Uint8Array>>({
         url: path,
         method: 'POST',
+        headers: buildAuthHeaders(),
         data: payload,
         signal: controller.signal
       })

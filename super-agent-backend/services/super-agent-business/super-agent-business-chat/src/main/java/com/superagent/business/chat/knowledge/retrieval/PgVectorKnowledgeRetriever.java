@@ -24,13 +24,14 @@ public class PgVectorKnowledgeRetriever {
     public void upsert(KnowledgeRetrievalIndexChunk chunk, List<Double> embedding) {
         String sql = """
                 INSERT INTO public.super_agent_document_embedding (
-                    id, document_id, task_id, plan_id, parent_block_id, chunk_no, source_type,
+                    id, document_id, workspace_id, task_id, plan_id, parent_block_id, chunk_no, source_type,
                     section_path, structure_node_id, structure_node_type, canonical_path, item_index,
                     chunk_text, char_count, token_count, embedding_model, metadata_json, embedding, status,
                     create_time, edit_time
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::vector, ?, now(), now())
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::vector, ?, now(), now())
                 ON CONFLICT (id) DO UPDATE SET
                     document_id = EXCLUDED.document_id,
+                    workspace_id = EXCLUDED.workspace_id,
                     task_id = EXCLUDED.task_id,
                     plan_id = EXCLUDED.plan_id,
                     parent_block_id = EXCLUDED.parent_block_id,
@@ -54,23 +55,24 @@ public class PgVectorKnowledgeRetriever {
              PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, chunk.chunkId());
             statement.setLong(2, chunk.documentId());
-            statement.setLong(3, chunk.taskId());
-            setNullableLong(statement, 4, chunk.planId());
-            statement.setLong(5, chunk.parentBlockId());
-            statement.setInt(6, chunk.chunkNo());
-            statement.setInt(7, chunk.sourceType());
-            statement.setString(8, chunk.sectionPath());
-            setNullableLong(statement, 9, chunk.structureNodeId());
-            setNullableInteger(statement, 10, chunk.structureNodeType());
-            statement.setString(11, chunk.canonicalPath());
-            setNullableInteger(statement, 12, chunk.itemIndex());
-            statement.setString(13, chunk.chunkText());
-            statement.setInt(14, chunk.charCount());
-            statement.setInt(15, chunk.tokenCount());
-            statement.setString(16, retrievalProperties.getEmbedding().getModel());
-            statement.setString(17, chunk.metadataJson());
-            statement.setString(18, vectorLiteral(embedding));
-            statement.setInt(19, NORMAL_STATUS);
+            statement.setString(3, chunk.workspaceId());
+            statement.setLong(4, chunk.taskId());
+            setNullableLong(statement, 5, chunk.planId());
+            statement.setLong(6, chunk.parentBlockId());
+            statement.setInt(7, chunk.chunkNo());
+            statement.setInt(8, chunk.sourceType());
+            statement.setString(9, chunk.sectionPath());
+            setNullableLong(statement, 10, chunk.structureNodeId());
+            setNullableInteger(statement, 11, chunk.structureNodeType());
+            statement.setString(12, chunk.canonicalPath());
+            setNullableInteger(statement, 13, chunk.itemIndex());
+            statement.setString(14, chunk.chunkText());
+            statement.setInt(15, chunk.charCount());
+            statement.setInt(16, chunk.tokenCount());
+            statement.setString(17, retrievalProperties.getEmbedding().getModel());
+            statement.setString(18, chunk.metadataJson());
+            statement.setString(19, vectorLiteral(embedding));
+            statement.setInt(20, NORMAL_STATUS);
             statement.executeUpdate();
         } catch (Exception exception) {
             throw new IllegalStateException("Failed to upsert PGVector embedding for chunkId=" + chunk.chunkId(), exception);

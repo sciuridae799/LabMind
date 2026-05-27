@@ -316,6 +316,7 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         BusinessChatMemorySummaryData summaryData = businessChatMemorySummaryMapper.selectOne(
                 Wrappers.<BusinessChatMemorySummaryData>lambdaQuery()
                         .eq(BusinessChatMemorySummaryData::getDialogueCode, runtimeContext.getTaskInfo().conversationId())
+                        .eq(BusinessChatMemorySummaryData::getWorkspaceId, runtimeContext.getTaskInfo().workspaceId())
                         .eq(BusinessChatMemorySummaryData::getStatus, NORMAL_STATUS)
                         .last("limit 1"));
         return summaryData == null ? null : requireStoredMemory(summaryData);
@@ -326,6 +327,7 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         List<BusinessChatExchangeData> exchangeDataList = businessChatExchangeMapper.selectList(
                 Wrappers.<BusinessChatExchangeData>lambdaQuery()
                         .eq(BusinessChatExchangeData::getDialogueCode, runtimeContext.getTaskInfo().conversationId())
+                        .eq(BusinessChatExchangeData::getWorkspaceId, runtimeContext.getTaskInfo().workspaceId())
                         .eq(BusinessChatExchangeData::getStatus, NORMAL_STATUS)
                         .eq(BusinessChatExchangeData::getExchangeState, BusinessChatExchangeState.COMPLETED.getDatabaseCode())
                         .orderByDesc(BusinessChatExchangeData::getCreateTime)
@@ -482,7 +484,10 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         if (executionMode == BusinessChatMode.KNOWLEDGE_BASE) {
             // 知识库模式在编排阶段只产出路由候选，不在这里读取正文。
             // 正文证据由证据检索阶段召回，保持“结构图路由”和“回答证据”两个职责分离。
-            KnowledgeRouteDecision routeDecision = knowledgeGraphClient.routeQuestion(rewrittenQuestion, 5);
+            KnowledgeRouteDecision rawRouteDecision = knowledgeGraphClient.routeQuestion(rewrittenQuestion, 5);
+            KnowledgeRouteDecision routeDecision = filterRouteDecisionByWorkspace(
+                    rawRouteDecision,
+                    runtimeContext.getTaskInfo().workspaceId());
             recordKnowledgeRouteTrace(runtimeContext, executionMode, rewrittenQuestion, routeDecision);
             return routeDecision;
         }
@@ -499,6 +504,24 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         return "开放问答模式不查询结构图";
     }
 
+    private KnowledgeRouteDecision filterRouteDecisionByWorkspace(
+            KnowledgeRouteDecision routeDecision,
+            String workspaceId) {
+        if (routeDecision == null || routeDecision.documentCandidates() == null
+                || routeDecision.documentCandidates().isEmpty()) {
+            return KnowledgeRouteDecision.empty();
+        }
+        List<Long> allowedDocumentIds = knowledgeManageService.filterDocumentIdsByWorkspace(
+                routeDecision.documentCandidates().stream()
+                        .map(KnowledgeRouteCandidate::documentId)
+                        .toList(),
+                workspaceId);
+        List<KnowledgeRouteCandidate> filteredCandidates = routeDecision.documentCandidates().stream()
+                .filter(candidate -> allowedDocumentIds.contains(candidate.documentId()))
+                .toList();
+        return new KnowledgeRouteDecision(routeDecision.scopeCandidates(), routeDecision.topicCandidates(), filteredCandidates);
+    }
+
     private void recordKnowledgeRouteTrace(
             BusinessChatRuntimeContext runtimeContext,
             BusinessChatMode executionMode,
@@ -513,6 +536,7 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         }
         knowledgeRouteTraceService.recordRouteTrace(
                 runtimeContext.getTaskInfo().traceId(),
+                runtimeContext.getTaskInfo().workspaceId(),
                 runtimeContext.getTaskInfo().conversationId(),
                 runtimeContext.getTaskInfo().exchangeId(),
                 runtimeContext.getTaskInfo().question(),
@@ -527,6 +551,7 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         // 当前文档模式只发布影子路由任务做质量观测，不在主编排链路执行自动路由。
         shadowRouteProducer.publish(new KnowledgeShadowRouteRequestedMessage(
                 runtimeContext.getTaskInfo().traceId(),
+                runtimeContext.getTaskInfo().workspaceId(),
                 runtimeContext.getTaskInfo().conversationId(),
                 runtimeContext.getTaskInfo().exchangeId(),
                 runtimeContext.getTaskInfo().question(),
@@ -649,6 +674,7 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         // 当前文档模式先装入画像边界，正文证据随后由同一套检索链路在 selectedDocumentId 内召回。
         KnowledgeDocumentIdRequest request = new KnowledgeDocumentIdRequest();
         request.setDocumentId(String.valueOf(selectedDocumentId));
+        request.setWorkspaceId(runtimeContext.getTaskInfo().workspaceId());
         KnowledgeDocumentProfileVo profile = knowledgeManageService.queryDocumentProfile(request);
         StringBuilder builder = new StringBuilder()
                 .append("文档ID：").append(selectedDocumentId).append("\n")

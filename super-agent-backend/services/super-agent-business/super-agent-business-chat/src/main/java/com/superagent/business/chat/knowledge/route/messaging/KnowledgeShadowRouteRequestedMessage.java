@@ -5,6 +5,7 @@ package com.superagent.business.chat.knowledge.route.messaging;
  */
 public record KnowledgeShadowRouteRequestedMessage(
         String traceId,
+        String workspaceId,
         String conversationId,
         Long exchangeId,
         String question,

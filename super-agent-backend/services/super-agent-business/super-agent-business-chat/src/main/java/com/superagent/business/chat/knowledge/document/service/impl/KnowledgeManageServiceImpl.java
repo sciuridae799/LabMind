@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.superagent.business.chat.auth.AuthSessionHolder;
 import com.superagent.business.chat.chatagent.execution.BusinessChatDynamicModelClient;
 import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelApiConfigSnapshot;
 import com.superagent.business.chat.chatagent.service.BusinessChatModelApiConfigService;
@@ -198,6 +199,7 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
     @Override
     public KnowledgeDocumentVo uploadDocument(MultipartFile file, KnowledgeDocumentUploadMetaRequest meta) {
         validateFile(file);
+        String workspaceId = BusinessInputValidator.normalizeRequiredText(meta.getWorkspaceId(), "workspaceId");
 
         // 上传入口只负责建立“可追踪任务”：原文对象、document 记录、task 记录必须先同时存在，
         // Kafka 消费端才能凭 documentId/taskId 恢复完整上下文并继续生成画像和路由资产。
@@ -221,6 +223,7 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
             KnowledgeDocumentData documentData = new KnowledgeDocumentData();
             documentData.setId(documentId);
             documentData.setDocumentName(documentName);
+            documentData.setWorkspaceId(workspaceId);
             documentData.setOriginalFileName(originalFileName);
             documentData.setFileType(fileType);
             documentData.setMimeType(file.getContentType());
@@ -382,6 +385,7 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
                 new Page<>(pageNo, pageSize),
                 Wrappers.<KnowledgeDocumentData>lambdaQuery()
                         .eq(KnowledgeDocumentData::getStatus, NORMAL_STATUS)
+                        .eq(KnowledgeDocumentData::getWorkspaceId, request.getWorkspaceId())
                         .eq(StringUtils.hasText(request.getKnowledgeScopeCode()),
                                 KnowledgeDocumentData::getKnowledgeScopeCode,
                                 request.getKnowledgeScopeCode())
@@ -404,13 +408,13 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
     @Override
     public KnowledgeDocumentVo queryDocumentDetail(KnowledgeDocumentIdRequest request) {
         long documentId = BusinessInputValidator.parsePositiveLong(request.getDocumentId(), "documentId");
-        return toDocumentVo(loadNormalDocument(documentId));
+        return toDocumentVo(loadNormalDocument(documentId, request.getWorkspaceId()));
     }
 
     @Override
     public KnowledgeDocumentStrategyPlanVo queryStrategyPlan(KnowledgeDocumentIdRequest request) {
         long documentId = BusinessInputValidator.parsePositiveLong(request.getDocumentId(), "documentId");
-        KnowledgeDocumentData documentData = loadNormalDocument(documentId);
+        KnowledgeDocumentData documentData = loadNormalDocument(documentId, request.getWorkspaceId());
         if (!Integer.valueOf(PARSE_SUCCEEDED).equals(documentData.getParseStatus())) {
             throw new IllegalStateException("document was not parsed successfully: " + documentId);
         }
@@ -420,7 +424,7 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
     @Override
     public KnowledgeDocumentStrategyPlanVo confirmStrategy(KnowledgeDocumentStrategyConfirmRequest request) {
         long documentId = BusinessInputValidator.parsePositiveLong(request.getDocumentId(), "documentId");
-        KnowledgeDocumentData documentData = loadNormalDocument(documentId);
+        KnowledgeDocumentData documentData = loadNormalDocument(documentId, request.getWorkspaceId());
         if (!Integer.valueOf(PARSE_SUCCEEDED).equals(documentData.getParseStatus())) {
             throw new IllegalStateException("document was not parsed successfully: " + documentId);
         }
@@ -517,6 +521,7 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         return documentMapper.selectList(
                         Wrappers.<KnowledgeDocumentData>lambdaQuery()
                                 .eq(KnowledgeDocumentData::getStatus, NORMAL_STATUS)
+                                .eq(KnowledgeDocumentData::getWorkspaceId, AuthSessionHolder.required().workspaceId())
                                 .eq(KnowledgeDocumentData::getStorageType, MINIO_STORAGE)
                                 .isNotNull(KnowledgeDocumentData::getBucketName)
                                 .eq(KnowledgeDocumentData::getParseStatus, PARSE_SUCCEEDED)
@@ -530,9 +535,32 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
     }
 
     @Override
+    public List<Long> filterDocumentIdsByWorkspace(List<Long> documentIdList, String workspaceId) {
+        if (documentIdList == null || documentIdList.isEmpty()) {
+            return List.of();
+        }
+        String normalizedWorkspaceId = BusinessInputValidator.normalizeRequiredText(workspaceId, "workspaceId");
+        List<Long> normalizedDocumentIds = documentIdList.stream()
+                .filter(documentId -> documentId != null && documentId > 0)
+                .distinct()
+                .toList();
+        if (normalizedDocumentIds.isEmpty()) {
+            return List.of();
+        }
+        return documentMapper.selectList(Wrappers.<KnowledgeDocumentData>lambdaQuery()
+                        .select(KnowledgeDocumentData::getId)
+                        .in(KnowledgeDocumentData::getId, normalizedDocumentIds)
+                        .eq(KnowledgeDocumentData::getWorkspaceId, normalizedWorkspaceId)
+                        .eq(KnowledgeDocumentData::getStatus, NORMAL_STATUS))
+                .stream()
+                .map(KnowledgeDocumentData::getId)
+                .toList();
+    }
+
+    @Override
     public String queryDocumentParsedText(KnowledgeDocumentIdRequest request) {
         long documentId = BusinessInputValidator.parsePositiveLong(request.getDocumentId(), "documentId");
-        KnowledgeDocumentData documentData = loadNormalDocument(documentId);
+        KnowledgeDocumentData documentData = loadNormalDocument(documentId, request.getWorkspaceId());
         validateReadableParsedDocument(documentData);
         String parsedText = objectStorage.getText(documentData.getBucketName(), documentData.getParseTextPath()).strip();
         if (!StringUtils.hasText(parsedText)) {
@@ -551,7 +579,7 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
     @Transactional
     public void deleteDocument(KnowledgeDocumentIdRequest request) {
         long documentId = BusinessInputValidator.parsePositiveLong(request.getDocumentId(), "documentId");
-        KnowledgeDocumentData documentData = loadNormalDocument(documentId);
+        KnowledgeDocumentData documentData = loadNormalDocument(documentId, request.getWorkspaceId());
         // 删除是全链路删除：MySQL 有效态、画像有效态、Neo4j 路由资产、对象存储内容必须一起收束。
         // 只删列表可见性会留下“前台看不到，但知识路由还能命中”的悬挂文档。
         documentData.setStatus(DELETED_STATUS);
@@ -570,6 +598,7 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         KnowledgeDocumentProfileData profileData = profileMapper.selectOne(
                 Wrappers.<KnowledgeDocumentProfileData>lambdaQuery()
                         .eq(KnowledgeDocumentProfileData::getDocumentId, documentId)
+                        .eq(KnowledgeDocumentProfileData::getWorkspaceId, request.getWorkspaceId())
                         .eq(KnowledgeDocumentProfileData::getStatus, NORMAL_STATUS)
                         .orderByDesc(KnowledgeDocumentProfileData::getProfileVersion)
                         .last("limit 1"));
@@ -587,6 +616,7 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
                 new Page<>(pageNo, pageSize),
                 Wrappers.<KnowledgeDocumentData>lambdaQuery()
                         .eq(KnowledgeDocumentData::getStatus, NORMAL_STATUS)
+                        .eq(KnowledgeDocumentData::getWorkspaceId, request.getWorkspaceId())
                         .eq(KnowledgeDocumentData::getParseStatus, PARSE_SUCCEEDED)
                         .isNotNull(KnowledgeDocumentData::getParseTextPath)
                         .eq(StringUtils.hasText(request.getKnowledgeScopeCode()),
@@ -629,12 +659,29 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         return documentData;
     }
 
+    private KnowledgeDocumentData loadNormalDocument(long documentId, String workspaceId) {
+        String normalizedWorkspaceId = BusinessInputValidator.normalizeRequiredText(workspaceId, "workspaceId");
+        KnowledgeDocumentData documentData = documentMapper.selectOne(
+                Wrappers.<KnowledgeDocumentData>lambdaQuery()
+                        .eq(KnowledgeDocumentData::getId, documentId)
+                        .eq(KnowledgeDocumentData::getWorkspaceId, normalizedWorkspaceId)
+                        .eq(KnowledgeDocumentData::getStatus, NORMAL_STATUS)
+                        .last("limit 1"));
+        if (documentData == null) {
+            throw new BaseException(BaseCode.INVALID_PARAMETER, "document was not found in workspace: " + documentId);
+        }
+        return documentData;
+    }
+
     @Override
     public List<KnowledgeRouteCandidateVo> previewRoute(KnowledgeRoutePreviewRequest request) {
         String question = normalizeRequiredText(request.getQuestion(), "question");
         int limit = BusinessInputValidator.parsePositiveInt(request.getLimit(), "limit");
         return knowledgeGraphClient.routeQuestion(question, limit).documentCandidates()
                 .stream()
+                .filter(candidate -> filterDocumentIdsByWorkspace(
+                        List.of(candidate.documentId()),
+                        request.getWorkspaceId()).contains(candidate.documentId()))
                 .map(this::toRouteCandidateVo)
                 .toList();
     }
@@ -652,9 +699,10 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         String keyword = normalizeOptionalText(request.getKeyword());
         // 路由追踪读取归档时写入的 debugTrace，不重新计算路由。
         // 复盘页面要展示“当时执行过什么”，而不是用当前图谱状态推导一个新结果。
-        long totalSize = routeTraceMapper.countTraceRows(keyword, NORMAL_STATUS);
+        long totalSize = routeTraceMapper.countTraceRows(request.getWorkspaceId(), keyword, NORMAL_STATUS);
         long offset = (long) (pageNo - 1) * pageSize;
         List<KnowledgeRouteTraceRow> traceRows = routeTraceMapper.selectTraceRows(
+                request.getWorkspaceId(),
                 keyword,
                 NORMAL_STATUS,
                 offset,
@@ -832,6 +880,7 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         KnowledgeDocumentData completedDocumentData = new KnowledgeDocumentData();
         completedDocumentData.setId(documentData.getId());
         completedDocumentData.setDocumentName(documentData.getDocumentName());
+        completedDocumentData.setWorkspaceId(documentData.getWorkspaceId());
         completedDocumentData.setOriginalFileName(documentData.getOriginalFileName());
         completedDocumentData.setParseStatus(PARSE_SUCCEEDED);
         completedDocumentData.setStrategyStatus(STRATEGY_RECOMMENDED);
@@ -1332,6 +1381,7 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         KnowledgeDocumentProfileData profileData = new KnowledgeDocumentProfileData();
         profileData.setId(snowflakeIdGenerator.nextId());
         profileData.setDocumentId(documentData.getId());
+        profileData.setWorkspaceId(documentData.getWorkspaceId());
         profileData.setScopeCode(metadata.knowledgeScopeCode());
         profileData.setTopicCode(metadata.knowledgeTopicCode());
         profileData.setProfileStatus(PROFILE_GENERATED);

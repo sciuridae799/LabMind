@@ -33,11 +33,15 @@ import com.superagent.business.chat.chatagent.service.BusinessChatModelApiConfig
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeRegistry;
 import com.superagent.business.chat.chatagent.trace.BusinessChatTraceStageRunner;
 import com.superagent.business.chat.chatagent.api.vo.BusinessChatStreamEvent;
+import com.superagent.business.chat.auth.AuthRole;
+import com.superagent.business.chat.auth.AuthSessionContext;
+import com.superagent.business.chat.auth.AuthSessionHolder;
 import com.superagent.business.chat.knowledge.retrieval.KnowledgeRetrievalParentEvidence;
 import com.superagent.business.chat.knowledge.document.service.KnowledgeManageService;
 import com.superagent.redisson.servicelease.lease.RedisLeaseManager;
 import java.time.Duration;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -98,6 +102,14 @@ class BusinessChatServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        AuthSessionHolder.set(new AuthSessionContext(
+                "token-1",
+                "1001",
+                "admin",
+                "管理员",
+                AuthRole.SUPER_ADMIN,
+                "workspace-1",
+                "工作组"));
         BusinessChatTraceStageRunner traceStageRunner = new BusinessChatTraceStageRunner(businessChatPersistenceService);
         businessChatService = new BusinessChatServiceImpl(
                 redisLeaseManager,
@@ -112,6 +124,11 @@ class BusinessChatServiceImplTest {
                 new BusinessChatBusinessFlowLogger());
         lenient().when(modelApiConfigService.getRequiredAvailableSnapshot("3001")).thenReturn(modelConfig);
         lenient().when(modelApiConfigService.getRequiredAvailableSnapshot("3002")).thenReturn(secondModelConfig);
+    }
+
+    @AfterEach
+    void tearDown() {
+        AuthSessionHolder.clear();
     }
 
     @Test
@@ -263,6 +280,8 @@ class BusinessChatServiceImplTest {
                             startPlan.modelConfig().id() + 10000L,
                             startPlan.question(),
                             startPlan.conversationId(),
+                            startPlan.workspaceId(),
+                            startPlan.authSessionToken(),
                             startPlan.chatMode(),
                             startPlan.modelConfig(),
                             startPlan.selectedDocumentId(),
@@ -337,6 +356,8 @@ class BusinessChatServiceImplTest {
                 2001L,
                 "请帮我说明这条链路",
                 "conversation-1",
+                "workspace-1",
+                "",
                 BusinessChatMode.OPEN_ENDED,
                 modelConfig,
                 null,
@@ -412,6 +433,7 @@ class BusinessChatServiceImplTest {
         BusinessChatStreamRequest request = new BusinessChatStreamRequest();
         request.setQuestion("请帮我说明这条链路");
         request.setConversationId("conversation-1");
+        request.setWorkspaceId("workspace-1");
         request.setChatMode("OPEN_ENDED");
         request.setModelConfigId("3001");
         return request;

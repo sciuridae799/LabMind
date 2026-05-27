@@ -7,6 +7,14 @@
     {
       "source": "/manage/:path*",
       "destination": "http://43.139.223.137:8080/manage/:path*"
+    },
+    {
+      "source": "/auth/:path*",
+      "destination": "http://43.139.223.137:8080/auth/:path*"
+    },
+    {
+      "source": "/admin/:path*",
+      "destination": "http://43.139.223.137:8080/admin/:path*"
     }
   ]
 }

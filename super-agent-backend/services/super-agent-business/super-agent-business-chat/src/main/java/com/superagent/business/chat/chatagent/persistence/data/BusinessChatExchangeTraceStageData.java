@@ -18,6 +18,8 @@ public class BusinessChatExchangeTraceStageData extends BaseTableData {
 
     private String dialogueCode;
 
+    private String workspaceId;
+
     private Long exchangeId;
 
     private String traceId;

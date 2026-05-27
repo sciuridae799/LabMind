@@ -1,12 +1,22 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
-import { logoutAdmin } from '../../shared/auth/adminAuth'
+import { authApi } from '../../shared/api/auth'
+import { logoutAuthSession, useAuthSession, type AuthRole } from '../../shared/auth/authSession'
 
 const route = useRoute()
 const router = useRouter()
+const authSession = useAuthSession()
 
-const navigationItems = [
+interface NavigationItem {
+  to: string
+  label: string
+  icon: string
+  roles?: AuthRole[]
+}
+
+const navigationItems: NavigationItem[] = [
   {
     to: '/admin/dashboard',
     label: '运营总览',
@@ -31,12 +41,33 @@ const navigationItems = [
     to: '/admin/observability',
     label: '对话观测',
     icon: 'M2.75 10s2.55-4.25 7.25-4.25S17.25 10 17.25 10s-2.55 4.25-7.25 4.25S2.75 10 2.75 10Zm7.25-2.25a2.25 2.25 0 1 1 0 4.5a2.25 2.25 0 0 1 0-4.5Z'
+  },
+  {
+    to: '/admin/users',
+    label: '账号管理',
+    roles: ['super_admin'],
+    icon: 'M6.5 9.25a2.75 2.75 0 1 1 0-5.5 2.75 2.75 0 0 1 0 5.5Zm-4 6.25c.45-2.5 2.05-4 4-4s3.55 1.5 4 4M13.5 6.75h3M15 5.25v3M12.75 12.25h4.5M12.75 15.25h4.5'
+  },
+  {
+    to: '/admin/workspaces',
+    label: '工作组管理',
+    roles: ['super_admin'],
+    icon: 'M4.75 5.25h4.5v4.5h-4.5zM10.75 5.25h4.5v4.5h-4.5zM4.75 11.25h4.5v4.5h-4.5zM10.75 11.25h4.5v4.5h-4.5z'
   }
 ]
 
-function handleLogout(): void {
-  logoutAdmin()
-  void router.replace('/admin/login')
+const visibleNavigationItems = computed(() => {
+  const role = authSession.value?.role
+  return navigationItems.filter((item) => !item.roles || (role && item.roles.includes(role)))
+})
+
+async function handleLogout(): Promise<void> {
+  try {
+    await authApi.logout()
+  } finally {
+    logoutAuthSession()
+    await router.replace('/login')
+  }
 }
 </script>
 
@@ -45,7 +76,7 @@ function handleLogout(): void {
     <aside class="admin-sidebar">
       <nav class="admin-nav">
         <RouterLink
-          v-for="item in navigationItems"
+          v-for="item in visibleNavigationItems"
           :key="item.to"
           :to="item.to"
           class="admin-nav-link"
