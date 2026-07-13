@@ -35,7 +35,7 @@
 ```bash
 /Users/admin/Documents/apache-maven-3.9.11/bin/mvn \
   -s /Users/admin/Documents/apache-maven-3.9.11/conf/settings.xml \
-  -Dmaven.repo.local=/Users/admin/Documents/web-management/super-agent/.m2
+  -Dmaven.repo.local=/Users/admin/Documents/web-management/labmind/.m2
 ```
 
 禁止使用系统 `mvn`、默认 `settings.xml`、默认 `~/.m2`，也禁止在上述本地 Maven 环境失败后隐式回落到其他 Maven 环境。
