@@ -1,15 +1,22 @@
 package com.superagent.business.chat.chatagent.service.impl;
 
+import com.alibaba.cloud.ai.graph.RunnableConfig;
+import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.superagent.business.chat.chatagent.persistence.data.BusinessChatDialogueData;
 import com.superagent.business.chat.chatagent.persistence.data.BusinessChatExchangeData;
 import com.superagent.business.chat.chatagent.persistence.data.BusinessChatExchangeTraceStageData;
 import com.superagent.business.chat.chatagent.persistence.data.BusinessChatMemorySummaryData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatModelCallTraceData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatToolCallTraceData;
 import com.superagent.business.chat.chatagent.api.dto.BusinessChatDeleteSessionRequest;
 import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatDialogueMapper;
 import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExchangeMapper;
 import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExchangeTraceStageMapper;
 import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatMemorySummaryMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatModelCallTraceMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatToolCallTraceMapper;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatAgentCounterKeys;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatConversationLeaseKeys;
 import com.superagent.business.chat.chatagent.service.BusinessChatErrorCode;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionService;
@@ -24,13 +31,17 @@ import java.time.Duration;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 会话生命周期管理服务。
  *
- * <p>当前只承载会话删除：删除前获取同一把会话租约，删除时按 conversationId 统一软删主表、轮次、摘要和 trace。</p>
+ * <p>当前只承载会话删除：删除前获取同一把会话租约，删除时按 conversationId 统一软删会话归档与调用轨迹，
+ * 并释放 Graph checkpoint thread。</p>
  */
 @Service
 @Slf4j
@@ -53,7 +64,15 @@ public class BusinessChatSessionServiceImpl implements BusinessChatSessionServic
 
     private final BusinessChatExchangeTraceStageMapper businessChatExchangeTraceStageMapper;
 
+    private final BusinessChatModelCallTraceMapper businessChatModelCallTraceMapper;
+
+    private final BusinessChatToolCallTraceMapper businessChatToolCallTraceMapper;
+
     private final BusinessChatSessionStateService businessChatSessionStateService;
+
+    private final MysqlSaver businessChatCheckpointSaver;
+
+    private final RedissonClient redissonClient;
 
     @Override
     @Transactional
@@ -70,63 +89,108 @@ public class BusinessChatSessionServiceImpl implements BusinessChatSessionServic
                     BusinessChatErrorCode.CHAT_SESSION_RUNNING,
                     "conversation is running and cannot be deleted: " + conversationId);
         }
-        try {
-            BusinessChatDialogueData dialogueData = businessChatDialogueMapper.selectOne(
-                    Wrappers.<BusinessChatDialogueData>lambdaQuery()
-                            .eq(BusinessChatDialogueData::getDialogueCode, conversationId)
-                            .eq(BusinessChatDialogueData::getWorkspaceId, workspaceId)
-                            .eq(BusinessChatDialogueData::getAuthSessionToken, authSessionToken)
-                            .eq(BusinessChatDialogueData::getStatus, NORMAL_STATUS)
-                            .last("limit 1"));
-            if (dialogueData == null) {
-                throw new BaseException(
-                        BusinessChatErrorCode.CHAT_SESSION_NOT_FOUND,
-                        "conversationId was not found: " + conversationId);
-            }
+        registerLeaseReleaseAfterTransaction(conversationId, leaseKey, ownerToken);
 
-            // 会话删除按 conversationId 贯穿主表、轮次、摘要和阶段明细，统一软删后查询链路自然不可见。
-            businessChatDialogueMapper.update(
-                    null,
-                    Wrappers.<BusinessChatDialogueData>update()
-                            .eq("dialogue_code", conversationId)
-                            .eq("workspace_id", workspaceId)
-                            .eq("auth_session_token", authSessionToken)
-                            .eq("status", NORMAL_STATUS)
-                            .set("status", DELETED_STATUS));
-            businessChatExchangeMapper.update(
-                    null,
-                    Wrappers.<BusinessChatExchangeData>update()
-                            .eq("dialogue_code", conversationId)
-                            .eq("workspace_id", workspaceId)
-                            .eq("status", NORMAL_STATUS)
-                            .set("status", DELETED_STATUS));
-            businessChatMemorySummaryMapper.update(
-                    null,
-                    Wrappers.<BusinessChatMemorySummaryData>update()
-                            .eq("dialogue_code", conversationId)
-                            .eq("workspace_id", workspaceId)
-                            .eq("status", NORMAL_STATUS)
-                            .set("status", DELETED_STATUS));
-            businessChatExchangeTraceStageMapper.update(
-                    null,
-                    Wrappers.<BusinessChatExchangeTraceStageData>update()
-                            .eq("dialogue_code", conversationId)
-                            .eq("workspace_id", workspaceId)
-                            .eq("status", NORMAL_STATUS)
-                            .set("status", DELETED_STATUS));
-            businessChatSessionStateService.clearIfActive(conversationId, workspaceId, authSessionToken);
-        } finally {
-            boolean released = redisLeaseManager.release(leaseKey, ownerToken);
-            if (!released) {
-                log.error("Conversation delete lease release failed. conversationId={}, leaseKey={}",
-                        conversationId,
-                        leaseKey);
-            }
+        BusinessChatDialogueData dialogueData = businessChatDialogueMapper.selectOne(
+                Wrappers.<BusinessChatDialogueData>lambdaQuery()
+                        .eq(BusinessChatDialogueData::getDialogueCode, conversationId)
+                        .eq(BusinessChatDialogueData::getWorkspaceId, workspaceId)
+                        .eq(BusinessChatDialogueData::getAuthSessionToken, authSessionToken)
+                        .eq(BusinessChatDialogueData::getStatus, NORMAL_STATUS)
+                        .last("limit 1"));
+        if (dialogueData == null) {
+            throw new BaseException(
+                    BusinessChatErrorCode.CHAT_SESSION_NOT_FOUND,
+                    "conversationId was not found: " + conversationId);
         }
+
+        // 会话删除按 conversationId 贯穿归档、调用轨迹和 Graph thread，避免任何执行状态脱离会话生命周期。
+        businessChatDialogueMapper.update(
+                null,
+                Wrappers.<BusinessChatDialogueData>update()
+                        .eq("dialogue_code", conversationId)
+                        .eq("workspace_id", workspaceId)
+                        .eq("auth_session_token", authSessionToken)
+                        .eq("status", NORMAL_STATUS)
+                        .set("status", DELETED_STATUS));
+        businessChatExchangeMapper.update(
+                null,
+                Wrappers.<BusinessChatExchangeData>update()
+                        .eq("dialogue_code", conversationId)
+                        .eq("workspace_id", workspaceId)
+                        .eq("status", NORMAL_STATUS)
+                        .set("status", DELETED_STATUS));
+        businessChatMemorySummaryMapper.update(
+                null,
+                Wrappers.<BusinessChatMemorySummaryData>update()
+                        .eq("dialogue_code", conversationId)
+                        .eq("workspace_id", workspaceId)
+                        .eq("status", NORMAL_STATUS)
+                        .set("status", DELETED_STATUS));
+        businessChatExchangeTraceStageMapper.update(
+                null,
+                Wrappers.<BusinessChatExchangeTraceStageData>update()
+                        .eq("dialogue_code", conversationId)
+                        .eq("workspace_id", workspaceId)
+                        .eq("status", NORMAL_STATUS)
+                        .set("status", DELETED_STATUS));
+        businessChatModelCallTraceMapper.update(
+                null,
+                Wrappers.<BusinessChatModelCallTraceData>update()
+                        .eq("dialogue_code", conversationId)
+                        .eq("status", NORMAL_STATUS)
+                        .set("status", DELETED_STATUS));
+        businessChatToolCallTraceMapper.update(
+                null,
+                Wrappers.<BusinessChatToolCallTraceData>update()
+                        .eq("dialogue_code", conversationId)
+                        .eq("status", NORMAL_STATUS)
+                        .set("status", DELETED_STATUS));
+        businessChatSessionStateService.clearIfActive(conversationId, workspaceId, authSessionToken);
+        releaseGraphCheckpoints(conversationId);
+        redissonClient.getKeys().delete(BusinessChatAgentCounterKeys.conversationCounterKeys(conversationId));
     }
 
     private String normalizeConversationId(String conversationId) {
         return BusinessInputValidator.normalizeRequiredText(conversationId, "conversationId");
+    }
+
+    private void registerLeaseReleaseAfterTransaction(String conversationId, String leaseKey, String ownerToken) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            releaseConversationLease(conversationId, leaseKey, ownerToken);
+            throw new IllegalStateException("transaction synchronization is required for conversation deletion");
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                releaseConversationLease(conversationId, leaseKey, ownerToken);
+            }
+        });
+    }
+
+    private void releaseConversationLease(String conversationId, String leaseKey, String ownerToken) {
+        boolean released = redisLeaseManager.release(leaseKey, ownerToken);
+        if (!released) {
+            log.error("Conversation lease release failed after delete transaction. conversationId={}, leaseKey={}",
+                    conversationId,
+                    leaseKey);
+        }
+    }
+
+    private void releaseGraphCheckpoints(String conversationId) {
+        RunnableConfig runnableConfig = RunnableConfig.builder()
+                .threadId(conversationId)
+                .build();
+        try {
+            if (businessChatCheckpointSaver.list(runnableConfig).isEmpty()) {
+                return;
+            }
+            businessChatCheckpointSaver.release(runnableConfig);
+        } catch (Exception error) {
+            throw new IllegalStateException(
+                    "failed to release graph checkpoints for conversation: " + conversationId,
+                    error);
+        }
     }
 
     private String currentAuthSessionToken() {

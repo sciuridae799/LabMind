@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
@@ -195,6 +196,37 @@ class BusinessChatServiceImplTest {
     }
 
     @Test
+    void shouldKeepSucceededTerminalStateWhenSummaryRefreshFails() {
+        BusinessChatRuntimeContext runtimeContext = prepareSuccessfulRuntime(
+                Flux.just("第一段", "第二段"));
+        doThrow(new IllegalStateException("summary refresh failed"))
+                .when(businessChatPersistenceService)
+                .refreshConversationSummary(any());
+
+        List<ServerSentEvent<BusinessChatStreamEvent>> events = businessChatService.streamChat(createRequest())
+                .collectList()
+                .block(Duration.ofSeconds(5));
+
+        assertThat(events)
+                .extracting(event -> event.data().eventType())
+                .containsExactly(
+                        "EXECUTION_PROGRESS",
+                        "AGENT_STARTED",
+                        "TEXT_DELTA",
+                        "TEXT_DELTA",
+                        "AGENT_FINISHED",
+                        "FUNCTION_SUPPLEMENT",
+                        "REFERENCE_SUPPLEMENT",
+                        "FOLLOW_UP_RECOMMENDATION",
+                        "TURN_FINISHED");
+        verify(businessChatPersistenceService).archiveSucceededTurn(any());
+        verify(businessChatPersistenceService, never()).archiveFailedTurn(any(), any());
+        verify(businessChatPersistenceService).refreshConversationSummary(any());
+        verify(redisLeaseManager).release(any(), any());
+        assertThat(runtimeContext.getReplyContent()).isEqualTo("第一段第二段");
+    }
+
+    @Test
     void shouldArchiveFailureWhenRecommendationFinalizationFailsAfterAnswer() {
         BusinessChatRuntimeContext runtimeContext = prepareSuccessfulRuntime(
                 Flux.just("第一段", "第二段"));
@@ -294,6 +326,23 @@ class BusinessChatServiceImplTest {
                 .archiveStoppedTurn(runtimeContext, "本轮回答已中止");
         verify(businessChatPersistenceService, never()).archiveSucceededTurn(any());
         verify(businessChatPersistenceService, never()).refreshConversationSummary(any());
+    }
+
+    @Test
+    void shouldReleaseRuntimeResourcesWhenStoppedTurnArchiveFails() {
+        BusinessChatRuntimeContext runtimeContext = prepareSuccessfulRuntime(Flux.never());
+        doThrow(new IllegalStateException("archive failed"))
+                .when(businessChatPersistenceService)
+                .archiveStoppedTurn(any(), any());
+
+        businessChatService.streamChat(createRequest())
+                .take(1)
+                .collectList()
+                .block(Duration.ofSeconds(5));
+
+        verify(businessChatRuntimeRegistry, timeout(1000)).unregister("conversation-1");
+        verify(redisLeaseManager, timeout(1000))
+                .release("chat:conversation:running:conversation-1", "owner-1");
     }
 
     @Test

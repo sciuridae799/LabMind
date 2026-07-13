@@ -48,6 +48,34 @@ const isWorkspaceMenuOpen = ref(false)
 const isWorkspaceSwitching = ref(false)
 const workspaceStatusMessage = ref('')
 const topBarUserElement = ref<HTMLElement | null>(null)
+let authRequestGeneration = 0
+
+interface AuthRequestContext {
+  generation: number
+  token: string
+}
+
+function beginAuthRequest(): AuthRequestContext | null {
+  const token = authSession.value?.token
+  if (!token) {
+    return null
+  }
+
+  authRequestGeneration += 1
+  return {
+    generation: authRequestGeneration,
+    token
+  }
+}
+
+function isAuthRequestCurrent(request: AuthRequestContext): boolean {
+  return request.generation === authRequestGeneration &&
+    authSession.value?.token === request.token
+}
+
+function canApplyAuthResponse(request: AuthRequestContext, responseToken?: string): boolean {
+  return isAuthRequestCurrent(request) && responseToken === request.token
+}
 
 function closeWorkspaceMenu(): void {
   isWorkspaceMenuOpen.value = false
@@ -73,15 +101,24 @@ async function toggleWorkspaceMenu(): Promise<void> {
     closeWorkspaceMenu()
     return
   }
+  if (isWorkspaceSwitching.value) {
+    return
+  }
   isWorkspaceMenuOpen.value = true
   workspaceStatusMessage.value = ''
+  const request = beginAuthRequest()
+  if (!request) {
+    return
+  }
   try {
     const session = await authApi.queryCurrentSession()
-    if (session) {
+    if (session && canApplyAuthResponse(request, session.token)) {
       setAuthSession(session)
     }
   } catch (error) {
-    workspaceStatusMessage.value = error instanceof Error ? error.message : '工作组列表加载失败'
+    if (isAuthRequestCurrent(request)) {
+      workspaceStatusMessage.value = error instanceof Error ? error.message : '工作组列表加载失败'
+    }
   }
 }
 
@@ -91,25 +128,37 @@ async function switchWorkspace(workspaceId: string): Promise<void> {
     return
   }
 
+  const request = beginAuthRequest()
+  if (!request) {
+    return
+  }
   isWorkspaceSwitching.value = true
   workspaceStatusMessage.value = ''
   try {
     const session = await authApi.switchWorkspace(workspaceId)
-    if (session) {
+    if (session && canApplyAuthResponse(request, session.token)) {
       setAuthSession(session)
+      closeWorkspaceMenu()
     }
-    closeWorkspaceMenu()
   } catch (error) {
-    workspaceStatusMessage.value = error instanceof Error ? error.message : '工作组切换失败'
+    if (isAuthRequestCurrent(request)) {
+      workspaceStatusMessage.value = error instanceof Error ? error.message : '工作组切换失败'
+    }
   } finally {
-    isWorkspaceSwitching.value = false
+    if (request.generation === authRequestGeneration) {
+      isWorkspaceSwitching.value = false
+    }
   }
 }
 
 async function handleLogout(): Promise<void> {
+  authRequestGeneration += 1
+  closeWorkspaceMenu()
+  isWorkspaceSwitching.value = false
   try {
     await authApi.logout()
   } finally {
+    authRequestGeneration += 1
     logoutAuthSession()
     await router.replace('/login')
   }
@@ -118,6 +167,7 @@ async function handleLogout(): Promise<void> {
 document.addEventListener('click', handleDocumentClick)
 
 onBeforeUnmount(() => {
+  authRequestGeneration += 1
   document.removeEventListener('click', handleDocumentClick)
 })
 </script>

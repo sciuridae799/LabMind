@@ -3,14 +3,20 @@ package com.superagent.business.chat.chatagent.persistence;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.superagent.business.chat.auth.AuthErrorCode;
+import com.superagent.business.chat.auth.AuthException;
 import com.superagent.business.chat.chatagent.persistence.data.BusinessChatDialogueData;
 import com.superagent.business.chat.chatagent.persistence.data.BusinessChatExchangeData;
 import com.superagent.business.chat.chatagent.persistence.data.BusinessChatExchangeTraceStageData;
 import com.superagent.business.chat.chatagent.persistence.data.BusinessChatMemorySummaryData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatModelCallTraceData;
+import com.superagent.business.chat.chatagent.persistence.data.BusinessChatToolCallTraceData;
 import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatDialogueMapper;
 import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExchangeMapper;
 import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatExchangeTraceStageMapper;
 import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatMemorySummaryMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatModelCallTraceMapper;
+import com.superagent.business.chat.chatagent.persistence.mapper.BusinessChatToolCallTraceMapper;
 import com.superagent.business.chat.chatagent.persistence.model.BusinessChatDialogueStage;
 import com.superagent.business.chat.chatagent.persistence.model.BusinessChatExchangeState;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatStartPlan;
@@ -19,8 +25,10 @@ import com.superagent.business.chat.chatagent.runtime.BusinessChatFinalizedTurn;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
 import com.superagent.business.chat.chatagent.service.BusinessChatSessionStateService;
 import com.superagent.idgenerator.toolkit.SnowflakeIdGenerator;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -37,7 +45,7 @@ import org.springframework.util.StringUtils;
  * <ol>
  *     <li>dialogue：表示一个 conversation 的可见会话状态和标题。</li>
  *     <li>exchange：表示一轮用户问题和助手回答，是成功/失败/中止归档的主记录。</li>
- *     <li>trace stage：表示关键执行阶段，给后台观测页使用。</li>
+ *     <li>trace stage/model call/tool call：表示关键执行阶段和外部调用，给后台观测页使用。</li>
  *     <li>memory summary：表示下一轮编排可以读取的会话摘要。</li>
  * </ol>
  *
@@ -56,6 +64,10 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
 
     private static final int TRACE_STAGE_FAILED = 3;
 
+    private static final int CALL_RUNNING = 1;
+
+    private static final int CALL_FAILED = 3;
+
     private static final int TOP_LEVEL_STAGE = 1;
 
     private static final int SUB_STAGE = 2;
@@ -65,6 +77,10 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
     private final BusinessChatExchangeMapper businessChatExchangeMapper;
 
     private final BusinessChatExchangeTraceStageMapper businessChatExchangeTraceStageMapper;
+
+    private final BusinessChatModelCallTraceMapper businessChatModelCallTraceMapper;
+
+    private final BusinessChatToolCallTraceMapper businessChatToolCallTraceMapper;
 
     private final BusinessChatMemorySummaryMapper businessChatMemorySummaryMapper;
 
@@ -162,13 +178,17 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
     @Override
     @Transactional
     public void archiveFailedTurn(BusinessChatRuntimeContext runtimeContext, String finishNote) {
-        updateExchangeAndDialogue(runtimeContext.freezeFinalizedTurn(), BusinessChatExchangeState.FAILED, finishNote);
+        BusinessChatFinalizedTurn finalizedTurn = runtimeContext.freezeFinalizedTurn();
+        failRunningTraceRecords(finalizedTurn.taskInfo().exchangeId(), finishNote);
+        updateExchangeAndDialogue(finalizedTurn, BusinessChatExchangeState.FAILED, finishNote);
     }
 
     @Override
     @Transactional
     public void archiveStoppedTurn(BusinessChatRuntimeContext runtimeContext, String finishNote) {
-        updateExchangeAndDialogue(runtimeContext.freezeFinalizedTurn(), BusinessChatExchangeState.STOPPED, finishNote);
+        BusinessChatFinalizedTurn finalizedTurn = runtimeContext.freezeFinalizedTurn();
+        failRunningTraceRecords(finalizedTurn.taskInfo().exchangeId(), finishNote);
+        updateExchangeAndDialogue(finalizedTurn, BusinessChatExchangeState.STOPPED, finishNote);
     }
 
     @Override
@@ -311,18 +331,25 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
     }
 
     private BusinessChatDialogueData loadOrCreateDialogue(BusinessChatStartPlan startPlan) {
-        BusinessChatDialogueData dialogueData = businessChatDialogueMapper.selectOne(
+        List<BusinessChatDialogueData> dialogueDataList = businessChatDialogueMapper.selectList(
                 Wrappers.<BusinessChatDialogueData>lambdaQuery()
-                        .eq(BusinessChatDialogueData::getDialogueCode, startPlan.conversationId())
-                        .eq(BusinessChatDialogueData::getWorkspaceId, startPlan.workspaceId())
-                        .eq(BusinessChatDialogueData::getAuthSessionToken, startPlan.authSessionToken())
-                        .eq(BusinessChatDialogueData::getStatus, NORMAL_STATUS)
-                        .last("limit 1"));
-        if (dialogueData != null) {
+                        .eq(BusinessChatDialogueData::getDialogueCode, startPlan.conversationId()));
+        if (dialogueDataList.size() > 1) {
+            throw new IllegalStateException(
+                    "duplicate dialogueCode data exists: " + startPlan.conversationId());
+        }
+        if (!dialogueDataList.isEmpty()) {
+            BusinessChatDialogueData dialogueData = dialogueDataList.get(0);
+            boolean ownedByCurrentSession = Integer.valueOf(NORMAL_STATUS).equals(dialogueData.getStatus())
+                    && startPlan.workspaceId().equals(dialogueData.getWorkspaceId())
+                    && startPlan.authSessionToken().equals(dialogueData.getAuthSessionToken());
+            if (!ownedByCurrentSession) {
+                throw new AuthException(AuthErrorCode.AUTH_FORBIDDEN, "该会话不属于当前登录会话");
+            }
             return dialogueData;
         }
 
-        dialogueData = new BusinessChatDialogueData();
+        BusinessChatDialogueData dialogueData = new BusinessChatDialogueData();
         dialogueData.setId(snowflakeIdGenerator.nextId());
         dialogueData.setDialogueCode(startPlan.conversationId());
         dialogueData.setWorkspaceId(startPlan.workspaceId());
@@ -368,6 +395,69 @@ public class BusinessChatPersistenceServiceImpl implements BusinessChatPersisten
         dialogueData.setDialogueStage(BusinessChatDialogueStage.IDLE.getDatabaseCode());
         dialogueData.setChatMode(finalizedTurn.taskInfo().chatMode().getDatabaseCode());
         businessChatDialogueMapper.updateById(dialogueData);
+    }
+
+    private void failRunningTraceRecords(Long exchangeId, String finishNote) {
+        LocalDateTime endTime = LocalDateTime.now();
+        List<BusinessChatExchangeTraceStageData> runningStages = businessChatExchangeTraceStageMapper.selectList(
+                Wrappers.<BusinessChatExchangeTraceStageData>lambdaQuery()
+                        .eq(BusinessChatExchangeTraceStageData::getExchangeId, exchangeId)
+                        .eq(BusinessChatExchangeTraceStageData::getStageState, TRACE_STAGE_RUNNING)
+                        .eq(BusinessChatExchangeTraceStageData::getStatus, NORMAL_STATUS));
+        for (BusinessChatExchangeTraceStageData runningStage : runningStages) {
+            BusinessChatExchangeTraceStageData update = new BusinessChatExchangeTraceStageData();
+            update.setId(runningStage.getId());
+            update.setStageState(TRACE_STAGE_FAILED);
+            update.setEndTime(endTime);
+            update.setDurationMs(Duration.between(runningStage.getStartTime(), endTime).toMillis());
+            update.setErrorMessage(finishNote);
+            requireSingleTraceUpdate(
+                    businessChatExchangeTraceStageMapper.updateById(update),
+                    "trace stage",
+                    runningStage.getId());
+        }
+
+        List<BusinessChatModelCallTraceData> runningModelCalls = businessChatModelCallTraceMapper.selectList(
+                Wrappers.<BusinessChatModelCallTraceData>lambdaQuery()
+                        .eq(BusinessChatModelCallTraceData::getExchangeId, exchangeId)
+                        .eq(BusinessChatModelCallTraceData::getCallState, CALL_RUNNING)
+                        .eq(BusinessChatModelCallTraceData::getStatus, NORMAL_STATUS));
+        for (BusinessChatModelCallTraceData runningModelCall : runningModelCalls) {
+            BusinessChatModelCallTraceData update = new BusinessChatModelCallTraceData();
+            update.setId(runningModelCall.getId());
+            update.setCallState(CALL_FAILED);
+            update.setEndTime(endTime);
+            update.setDurationMs(Duration.between(runningModelCall.getStartTime(), endTime).toMillis());
+            update.setErrorMessage(finishNote);
+            requireSingleTraceUpdate(
+                    businessChatModelCallTraceMapper.updateById(update),
+                    "model call trace",
+                    runningModelCall.getId());
+        }
+
+        List<BusinessChatToolCallTraceData> runningToolCalls = businessChatToolCallTraceMapper.selectList(
+                Wrappers.<BusinessChatToolCallTraceData>lambdaQuery()
+                        .eq(BusinessChatToolCallTraceData::getExchangeId, exchangeId)
+                        .eq(BusinessChatToolCallTraceData::getCallState, CALL_RUNNING)
+                        .eq(BusinessChatToolCallTraceData::getStatus, NORMAL_STATUS));
+        for (BusinessChatToolCallTraceData runningToolCall : runningToolCalls) {
+            BusinessChatToolCallTraceData update = new BusinessChatToolCallTraceData();
+            update.setId(runningToolCall.getId());
+            update.setCallState(CALL_FAILED);
+            update.setEndTime(endTime);
+            update.setDurationMs(Duration.between(runningToolCall.getStartTime(), endTime).toMillis());
+            update.setErrorMessage(finishNote);
+            requireSingleTraceUpdate(
+                    businessChatToolCallTraceMapper.updateById(update),
+                    "tool call trace",
+                    runningToolCall.getId());
+        }
+    }
+
+    private void requireSingleTraceUpdate(int affectedRows, String traceType, Long traceId) {
+        if (affectedRows != 1) {
+            throw new IllegalStateException(traceType + " finalization affected " + affectedRows + " rows: " + traceId);
+        }
     }
 
     private void fillSummary(

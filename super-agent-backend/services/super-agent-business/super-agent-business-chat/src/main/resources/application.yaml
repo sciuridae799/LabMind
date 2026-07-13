@@ -12,6 +12,8 @@ spring:
       database: ${SUPER_AGENT_REDIS_DATABASE}
   kafka:
     bootstrap-servers: ${SUPER_AGENT_KAFKA_BOOTSTRAP_SERVERS}
+    admin:
+      auto-create: ${SUPER_AGENT_KAFKA_ADMIN_AUTO_CREATE:true}
     properties:
       security.protocol: ${SUPER_AGENT_KAFKA_SECURITY_PROTOCOL:SASL_PLAINTEXT}
       sasl.mechanism: ${SUPER_AGENT_KAFKA_SASL_MECHANISM:PLAIN}
@@ -26,6 +28,8 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       auto-offset-reset: earliest
       enable-auto-commit: false
+    listener:
+      auto-startup: ${SUPER_AGENT_KAFKA_LISTENER_AUTO_STARTUP:true}
   ai:
     dashscope:
       # Shared by the chat and embedding model chain.

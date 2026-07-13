@@ -486,10 +486,10 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
         if (executionMode == BusinessChatMode.KNOWLEDGE_BASE) {
             // 知识库模式在编排阶段只产出路由候选，不在这里读取正文。
             // 正文证据由证据检索阶段召回，保持“结构图路由”和“回答证据”两个职责分离。
-            KnowledgeRouteDecision rawRouteDecision = knowledgeGraphClient.routeQuestion(rewrittenQuestion, 5);
-            KnowledgeRouteDecision routeDecision = filterRouteDecisionByWorkspace(
-                    rawRouteDecision,
-                    runtimeContext.getTaskInfo().workspaceId());
+            KnowledgeRouteDecision routeDecision = knowledgeGraphClient.routeQuestion(
+                    runtimeContext.getTaskInfo().workspaceId(),
+                    rewrittenQuestion,
+                    5);
             recordKnowledgeRouteTrace(runtimeContext, executionMode, rewrittenQuestion, routeDecision);
             return routeDecision;
         }
@@ -504,24 +504,6 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
             return "当前文档模式已发布影子结构图路由观测";
         }
         return "开放问答模式不查询结构图";
-    }
-
-    private KnowledgeRouteDecision filterRouteDecisionByWorkspace(
-            KnowledgeRouteDecision routeDecision,
-            String workspaceId) {
-        if (routeDecision == null || routeDecision.documentCandidates() == null
-                || routeDecision.documentCandidates().isEmpty()) {
-            return KnowledgeRouteDecision.empty();
-        }
-        List<Long> allowedDocumentIds = knowledgeManageService.filterDocumentIdsByWorkspace(
-                routeDecision.documentCandidates().stream()
-                        .map(KnowledgeRouteCandidate::documentId)
-                        .toList(),
-                workspaceId);
-        List<KnowledgeRouteCandidate> filteredCandidates = routeDecision.documentCandidates().stream()
-                .filter(candidate -> allowedDocumentIds.contains(candidate.documentId()))
-                .toList();
-        return new KnowledgeRouteDecision(routeDecision.scopeCandidates(), routeDecision.topicCandidates(), filteredCandidates);
     }
 
     private void recordKnowledgeRouteTrace(

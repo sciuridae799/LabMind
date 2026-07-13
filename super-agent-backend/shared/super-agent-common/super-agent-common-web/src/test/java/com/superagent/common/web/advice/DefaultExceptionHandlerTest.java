@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -99,6 +101,22 @@ class DefaultExceptionHandlerTest {
     }
 
     @Test
+    void shouldHandleUnsupportedRequestMethod() throws Exception {
+        mockMvc.perform(post("/test/business"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.code").value("405"))
+                .andExpect(jsonPath("$.message").value("method not allowed"));
+    }
+
+    @Test
+    void shouldHandleMissingResource() throws Exception {
+        mockMvc.perform(get("/test/missing-resource"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("404"))
+                .andExpect(jsonPath("$.message").value("resource not found"));
+    }
+
+    @Test
     void shouldHandleDisconnectedAsyncRequest() throws Exception {
         mockMvc.perform(get("/test/disconnected"))
                 .andExpect(status().isNoContent());
@@ -137,6 +155,11 @@ class DefaultExceptionHandlerTest {
         @GetMapping("/test/disconnected")
         public ApiResponse<Void> disconnected() throws AsyncRequestNotUsableException {
             throw new AsyncRequestNotUsableException("Servlet container error notification for disconnected client");
+        }
+
+        @GetMapping("/test/missing-resource")
+        public ApiResponse<Void> missingResource() throws NoResourceFoundException {
+            throw new NoResourceFoundException(HttpMethod.GET, "/missing-resource");
         }
 
         @PostMapping("/test/echo")

@@ -45,14 +45,20 @@ const deletingDocumentId = ref('')
 const detailDocument = ref<DocumentRow | null>(null)
 const detailProfile = ref<DocumentProfile | null>(null)
 const isDetailLoading = ref(false)
+const detailStatusMessage = ref('')
 const fullTextDocument = ref<DocumentRow | null>(null)
 const fullTextContent = ref('')
 const isFullTextLoading = ref(false)
+const fullTextStatusMessage = ref('')
 const authSession = useAuthSession()
 const workspaceRows = ref<WorkspaceSummary[]>([])
 const selectedWorkspaceId = ref(authSession.value?.workspaceId ?? '')
 const workspaceStatusMessage = ref('')
 let refreshTimer: ReturnType<typeof window.setTimeout> | null = null
+let documentRequestGeneration = 0
+let loadingRequestGeneration = 0
+let detailRequestGeneration = 0
+let fullTextRequestGeneration = 0
 
 const isSuperAdmin = computed(() => authSession.value?.role === 'super_admin')
 const isGuest = computed(() => authSession.value?.role === 'guest')
@@ -119,17 +125,24 @@ function scheduleDocumentRefresh(): void {
 }
 
 async function loadDocuments(options: { silent?: boolean } = {}): Promise<void> {
+  const requestGeneration = ++documentRequestGeneration
+  const workspaceId = currentWorkspaceId.value
+  const queryKeyword = keyword.value
   if (!options.silent) {
+    loadingRequestGeneration = requestGeneration
     isLoading.value = true
     statusMessage.value = ''
   }
   try {
     const response = await manageApi.queryDocumentPage({
-      workspaceId: currentWorkspaceId.value,
-      keyword: keyword.value,
+      workspaceId,
+      keyword: queryKeyword,
       pageNo: '1',
       pageSize: '20'
     }) as { documents?: DocumentRow[]; totalSize?: string | number }
+    if (requestGeneration !== documentRequestGeneration || currentWorkspaceId.value !== workspaceId) {
+      return
+    }
     documentRows.value = response.documents ?? []
     totalSize.value = Number(response.totalSize ?? 0)
     if (detailDocument.value) {
@@ -140,11 +153,15 @@ async function loadDocuments(options: { silent?: boolean } = {}): Promise<void> 
     }
     scheduleDocumentRefresh()
   } catch (error) {
-    if (!options.silent) {
+    if (
+      !options.silent &&
+      requestGeneration === documentRequestGeneration &&
+      currentWorkspaceId.value === workspaceId
+    ) {
       statusMessage.value = normalizeError(error)
     }
   } finally {
-    if (!options.silent) {
+    if (!options.silent && requestGeneration === loadingRequestGeneration) {
       isLoading.value = false
     }
   }
@@ -183,46 +200,90 @@ async function uploadDocument(): Promise<void> {
 }
 
 async function openDocumentDetail(row: DocumentRow): Promise<void> {
+  const requestGeneration = ++detailRequestGeneration
+  const workspaceId = currentWorkspaceId.value
   detailDocument.value = row
   detailProfile.value = null
+  detailStatusMessage.value = ''
   isDetailLoading.value = true
   statusMessage.value = ''
   try {
-    detailDocument.value = await manageApi.queryDocumentDetail(row.documentId) as DocumentRow
-    detailProfile.value = await manageApi.queryDocumentProfile({
-      documentId: row.documentId
-    }) as DocumentProfile
+    const [documentDetail, documentProfile] = await Promise.all([
+      manageApi.queryDocumentDetail({
+        workspaceId,
+        documentId: row.documentId
+      }),
+      manageApi.queryDocumentProfile({
+        workspaceId,
+        documentId: row.documentId
+      })
+    ])
+    if (
+      requestGeneration !== detailRequestGeneration ||
+      currentWorkspaceId.value !== workspaceId ||
+      detailDocument.value?.documentId !== row.documentId
+    ) {
+      return
+    }
+    detailDocument.value = documentDetail as DocumentRow
+    detailProfile.value = documentProfile as DocumentProfile
   } catch (error) {
-    statusMessage.value = normalizeError(error)
+    if (requestGeneration === detailRequestGeneration) {
+      detailStatusMessage.value = normalizeError(error)
+    }
   } finally {
-    isDetailLoading.value = false
+    if (requestGeneration === detailRequestGeneration) {
+      isDetailLoading.value = false
+    }
   }
 }
 
 function closeDocumentDetail(): void {
+  detailRequestGeneration += 1
   detailDocument.value = null
   detailProfile.value = null
+  detailStatusMessage.value = ''
+  isDetailLoading.value = false
 }
 
 async function openDocumentFullText(row: DocumentRow): Promise<void> {
+  const requestGeneration = ++fullTextRequestGeneration
+  const workspaceId = currentWorkspaceId.value
   fullTextDocument.value = row
   fullTextContent.value = ''
+  fullTextStatusMessage.value = ''
   isFullTextLoading.value = true
   statusMessage.value = ''
   try {
-    fullTextContent.value = String(await manageApi.queryDocumentParsedText({
+    const fullText = await manageApi.queryDocumentParsedText({
+      workspaceId,
       documentId: row.documentId
-    }) || '')
+    })
+    if (
+      requestGeneration !== fullTextRequestGeneration ||
+      currentWorkspaceId.value !== workspaceId ||
+      fullTextDocument.value?.documentId !== row.documentId
+    ) {
+      return
+    }
+    fullTextContent.value = String(fullText || '')
   } catch (error) {
-    statusMessage.value = normalizeError(error)
+    if (requestGeneration === fullTextRequestGeneration) {
+      fullTextStatusMessage.value = normalizeError(error)
+    }
   } finally {
-    isFullTextLoading.value = false
+    if (requestGeneration === fullTextRequestGeneration) {
+      isFullTextLoading.value = false
+    }
   }
 }
 
 function closeDocumentFullText(): void {
+  fullTextRequestGeneration += 1
   fullTextDocument.value = null
   fullTextContent.value = ''
+  fullTextStatusMessage.value = ''
+  isFullTextLoading.value = false
 }
 
 async function deleteDocument(row: DocumentRow): Promise<void> {
@@ -301,11 +362,19 @@ onMounted(() => {
 })
 
 watch(currentWorkspaceId, () => {
+  clearRefreshTimer()
+  documentRows.value = []
+  totalSize.value = 0
+  closeDocumentDetail()
+  closeDocumentFullText()
   void loadDocuments()
 })
 
 onUnmounted(() => {
   clearRefreshTimer()
+  documentRequestGeneration += 1
+  detailRequestGeneration += 1
+  fullTextRequestGeneration += 1
 })
 </script>
 
@@ -548,10 +617,18 @@ onUnmounted(() => {
       class="modal-mask"
       @click.self="closeDocumentDetail"
     >
-      <article class="detail-modal">
+      <article
+        class="detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="document-detail-title"
+      >
         <header class="modal-header">
           <div>
-            <h2 class="list-title">文档详情</h2>
+            <h2
+              id="document-detail-title"
+              class="list-title"
+            >文档详情</h2>
             <p class="list-meta">{{ detailDocument.documentName }}</p>
           </div>
           <button
@@ -562,6 +639,13 @@ onUnmounted(() => {
             关闭
           </button>
         </header>
+
+        <p
+          v-if="detailStatusMessage"
+          class="status-message"
+        >
+          {{ detailStatusMessage }}
+        </p>
 
         <div class="detail-grid">
           <span>文档 ID</span>
@@ -603,10 +687,18 @@ onUnmounted(() => {
       class="modal-mask"
       @click.self="closeDocumentFullText"
     >
-      <article class="full-text-modal">
+      <article
+        class="full-text-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="document-full-text-title"
+      >
         <header class="modal-header">
           <div>
-            <h2 class="list-title">浏览全文</h2>
+            <h2
+              id="document-full-text-title"
+              class="list-title"
+            >浏览全文</h2>
             <p class="list-meta">{{ fullTextDocument.documentName }}</p>
           </div>
           <button
@@ -617,6 +709,13 @@ onUnmounted(() => {
             关闭
           </button>
         </header>
+
+        <p
+          v-if="fullTextStatusMessage"
+          class="status-message"
+        >
+          {{ fullTextStatusMessage }}
+        </p>
 
         <p
           v-if="isFullTextLoading"

@@ -33,7 +33,10 @@ export interface ManageApi {
    * 查询单个知识文档详情。
    * 用于查看文档基础信息、处理状态和业务归属。
    */
-  queryDocumentDetail(documentId: DocumentId): Promise<unknown>
+  queryDocumentDetail(payload: {
+    workspaceId: string
+    documentId: DocumentId
+  }): Promise<unknown>
 
   /**
    * 删除知识文档。
@@ -404,9 +407,10 @@ export const manageApi: ManageApi = {
     })
   },
 
-  queryDocumentDetail(documentId) {
+  queryDocumentDetail({ workspaceId, documentId }) {
     return requestApiEnvelope('/manage/document/detail/query', {
       body: stringifyManagePayload({
+        workspaceId,
         documentId
       })
     })

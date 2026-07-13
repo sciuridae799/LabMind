@@ -9,6 +9,7 @@ import java.util.List;
  */
 public record KnowledgeDocumentRouteAsset(
         Long documentId,
+        String workspaceId,
         String documentName,
         String scopeCode,
         String scopeName,

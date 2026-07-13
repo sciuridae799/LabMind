@@ -54,7 +54,7 @@ async function handleGuestLogin(): Promise<void> {
       throw new Error('访客登录响应缺少账号信息')
     }
     setAuthSession(session)
-    await router.replace('/chat')
+    await router.replace(resolveRedirectPath())
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '访客登录失败'
   } finally {

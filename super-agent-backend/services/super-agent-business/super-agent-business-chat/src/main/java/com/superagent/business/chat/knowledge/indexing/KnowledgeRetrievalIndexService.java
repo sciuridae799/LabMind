@@ -72,7 +72,7 @@ public class KnowledgeRetrievalIndexService {
         }
         validateStrategySteps(strategySteps);
         Set<Integer> strategyTypes = strategyTypeSet(strategySteps);
-        deleteExistingIndex(documentData.getId());
+        deleteIndex(documentData.getId());
         List<ParentDraft> parentDraftList = buildParentDraftList(structureNodeList, parsedText);
         int chunkNo = 1;
         for (int parentIndex = 0; parentIndex < parentDraftList.size(); parentIndex++) {
@@ -141,7 +141,7 @@ public class KnowledgeRetrievalIndexService {
         return splitByMaxChars(text, CHILD_MAX_CHARS);
     }
 
-    private void deleteExistingIndex(long documentId) {
+    public void deleteIndex(long documentId) {
         chunkMapper.delete(Wrappers.<KnowledgeDocumentChunkData>lambdaQuery()
                 .eq(KnowledgeDocumentChunkData::getDocumentId, documentId));
         parentBlockMapper.delete(Wrappers.<KnowledgeDocumentParentBlockData>lambdaQuery()

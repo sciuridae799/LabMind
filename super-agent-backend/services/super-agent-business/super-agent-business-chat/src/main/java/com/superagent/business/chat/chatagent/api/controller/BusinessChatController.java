@@ -107,7 +107,7 @@ public class BusinessChatController {
 
     @PostMapping("/session/delete")
     public ApiResponse<Void> deleteSession(@Valid @RequestBody BusinessChatDeleteSessionRequest request) {
-        request.setWorkspaceId(workspaceScopeService.resolveWritableWorkspace(request.getWorkspaceId()));
+        request.setWorkspaceId(workspaceScopeService.resolveReadableWorkspace(request.getWorkspaceId()));
         businessChatSessionService.deleteSession(request);
         return ApiResponse.ok();
     }

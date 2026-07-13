@@ -1,7 +1,7 @@
 -- super-agent-business-chat 对话域建表脚本
 CREATE TABLE IF NOT EXISTS super_agent_chat_dialogue (
     id BIGINT NOT NULL COMMENT '主键id',
-    dialogue_code VARCHAR(64) NOT NULL COMMENT '业务会话编号',
+    dialogue_code VARCHAR(64) COLLATE utf8mb4_bin NOT NULL COMMENT '业务会话编号',
     workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
     auth_session_token VARCHAR(128) NOT NULL DEFAULT '' COMMENT '访客登录会话token，用于隔离访客历史',
     dialogue_title VARCHAR(100) NOT NULL DEFAULT '' COMMENT '会话标题',
@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_dialogue (
     edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',
     PRIMARY KEY (id),
+    UNIQUE KEY uk_super_agent_chat_dialogue_code (dialogue_code),
     KEY idx_dialogue_guest_session (workspace_id, auth_session_token, status),
     KEY idx_super_agent_chat_dialogue_workspace (workspace_id, dialogue_code, status),
     KEY idx_super_agent_chat_dialogue_code_status (dialogue_code, status),
@@ -22,7 +23,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_dialogue (
 
 CREATE TABLE IF NOT EXISTS super_agent_chat_exchange (
     id BIGINT NOT NULL COMMENT '主键id',
-    dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
+    dialogue_code VARCHAR(64) COLLATE utf8mb4_bin NOT NULL COMMENT '所属业务会话编号',
     workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
     user_prompt TEXT NOT NULL COMMENT '用户提问',
     reply_content LONGTEXT NOT NULL COMMENT '助手回答内容',
@@ -47,7 +48,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_exchange (
 
 CREATE TABLE IF NOT EXISTS super_agent_chat_memory_summary (
     id BIGINT NOT NULL COMMENT '主键id',
-    dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
+    dialogue_code VARCHAR(64) COLLATE utf8mb4_bin NOT NULL COMMENT '所属业务会话编号',
     workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
     covered_exchange_id BIGINT NOT NULL DEFAULT '0' COMMENT '长期摘要已覆盖到的最后一条exchangeId',
     covered_exchange_count INT NOT NULL DEFAULT '0' COMMENT '长期摘要已覆盖的轮次数',
@@ -68,7 +69,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_memory_summary (
 
 CREATE TABLE IF NOT EXISTS super_agent_chat_exchange_trace_stage (
     id BIGINT NOT NULL COMMENT '主键id',
-    dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
+    dialogue_code VARCHAR(64) COLLATE utf8mb4_bin NOT NULL COMMENT '所属业务会话编号',
     workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
     exchange_id BIGINT NOT NULL COMMENT '所属轮次id',
     trace_id VARCHAR(64) NOT NULL COMMENT '本轮执行trace id',
@@ -98,7 +99,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_exchange_trace_stage (
 
 CREATE TABLE IF NOT EXISTS super_agent_chat_model_call_trace (
     id BIGINT NOT NULL COMMENT '主键id',
-    dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
+    dialogue_code VARCHAR(64) COLLATE utf8mb4_bin NOT NULL COMMENT '所属业务会话编号',
     exchange_id BIGINT NOT NULL COMMENT '所属轮次id',
     trace_id VARCHAR(64) NOT NULL COMMENT '本轮执行trace id',
     stage_code VARCHAR(64) NOT NULL COMMENT '阶段编码',
@@ -131,7 +132,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_model_call_trace (
 
 CREATE TABLE IF NOT EXISTS super_agent_chat_tool_call_trace (
     id BIGINT NOT NULL COMMENT '主键id',
-    dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
+    dialogue_code VARCHAR(64) COLLATE utf8mb4_bin NOT NULL COMMENT '所属业务会话编号',
     exchange_id BIGINT NOT NULL COMMENT '所属轮次id',
     trace_id VARCHAR(64) NOT NULL COMMENT '本轮执行trace id',
     tool_name VARCHAR(128) NOT NULL COMMENT '工具名称',
@@ -154,7 +155,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_session_state (
     state_key VARCHAR(64) NOT NULL COMMENT '状态键，当前为全局聊天页状态',
     workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
     auth_session_token VARCHAR(128) NOT NULL DEFAULT '' COMMENT '访客登录会话token，用于隔离访客当前会话',
-    active_conversation_id VARCHAR(64) DEFAULT NULL COMMENT '聊天页刷新时应恢复的活动会话编号',
+    active_conversation_id VARCHAR(64) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '聊天页刷新时应恢复的活动会话编号',
     create_time DATETIME DEFAULT NULL COMMENT '创建时间',
     edit_time DATETIME DEFAULT NULL COMMENT '编辑时间',
     status TINYINT(1) DEFAULT '1' COMMENT '1:正常 0:删除',

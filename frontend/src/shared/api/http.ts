@@ -10,7 +10,7 @@ import type {
 import router from '../../router'
 import { logoutAuthSession, readAuthSessionSnapshot } from '../auth/authSession'
 
-const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || '').trim()
+const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || '/backend').trim()
 const REQUEST_TIMEOUT = 30000
 
 export class APIError extends Error {
@@ -268,11 +268,14 @@ function dispatchStreamPayload<TEvent extends ApiRecord>(
     return
   }
 
+  let event: TEvent
   try {
-    handlers.onEvent?.(JSON.parse(payload) as TEvent)
+    event = JSON.parse(payload) as TEvent
   } catch (error) {
     throw new APIError(`无法解析后端流式事件: ${payload}`, 500, error)
   }
+
+  handlers.onEvent?.(event)
 }
 
 function readSseDataPayload(block: string): string {
@@ -314,40 +317,89 @@ function consumeEventBlock<TEvent extends ApiRecord>(
   dispatchStreamPayload(payload, handlers)
 }
 
+async function cancelStreamReader(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  reason: unknown,
+  signal: AbortSignal
+): Promise<void> {
+  if (!signal.aborted) {
+    await reader.cancel(reason)
+  }
+}
+
 async function consumeEventStream<TEvent extends ApiRecord>(
   stream: ReadableStream<Uint8Array>,
-  handlers: StreamEventHandlers<TEvent>
+  handlers: StreamEventHandlers<TEvent>,
+  signal: AbortSignal
 ): Promise<void> {
   const reader = stream.getReader()
   const decoder = new TextDecoder('utf-8')
   // 网络分片不一定刚好落在 SSE 边界上，buffer 用来拼齐 "\n\n" 分隔出的完整事件块。
   let buffer = ''
 
-  while (true) {
-    const { value, done } = await reader.read()
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
 
-    let boundaryIndex = buffer.search(/\r?\n\r?\n/)
-    while (boundaryIndex !== -1) {
-      const block = buffer.slice(0, boundaryIndex)
-      const separatorMatch = buffer.slice(boundaryIndex).match(/^\r?\n\r?\n/)
-      const separatorLength = separatorMatch ? separatorMatch[0].length : 2
-      buffer = buffer.slice(boundaryIndex + separatorLength)
-      consumeEventBlock(block, handlers)
-      boundaryIndex = buffer.search(/\r?\n\r?\n/)
-    }
+      let boundaryIndex = buffer.search(/\r?\n\r?\n/)
+      while (boundaryIndex !== -1) {
+        const block = buffer.slice(0, boundaryIndex)
+        const separatorMatch = buffer.slice(boundaryIndex).match(/^\r?\n\r?\n/)
+        const separatorLength = separatorMatch ? separatorMatch[0].length : 2
+        buffer = buffer.slice(boundaryIndex + separatorLength)
+        consumeEventBlock(block, handlers)
+        boundaryIndex = buffer.search(/\r?\n\r?\n/)
+      }
 
-    if (done) {
-      const tail = decoder.decode()
-      if (tail) {
-        buffer += tail
+      if (done) {
+        const tail = decoder.decode()
+        if (tail) {
+          buffer += tail
+        }
+        if (buffer.trim()) {
+          consumeEventBlock(buffer, handlers)
+        }
+        return
       }
-      if (buffer.trim()) {
-        consumeEventBlock(buffer, handlers)
-      }
-      return
     }
+  } catch (error) {
+    await cancelStreamReader(reader, error, signal)
+    throw error
+  } finally {
+    reader.releaseLock()
   }
+}
+
+async function readEventStreamText(
+  stream: ReadableStream<Uint8Array>,
+  signal: AbortSignal
+): Promise<string> {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let responseText = ''
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      responseText += decoder.decode(value || new Uint8Array(), { stream: !done })
+      if (done) {
+        responseText += decoder.decode()
+        return responseText
+      }
+    }
+  } catch (error) {
+    await cancelStreamReader(reader, error, signal)
+    throw error
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+function isEventStream(value: unknown): value is ReadableStream<Uint8Array> {
+  return typeof value === 'object' &&
+    value !== null &&
+    typeof (value as ReadableStream<Uint8Array>).getReader === 'function'
 }
 
 export function openEventStream<TEvent extends ApiRecord = JsonObject>(
@@ -365,15 +417,31 @@ export function openEventStream<TEvent extends ApiRecord = JsonObject>(
         method: 'POST',
         headers: buildAuthHeaders(),
         data: payload,
-        signal: controller.signal
+        signal: controller.signal,
+        validateStatus: () => true
       })
 
-      if (!response.data || typeof response.data.getReader !== 'function') {
+      if (!isEventStream(response.data)) {
         throw new APIError('当前浏览器不支持流式响应', 500)
       }
 
-      await consumeEventStream(response.data, handlers)
+      if (response.status < 200 || response.status >= 300) {
+        const responseText = await readEventStreamText(response.data, controller.signal)
+        if (response.status === 401) {
+          redirectToLogin()
+        }
+        throw new APIError(
+          readResponseMessage(responseText, response.status),
+          response.status,
+          response
+        )
+      }
+
+      await consumeEventStream(response.data, handlers, controller.signal)
     } catch (error) {
+      if (!controller.signal.aborted) {
+        controller.abort()
+      }
       throw normalizeAxiosError(error)
     }
   })()

@@ -35,8 +35,7 @@ public class AuthWorkspaceScopeServiceImpl implements AuthWorkspaceScopeService 
         String workspaceId = StringUtils.hasText(normalizedRequestedWorkspaceId)
                 ? normalizedRequestedWorkspaceId
                 : session.workspaceId();
-        requireWorkspaceExists(workspaceId);
-        return workspaceId;
+        return requireWorkspaceExists(workspaceId);
     }
 
     @Override
@@ -62,7 +61,7 @@ public class AuthWorkspaceScopeServiceImpl implements AuthWorkspaceScopeService 
         return StringUtils.hasText(normalized) ? normalized : null;
     }
 
-    private void requireWorkspaceExists(String workspaceId) {
+    private String requireWorkspaceExists(String workspaceId) {
         AuthWorkspaceData workspaceData = workspaceMapper.selectOne(
                 Wrappers.<AuthWorkspaceData>lambdaQuery()
                         .eq(AuthWorkspaceData::getWorkspaceId, workspaceId)
@@ -71,5 +70,6 @@ public class AuthWorkspaceScopeServiceImpl implements AuthWorkspaceScopeService 
         if (workspaceData == null) {
             throw new AuthException(AuthErrorCode.AUTH_FORBIDDEN, "工作组不存在或不可用：" + workspaceId);
         }
+        return workspaceData.getWorkspaceId();
     }
 }

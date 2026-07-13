@@ -1,7 +1,7 @@
 -- super-agent-business-chat Graph 持久化建表脚本
 CREATE TABLE IF NOT EXISTS GRAPH_THREAD (
     thread_id VARCHAR(36) NOT NULL COMMENT 'Graph 内部线程主键',
-    thread_name VARCHAR(255) NOT NULL COMMENT '业务线程名，通常就是 conversationId',
+    thread_name VARCHAR(64) COLLATE utf8mb4_bin NOT NULL COMMENT '业务线程名，即 conversationId',
     is_released BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否已经被释放',
     PRIMARY KEY (thread_id),
     UNIQUE KEY IDX_GRAPH_THREAD_NAME_RELEASED (thread_name, is_released)

@@ -23,6 +23,7 @@ public class AuthBootstrapInitializer implements ApplicationRunner {
 
     private static final int NORMAL_STATUS = 1;
     private static final int ENABLED = 1;
+    private static final String BOOTSTRAP_LOCK_WORKSPACE_ID = "public-demo";
 
     private final AuthBootstrapProperties properties;
     private final AuthWorkspaceMapper workspaceMapper;
@@ -38,39 +39,35 @@ public class AuthBootstrapInitializer implements ApplicationRunner {
             return;
         }
         requireFullBootstrapConfig();
-        long superAdminCount = userAccountMapper.selectCount(Wrappers.<AuthUserAccountData>lambdaQuery()
-                .eq(AuthUserAccountData::getRole, AuthRole.SUPER_ADMIN.value())
-                .eq(AuthUserAccountData::getStatus, NORMAL_STATUS));
-        if (superAdminCount > 0) {
+        requireBootstrapLock();
+        if (!userAccountMapper.selectAvailableSuperAdminIdsForUpdate(
+                AuthRole.SUPER_ADMIN.value(), ENABLED, NORMAL_STATUS).isEmpty()) {
             return;
         }
-        AuthWorkspaceData workspaceData = workspaceMapper.selectOne(Wrappers.<AuthWorkspaceData>lambdaQuery()
-                .eq(AuthWorkspaceData::getWorkspaceId, properties.getWorkspaceId().strip())
-                .eq(AuthWorkspaceData::getStatus, NORMAL_STATUS)
-                .last("limit 1"));
+        String workspaceId = properties.getWorkspaceId().strip();
+        AuthWorkspaceData workspaceData = workspaceMapper.selectByWorkspaceIdForUpdate(workspaceId);
         if (workspaceData == null) {
             workspaceData = new AuthWorkspaceData();
             workspaceData.setId(snowflakeIdGenerator.nextId());
-            workspaceData.setWorkspaceId(properties.getWorkspaceId().strip());
+            workspaceData.setWorkspaceId(workspaceId);
             workspaceData.setWorkspaceName(properties.getWorkspaceName().strip());
             workspaceData.setStatus(NORMAL_STATUS);
             workspaceMapper.insert(workspaceData);
+        } else if (!Integer.valueOf(NORMAL_STATUS).equals(workspaceData.getStatus())) {
+            workspaceData.setWorkspaceName(properties.getWorkspaceName().strip());
+            workspaceData.setStatus(NORMAL_STATUS);
+            workspaceMapper.updateById(workspaceData);
         }
 
-        AuthUserAccountData existingAccount = userAccountMapper.selectOne(Wrappers.<AuthUserAccountData>lambdaQuery()
-                .eq(AuthUserAccountData::getAccount, properties.getSuperAdminAccount().strip())
-                .eq(AuthUserAccountData::getStatus, NORMAL_STATUS)
-                .last("limit 1"));
-        if (existingAccount != null) {
-            throw new IllegalStateException(
-                    "super-agent.auth.bootstrap.super-admin-account already exists with role "
-                            + existingAccount.getRole());
-        }
-
+        String account = properties.getSuperAdminAccount().strip();
+        AuthUserAccountData userData = userAccountMapper.selectByAccountForUpdate(account);
+        boolean existingAccount = userData != null;
         String salt = passwordHasher.newSalt();
-        AuthUserAccountData userData = new AuthUserAccountData();
-        userData.setId(snowflakeIdGenerator.nextId());
-        userData.setAccount(properties.getSuperAdminAccount().strip());
+        if (userData == null) {
+            userData = new AuthUserAccountData();
+            userData.setId(snowflakeIdGenerator.nextId());
+            userData.setAccount(account);
+        }
         userData.setDisplayName(properties.getSuperAdminDisplayName().strip());
         userData.setPasswordSalt(salt);
         userData.setPasswordHash(passwordHasher.hash(properties.getSuperAdminPassword(), salt));
@@ -78,14 +75,13 @@ public class AuthBootstrapInitializer implements ApplicationRunner {
         userData.setWorkspaceId(workspaceData.getWorkspaceId());
         userData.setEnabled(ENABLED);
         userData.setStatus(NORMAL_STATUS);
-        userAccountMapper.insert(userData);
+        if (existingAccount) {
+            userAccountMapper.updateById(userData);
+        } else {
+            userAccountMapper.insert(userData);
+        }
 
-        AuthUserWorkspaceData relationData = new AuthUserWorkspaceData();
-        relationData.setId(snowflakeIdGenerator.nextId());
-        relationData.setUserId(userData.getId());
-        relationData.setWorkspaceId(workspaceData.getWorkspaceId());
-        relationData.setStatus(NORMAL_STATUS);
-        userWorkspaceMapper.insert(relationData);
+        restoreWorkspaceRelation(userData.getId(), workspaceData.getWorkspaceId());
     }
 
     private boolean hasAnyBootstrapConfig() {
@@ -107,6 +103,35 @@ public class AuthBootstrapInitializer implements ApplicationRunner {
     private void requireText(String value, String propertyName) {
         if (!StringUtils.hasText(value)) {
             throw new IllegalStateException(propertyName + " is required when auth bootstrap is configured.");
+        }
+    }
+
+    private void requireBootstrapLock() {
+        AuthWorkspaceData lockWorkspace = workspaceMapper.selectByWorkspaceIdForUpdate(BOOTSTRAP_LOCK_WORKSPACE_ID);
+        if (lockWorkspace == null) {
+            throw new IllegalStateException("reserved bootstrap lock workspace does not exist: "
+                    + BOOTSTRAP_LOCK_WORKSPACE_ID);
+        }
+    }
+
+    private void restoreWorkspaceRelation(Long userId, String workspaceId) {
+        AuthUserWorkspaceData relationData = userWorkspaceMapper.selectOne(
+                Wrappers.<AuthUserWorkspaceData>lambdaQuery()
+                        .eq(AuthUserWorkspaceData::getUserId, userId)
+                        .eq(AuthUserWorkspaceData::getWorkspaceId, workspaceId)
+                        .last("limit 1"));
+        if (relationData == null) {
+            relationData = new AuthUserWorkspaceData();
+            relationData.setId(snowflakeIdGenerator.nextId());
+            relationData.setUserId(userId);
+            relationData.setWorkspaceId(workspaceId);
+            relationData.setStatus(NORMAL_STATUS);
+            userWorkspaceMapper.insert(relationData);
+            return;
+        }
+        if (!Integer.valueOf(NORMAL_STATUS).equals(relationData.getStatus())) {
+            relationData.setStatus(NORMAL_STATUS);
+            userWorkspaceMapper.updateById(relationData);
         }
     }
 }

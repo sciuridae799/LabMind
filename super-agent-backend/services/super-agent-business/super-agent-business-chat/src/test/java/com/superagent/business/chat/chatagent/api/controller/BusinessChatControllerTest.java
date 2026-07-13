@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.superagent.business.chat.chatagent.api.dto.BusinessChatDeleteSessionRequest;
 import com.superagent.business.chat.chatagent.api.dto.BusinessChatSessionDetailRequest;
 import com.superagent.business.chat.chatagent.api.dto.BusinessChatSessionListRequest;
 import com.superagent.business.chat.chatagent.api.dto.BusinessChatExchangeDetailRequest;
@@ -30,6 +31,10 @@ class BusinessChatControllerTest {
 
     private MockMvc mockMvc;
 
+    private BusinessChatSessionService businessChatSessionService;
+
+    private AuthWorkspaceScopeService workspaceScopeService;
+
     @BeforeEach
     void setUp() {
         BusinessChatService businessChatService = request -> Flux.empty();
@@ -54,8 +59,7 @@ class BusinessChatControllerTest {
                 return null;
             }
         };
-        BusinessChatSessionService businessChatSessionService = request -> {
-        };
+        businessChatSessionService = org.mockito.Mockito.mock(BusinessChatSessionService.class);
         BusinessChatSessionStateService businessChatSessionStateService =
                 org.mockito.Mockito.mock(BusinessChatSessionStateService.class);
         BusinessChatModelApiConfigService modelApiConfigService = new BusinessChatModelApiConfigService() {
@@ -100,7 +104,7 @@ class BusinessChatControllerTest {
             }
         };
         KnowledgeManageService knowledgeManageService = org.mockito.Mockito.mock(KnowledgeManageService.class);
-        AuthWorkspaceScopeService workspaceScopeService = org.mockito.Mockito.mock(AuthWorkspaceScopeService.class);
+        workspaceScopeService = org.mockito.Mockito.mock(AuthWorkspaceScopeService.class);
         org.mockito.Mockito.when(workspaceScopeService.resolveReadableWorkspace(org.mockito.Mockito.any()))
                 .thenReturn("workspace-1");
         org.mockito.Mockito.when(workspaceScopeService.resolveWritableWorkspace(org.mockito.Mockito.any()))
@@ -186,5 +190,31 @@ class BusinessChatControllerTest {
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("conversationId must not be blank")));
+    }
+
+    @Test
+    void shouldUseReadableWorkspaceScopeWhenDeletingOwnSession() throws Exception {
+        org.mockito.Mockito.when(workspaceScopeService.resolveReadableWorkspace("public-demo"))
+                .thenReturn("public-demo");
+
+        mockMvc.perform(post("/api/chat/session/delete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "conversationId": "conversation-1",
+                                  "workspaceId": "public-demo"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(workspaceScopeService).resolveReadableWorkspace("public-demo");
+        org.mockito.Mockito.verify(
+                        workspaceScopeService,
+                        org.mockito.Mockito.never())
+                .resolveWritableWorkspace(org.mockito.ArgumentMatchers.any());
+        org.mockito.ArgumentCaptor<BusinessChatDeleteSessionRequest> requestCaptor =
+                org.mockito.ArgumentCaptor.forClass(BusinessChatDeleteSessionRequest.class);
+        org.mockito.Mockito.verify(businessChatSessionService).deleteSession(requestCaptor.capture());
+        org.assertj.core.api.Assertions.assertThat(requestCaptor.getValue().getWorkspaceId()).isEqualTo("public-demo");
     }
 }

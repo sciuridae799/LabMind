@@ -133,8 +133,11 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                     .then(startLeaseRenewalAndExecution(boundRuntimeContext))
                     .onErrorResume(error -> handleExecutionFailure(boundRuntimeContext, error))
                     .doFinally(signalType -> {
-                        handleExecutionCancellation(boundRuntimeContext, signalType);
-                        releaseRuntimeResources(boundRuntimeContext);
+                        try {
+                            handleExecutionCancellation(boundRuntimeContext, signalType);
+                        } finally {
+                            releaseRuntimeResources(boundRuntimeContext);
+                        }
                     })
                     .thenMany(Flux.empty());
             return outputFlux.mergeWith(executionFlux);
@@ -648,6 +651,7 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                         finalizedTurn.taskInfo().conversationId(),
                         finalizedTurn.taskInfo().exchangeId(),
                         error))
+                .onErrorResume(error -> Mono.empty())
                 .then();
     }
 

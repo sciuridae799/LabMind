@@ -29,8 +29,6 @@ public interface KnowledgeManageService {
 
     List<KnowledgeDocumentVo> listDocumentOptions();
 
-    List<Long> filterDocumentIdsByWorkspace(List<Long> documentIdList, String workspaceId);
-
     KnowledgeDocumentVo queryDocumentDetail(KnowledgeDocumentIdRequest request);
 
     KnowledgeDocumentStrategyPlanVo queryStrategyPlan(KnowledgeDocumentIdRequest request);

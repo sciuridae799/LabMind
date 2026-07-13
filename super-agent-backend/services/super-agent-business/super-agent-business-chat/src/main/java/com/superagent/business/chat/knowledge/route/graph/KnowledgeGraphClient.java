@@ -14,9 +14,13 @@ public interface KnowledgeGraphClient {
 
     void upsertDocumentRouteAsset(KnowledgeDocumentRouteAsset asset);
 
-    void replaceDocumentStructure(long documentId, String documentName, List<KnowledgeDocumentStructureGraphNode> nodes);
+    void replaceDocumentStructure(
+            String workspaceId,
+            long documentId,
+            String documentName,
+            List<KnowledgeDocumentStructureGraphNode> nodes);
 
-    void deleteDocumentRouteAsset(long documentId);
+    void deleteDocumentRouteAsset(String workspaceId, long documentId);
 
-    KnowledgeRouteDecision routeQuestion(String question, int limit);
+    KnowledgeRouteDecision routeQuestion(String workspaceId, String question, int limit);
 }

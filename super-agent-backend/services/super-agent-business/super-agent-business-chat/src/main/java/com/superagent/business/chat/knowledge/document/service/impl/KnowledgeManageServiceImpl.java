@@ -6,6 +6,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superagent.business.chat.auth.AuthSessionHolder;
+import com.superagent.business.chat.auth.AuthRole;
 import com.superagent.business.chat.chatagent.execution.BusinessChatDynamicModelClient;
 import com.superagent.business.chat.chatagent.execution.model.BusinessChatModelApiConfigSnapshot;
 import com.superagent.business.chat.chatagent.service.BusinessChatModelApiConfigService;
@@ -269,10 +270,29 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
      * 校验任务仍然是当前文档的 lastParseTaskId，然后完成正文解析、画像生成、MySQL 更新和 Neo4j 写入。</p>
      */
     @Override
-    @Transactional
     public void processDocumentParseTask(String documentIdValue, String taskIdValue) {
         long documentId = BusinessInputValidator.parsePositiveLong(documentIdValue, "documentId");
         long taskId = BusinessInputValidator.parsePositiveLong(taskIdValue, "taskId");
+        ParseTaskExecutionState executionState = new ParseTaskExecutionState();
+        try {
+            transactionTemplate.executeWithoutResult(status -> executeDocumentParseTask(
+                    documentId,
+                    taskId,
+                    executionState));
+        } catch (RuntimeException error) {
+            if (!executionState.started) {
+                throw error;
+            }
+            cleanupParseTaskExternalWrites(executionState, documentId, error);
+            markParseTaskFailedAfterRollback(taskId, documentId, executionState.startTime, error);
+            throw error;
+        }
+    }
+
+    private void executeDocumentParseTask(
+            long documentId,
+            long taskId,
+            ParseTaskExecutionState executionState) {
         KnowledgeDocumentTaskData taskData = loadNormalTask(taskId, documentId);
         if (Integer.valueOf(TASK_STATUS_SUCCEEDED).equals(taskData.getTaskStatus())) {
             return;
@@ -289,92 +309,94 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         // 解析任务只处理文档当前 lastParseTaskId。Kafka 可能重投旧消息，旧任务必须失败在入口，
         // 否则旧正文会覆盖当前文档的画像、MySQL 路由字段和 Neo4j 路由资产。
         LocalDateTime startTime = LocalDateTime.now();
+        executionState.documentData = documentData;
+        executionState.startTime = startTime;
+        executionState.parsedTextObjectName = buildParsedTextObjectName(documentId);
+        executionState.started = true;
         markTaskRunning(taskId, startTime);
         markDocumentParsing(documentId);
         insertTaskLog(taskId, documentId, TASK_STAGE_CONTENT_PARSE, TASK_EVENT_STARTED, TASK_LOG_INFO,
                 "开始解析文档正文。", null);
 
-        try {
-            byte[] originalContent = objectStorage.getBytes(documentData.getBucketName(), documentData.getObjectName());
-            String parsedText = parseDocumentText(
-                    originalContent,
-                    documentData.getOriginalFileName(),
-                    documentData.getFileType());
-            String parsedTextObjectName = buildParsedTextObjectName(documentId);
-            objectStorage.put(
-                    parsedTextObjectName,
-                    parsedText.getBytes(StandardCharsets.UTF_8),
-                    "text/plain; charset=utf-8");
-            List<KnowledgeDocumentStructureNodeData> structureNodes = rebuildDocumentStructure(
-                    documentId,
-                    taskId,
-                    documentData.getDocumentName(),
-                    parsedText);
-            insertTaskLog(taskId, documentId, TASK_STAGE_CONTENT_PARSE, TASK_EVENT_COMPLETED, TASK_LOG_INFO,
-                    "文档正文解析完成。", null);
+        byte[] originalContent = objectStorage.getBytes(documentData.getBucketName(), documentData.getObjectName());
+        String parsedText = parseDocumentText(
+                originalContent,
+                documentData.getOriginalFileName(),
+                documentData.getFileType());
+        objectStorage.put(
+                executionState.parsedTextObjectName,
+                parsedText.getBytes(StandardCharsets.UTF_8),
+                "text/plain; charset=utf-8");
+        executionState.parsedTextWritten = true;
+        List<KnowledgeDocumentStructureNodeData> structureNodes = rebuildDocumentStructure(
+                documentId,
+                taskId,
+                documentData.getDocumentName(),
+                parsedText);
+        insertTaskLog(taskId, documentId, TASK_STAGE_CONTENT_PARSE, TASK_EVENT_COMPLETED, TASK_LOG_INFO,
+                "文档正文解析完成。", null);
 
-            // extJson 是上传时用户填写的知识归属快照；解析阶段不能再读请求对象，只能读任务快照。
-            UploadedKnowledgeMetadata uploadedMetadata = readUploadedKnowledgeMetadata(taskData.getExtJson());
-            CompletedKnowledgeMetadata completedMetadata = completeMetadata(
-                    documentData.getOriginalFileName(),
-                    documentData.getDocumentName(),
-                    documentData.getMimeType(),
-                    documentData.getFileSize(),
-                    uploadedMetadata,
-                    parsedText);
-            upsertScope(completedMetadata);
-            upsertTopic(completedMetadata);
+        // extJson 是上传时用户填写的知识归属快照；解析阶段不能再读请求对象，只能读任务快照。
+        UploadedKnowledgeMetadata uploadedMetadata = readUploadedKnowledgeMetadata(taskData.getExtJson());
+        CompletedKnowledgeMetadata completedMetadata = completeMetadata(
+                documentData.getOriginalFileName(),
+                documentData.getDocumentName(),
+                documentData.getMimeType(),
+                documentData.getFileSize(),
+                uploadedMetadata,
+                parsedText);
+        upsertScope(completedMetadata);
+        upsertTopic(completedMetadata);
 
-            // MySQL document 行保存面向列表、详情和状态机的事实字段；profile 行保存面向路由的画像字段。
-            KnowledgeDocumentData completedDocumentData = buildCompletedDocumentUpdate(
-                    documentData,
-                    completedMetadata,
-                    parsedText,
-                    parsedTextObjectName,
-                    structureNodes.size());
-            documentMapper.updateById(completedDocumentData);
+        // MySQL document 行保存面向列表、详情和状态机的事实字段；profile 行保存面向路由的画像字段。
+        KnowledgeDocumentData completedDocumentData = buildCompletedDocumentUpdate(
+                documentData,
+                completedMetadata,
+                parsedText,
+                executionState.parsedTextObjectName,
+                structureNodes.size());
+        documentMapper.updateById(completedDocumentData);
 
-            KnowledgeDocumentProfileData profileData = buildProfile(completedDocumentData, completedMetadata);
-            profileMapper.insert(profileData);
-            // Neo4j 只保存“可路由资产”，不保存正文；正文仍在对象存储中，避免路由召回与回答证据混在一起。
-            knowledgeGraphClient.upsertDocumentRouteAsset(
-                    toRouteAsset(completedDocumentData, completedMetadata, profileData));
-            knowledgeGraphClient.replaceDocumentStructure(
-                    documentId,
-                    completedDocumentData.getDocumentName(),
-                    structureNodes.stream().map(this::toStructureGraphNode).toList());
-            KnowledgeDocumentStrategyPlanData strategyPlan = createRecommendedStrategyPlan(
-                    completedDocumentData,
-                    structureNodes,
-                    parsedText);
-            long indexTaskId = snowflakeIdGenerator.nextId();
-            confirmPlan(strategyPlan.getId(), null);
-            KnowledgeDocumentTaskData indexTaskData = buildCreatedIndexTask(
-                    indexTaskId,
-                    documentId,
-                    strategyPlan.getId(),
-                    strategyPlan.getStrategySnapshot(),
-                    TASK_TRIGGER_SYSTEM_AUTO);
-            taskMapper.insert(indexTaskData);
-            documentMapper.update(null, Wrappers.<KnowledgeDocumentData>lambdaUpdate()
-                    .eq(KnowledgeDocumentData::getId, documentId)
-                    .eq(KnowledgeDocumentData::getStatus, NORMAL_STATUS)
-                    .set(KnowledgeDocumentData::getStrategyStatus, STRATEGY_CONFIRMED)
-                    .set(KnowledgeDocumentData::getIndexStatus, INDEX_PENDING)
-                    .set(KnowledgeDocumentData::getCurrentPlanId, strategyPlan.getId())
-                    .set(KnowledgeDocumentData::getLastIndexTaskId, indexTaskId));
-            insertTaskLog(taskId, documentId, TASK_STAGE_ROUTE, TASK_EVENT_RECOMMEND_STRATEGY, TASK_LOG_INFO,
-                    "文档切块策略推荐完成。", strategyPlan.getStrategySnapshot());
-            insertTaskLog(indexTaskId, documentId, TASK_STAGE_STRATEGY_CONFIRM, TASK_EVENT_USER_CONFIRM, TASK_LOG_INFO,
-                    "系统自动确认推荐切块策略，等待 Kafka 索引任务消费。", strategyPlan.getStrategySnapshot());
-            publishIndexTaskAfterCommit(documentId, indexTaskId, strategyPlan.getId());
+        KnowledgeDocumentProfileData profileData = buildProfile(completedDocumentData, completedMetadata);
+        profileMapper.insert(profileData);
+        // Neo4j 只保存“可路由资产”，不保存正文；正文仍在对象存储中，避免路由召回与回答证据混在一起。
+        knowledgeGraphClient.upsertDocumentRouteAsset(
+                toRouteAsset(completedDocumentData, completedMetadata, profileData));
+        executionState.graphWritten = true;
+        knowledgeGraphClient.replaceDocumentStructure(
+                completedDocumentData.getWorkspaceId(),
+                documentId,
+                completedDocumentData.getDocumentName(),
+                structureNodes.stream().map(this::toStructureGraphNode).toList());
+        KnowledgeDocumentStrategyPlanData strategyPlan = createRecommendedStrategyPlan(
+                completedDocumentData,
+                structureNodes,
+                parsedText);
+        long indexTaskId = snowflakeIdGenerator.nextId();
+        confirmPlan(strategyPlan.getId(), null);
+        KnowledgeDocumentTaskData indexTaskData = buildCreatedIndexTask(
+                indexTaskId,
+                documentId,
+                strategyPlan.getId(),
+                strategyPlan.getStrategySnapshot(),
+                TASK_TRIGGER_SYSTEM_AUTO);
+        taskMapper.insert(indexTaskData);
+        documentMapper.update(null, Wrappers.<KnowledgeDocumentData>lambdaUpdate()
+                .eq(KnowledgeDocumentData::getId, documentId)
+                .eq(KnowledgeDocumentData::getStatus, NORMAL_STATUS)
+                .set(KnowledgeDocumentData::getStrategyStatus, STRATEGY_CONFIRMED)
+                .set(KnowledgeDocumentData::getIndexStatus, INDEX_PENDING)
+                .set(KnowledgeDocumentData::getCurrentPlanId, strategyPlan.getId())
+                .set(KnowledgeDocumentData::getLastIndexTaskId, indexTaskId));
+        insertTaskLog(taskId, documentId, TASK_STAGE_ROUTE, TASK_EVENT_RECOMMEND_STRATEGY, TASK_LOG_INFO,
+                "文档切块策略推荐完成。", strategyPlan.getStrategySnapshot());
+        insertTaskLog(indexTaskId, documentId, TASK_STAGE_STRATEGY_CONFIRM, TASK_EVENT_USER_CONFIRM, TASK_LOG_INFO,
+                "系统自动确认推荐切块策略，等待 Kafka 索引任务消费。", strategyPlan.getStrategySnapshot());
+        publishIndexTaskAfterCommit(documentId, indexTaskId, strategyPlan.getId());
 
-            markTaskSucceeded(taskId, startTime);
-            insertTaskLog(taskId, documentId, TASK_STAGE_ROUTE, TASK_EVENT_COMPLETED, TASK_LOG_INFO,
-                    "文档路由元数据生成完成。", null);
-        } catch (RuntimeException error) {
-            markTaskFailed(taskId, documentId, startTime, error);
-        }
+        markTaskSucceeded(taskId, startTime);
+        insertTaskLog(taskId, documentId, TASK_STAGE_ROUTE, TASK_EVENT_COMPLETED, TASK_LOG_INFO,
+                "文档路由元数据生成完成。", null);
     }
 
     @Override
@@ -467,11 +489,32 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
     }
 
     @Override
-    @Transactional
     public void processDocumentIndexTask(String documentIdValue, String taskIdValue, String planIdValue) {
         long documentId = BusinessInputValidator.parsePositiveLong(documentIdValue, "documentId");
         long taskId = BusinessInputValidator.parsePositiveLong(taskIdValue, "taskId");
         long planId = BusinessInputValidator.parsePositiveLong(planIdValue, "planId");
+        IndexTaskExecutionState executionState = new IndexTaskExecutionState();
+        try {
+            transactionTemplate.executeWithoutResult(status -> executeDocumentIndexTask(
+                    documentId,
+                    taskId,
+                    planId,
+                    executionState));
+        } catch (RuntimeException error) {
+            if (!executionState.started) {
+                throw error;
+            }
+            cleanupIndexTaskExternalWrites(executionState, documentId, error);
+            markIndexTaskFailedAfterRollback(taskId, documentId, executionState.startTime, error);
+            throw error;
+        }
+    }
+
+    private void executeDocumentIndexTask(
+            long documentId,
+            long taskId,
+            long planId,
+            IndexTaskExecutionState executionState) {
         KnowledgeDocumentTaskData taskData = loadNormalTask(taskId, documentId);
         if (Integer.valueOf(TASK_STATUS_SUCCEEDED).equals(taskData.getTaskStatus())) {
             return;
@@ -495,25 +538,26 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         }
 
         LocalDateTime startTime = LocalDateTime.now();
+        executionState.startTime = startTime;
+        executionState.started = true;
         markTaskRunning(taskId, TASK_STAGE_CHUNK_EXECUTE, startTime);
         markDocumentIndexRunning(documentId);
         insertTaskLog(taskId, documentId, TASK_STAGE_CHUNK_EXECUTE, TASK_EVENT_STARTED, TASK_LOG_INFO,
                 "开始执行切块策略。", planData.getStrategySnapshot());
-        try {
-            String parsedText = objectStorage.getText(documentData.getBucketName(), documentData.getParseTextPath());
-            List<KnowledgeDocumentStructureNodeData> structureNodes = loadStructureNodes(documentId, documentData.getLastParseTaskId());
-            List<KnowledgeDocumentStrategyStepData> steps = loadStrategySteps(planId);
-            retrievalIndexService.rebuildIndex(documentData, taskId, structureNodes, parsedText, steps);
-            insertTaskLog(taskId, documentId, TASK_STAGE_VECTORIZE, TASK_EVENT_COMPLETED, TASK_LOG_INFO,
-                    "文档向量化和双引擎索引写入完成。", null);
-            markDocumentIndexSucceeded(documentId, taskId);
-            markPlanExecuted(planId);
-            markTaskSucceeded(taskId, TASK_STAGE_INDEX_DONE, startTime);
-            insertTaskLog(taskId, documentId, TASK_STAGE_INDEX_DONE, TASK_EVENT_COMPLETED, TASK_LOG_INFO,
-                    "文档索引构建完成。", null);
-        } catch (RuntimeException error) {
-            markIndexTaskFailed(taskId, documentId, startTime, error);
-        }
+        String parsedText = objectStorage.getText(documentData.getBucketName(), documentData.getParseTextPath());
+        List<KnowledgeDocumentStructureNodeData> structureNodes = loadStructureNodes(
+                documentId,
+                documentData.getLastParseTaskId());
+        List<KnowledgeDocumentStrategyStepData> steps = loadStrategySteps(planId);
+        executionState.indexRebuildStarted = true;
+        retrievalIndexService.rebuildIndex(documentData, taskId, structureNodes, parsedText, steps);
+        insertTaskLog(taskId, documentId, TASK_STAGE_VECTORIZE, TASK_EVENT_COMPLETED, TASK_LOG_INFO,
+                "文档向量化和双引擎索引写入完成。", null);
+        markDocumentIndexSucceeded(documentId, taskId);
+        markPlanExecuted(planId);
+        markTaskSucceeded(taskId, TASK_STAGE_INDEX_DONE, startTime);
+        insertTaskLog(taskId, documentId, TASK_STAGE_INDEX_DONE, TASK_EVENT_COMPLETED, TASK_LOG_INFO,
+                "文档索引构建完成。", null);
     }
 
     @Override
@@ -531,29 +575,6 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
                                 .last("limit 100"))
                 .stream()
                 .map(this::toDocumentVo)
-                .toList();
-    }
-
-    @Override
-    public List<Long> filterDocumentIdsByWorkspace(List<Long> documentIdList, String workspaceId) {
-        if (documentIdList == null || documentIdList.isEmpty()) {
-            return List.of();
-        }
-        String normalizedWorkspaceId = BusinessInputValidator.normalizeRequiredText(workspaceId, "workspaceId");
-        List<Long> normalizedDocumentIds = documentIdList.stream()
-                .filter(documentId -> documentId != null && documentId > 0)
-                .distinct()
-                .toList();
-        if (normalizedDocumentIds.isEmpty()) {
-            return List.of();
-        }
-        return documentMapper.selectList(Wrappers.<KnowledgeDocumentData>lambdaQuery()
-                        .select(KnowledgeDocumentData::getId)
-                        .in(KnowledgeDocumentData::getId, normalizedDocumentIds)
-                        .eq(KnowledgeDocumentData::getWorkspaceId, normalizedWorkspaceId)
-                        .eq(KnowledgeDocumentData::getStatus, NORMAL_STATUS))
-                .stream()
-                .map(KnowledgeDocumentData::getId)
                 .toList();
     }
 
@@ -588,7 +609,8 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
                 .eq(KnowledgeDocumentProfileData::getDocumentId, documentId)
                 .eq(KnowledgeDocumentProfileData::getStatus, NORMAL_STATUS)
                 .set(KnowledgeDocumentProfileData::getStatus, DELETED_STATUS));
-        knowledgeGraphClient.deleteDocumentRouteAsset(documentId);
+        retrievalIndexService.deleteIndex(documentId);
+        knowledgeGraphClient.deleteDocumentRouteAsset(documentData.getWorkspaceId(), documentId);
         removeStoredObjects(documentData);
     }
 
@@ -677,11 +699,8 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
     public List<KnowledgeRouteCandidateVo> previewRoute(KnowledgeRoutePreviewRequest request) {
         String question = normalizeRequiredText(request.getQuestion(), "question");
         int limit = BusinessInputValidator.parsePositiveInt(request.getLimit(), "limit");
-        return knowledgeGraphClient.routeQuestion(question, limit).documentCandidates()
+        return knowledgeGraphClient.routeQuestion(request.getWorkspaceId(), question, limit).documentCandidates()
                 .stream()
-                .filter(candidate -> filterDocumentIdsByWorkspace(
-                        List.of(candidate.documentId()),
-                        request.getWorkspaceId()).contains(candidate.documentId()))
                 .map(this::toRouteCandidateVo)
                 .toList();
     }
@@ -697,12 +716,15 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         int pageNo = BusinessInputValidator.parsePositiveInt(request.getPageNo(), "pageNo");
         int pageSize = BusinessInputValidator.parsePositiveInt(request.getPageSize(), "pageSize");
         String keyword = normalizeOptionalText(request.getKeyword());
+        String authSessionToken = currentAuthSessionToken();
         // 路由追踪读取归档时写入的 debugTrace，不重新计算路由。
         // 复盘页面要展示“当时执行过什么”，而不是用当前图谱状态推导一个新结果。
-        long totalSize = routeTraceMapper.countTraceRows(request.getWorkspaceId(), keyword, NORMAL_STATUS);
+        long totalSize = routeTraceMapper.countTraceRows(
+                request.getWorkspaceId(), authSessionToken, keyword, NORMAL_STATUS);
         long offset = (long) (pageNo - 1) * pageSize;
         List<KnowledgeRouteTraceRow> traceRows = routeTraceMapper.selectTraceRows(
                 request.getWorkspaceId(),
+                authSessionToken,
                 keyword,
                 NORMAL_STATUS,
                 offset,
@@ -715,6 +737,11 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
         vo.setTotalPages(totalSize == 0 ? 0 : (long) Math.ceil(totalSize / (double) pageSize));
         vo.setTraces(traceRows.stream().map(this::toRouteTraceVo).toList());
         return vo;
+    }
+
+    private String currentAuthSessionToken() {
+        var session = AuthSessionHolder.required();
+        return session.role() == AuthRole.GUEST ? session.token() : "";
     }
 
     private void upsertScope(CompletedKnowledgeMetadata metadata) {
@@ -1277,6 +1304,22 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
                 errorMessage, error.getClass().getName());
     }
 
+    private void markParseTaskFailedAfterRollback(
+            long taskId,
+            long documentId,
+            LocalDateTime startTime,
+            RuntimeException originalError) {
+        try {
+            transactionTemplate.executeWithoutResult(status -> markTaskFailed(
+                    taskId,
+                    documentId,
+                    startTime,
+                    originalError));
+        } catch (RuntimeException failureStatusError) {
+            originalError.addSuppressed(failureStatusError);
+        }
+    }
+
     private void markIndexTaskFailed(long taskId, long documentId, LocalDateTime startTime, RuntimeException error) {
         LocalDateTime finishTime = LocalDateTime.now();
         String errorMessage = normalizeErrorMessage(error);
@@ -1294,6 +1337,60 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
                 .set(KnowledgeDocumentData::getIndexStatus, INDEX_FAILED));
         insertTaskLog(taskId, documentId, TASK_STAGE_CHUNK_EXECUTE, TASK_EVENT_FAILED, TASK_LOG_ERROR,
                 errorMessage, error.getClass().getName());
+    }
+
+    private void markIndexTaskFailedAfterRollback(
+            long taskId,
+            long documentId,
+            LocalDateTime startTime,
+            RuntimeException originalError) {
+        try {
+            transactionTemplate.executeWithoutResult(status -> markIndexTaskFailed(
+                    taskId,
+                    documentId,
+                    startTime,
+                    originalError));
+        } catch (RuntimeException failureStatusError) {
+            originalError.addSuppressed(failureStatusError);
+        }
+    }
+
+    private void cleanupParseTaskExternalWrites(
+            ParseTaskExecutionState executionState,
+            long documentId,
+            RuntimeException originalError) {
+        if (executionState.graphWritten) {
+            try {
+                knowledgeGraphClient.deleteDocumentRouteAsset(
+                        executionState.documentData.getWorkspaceId(),
+                        documentId);
+            } catch (RuntimeException graphCleanupError) {
+                originalError.addSuppressed(graphCleanupError);
+            }
+        }
+        if (executionState.parsedTextWritten) {
+            try {
+                objectStorage.remove(
+                        executionState.documentData.getBucketName(),
+                        executionState.parsedTextObjectName);
+            } catch (RuntimeException objectCleanupError) {
+                originalError.addSuppressed(objectCleanupError);
+            }
+        }
+    }
+
+    private void cleanupIndexTaskExternalWrites(
+            IndexTaskExecutionState executionState,
+            long documentId,
+            RuntimeException originalError) {
+        if (!executionState.indexRebuildStarted) {
+            return;
+        }
+        try {
+            retrievalIndexService.deleteIndex(documentId);
+        } catch (RuntimeException indexCleanupError) {
+            originalError.addSuppressed(indexCleanupError);
+        }
     }
 
     private void markIndexPublishFailed(long documentId, long taskId, RuntimeException error) {
@@ -1402,6 +1499,7 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
             KnowledgeDocumentProfileData profileData) {
         return new KnowledgeDocumentRouteAsset(
                 documentData.getId(),
+                documentData.getWorkspaceId(),
                 documentData.getDocumentName(),
                 metadata.knowledgeScopeCode(),
                 metadata.knowledgeScopeName(),
@@ -1732,6 +1830,30 @@ public class KnowledgeManageServiceImpl implements KnowledgeManageService {
 
     private String normalizeOptionalText(String value) {
         return value == null ? null : value.strip();
+    }
+
+    private static final class ParseTaskExecutionState {
+
+        private KnowledgeDocumentData documentData;
+
+        private LocalDateTime startTime;
+
+        private String parsedTextObjectName;
+
+        private boolean started;
+
+        private boolean parsedTextWritten;
+
+        private boolean graphWritten;
+    }
+
+    private static final class IndexTaskExecutionState {
+
+        private LocalDateTime startTime;
+
+        private boolean started;
+
+        private boolean indexRebuildStarted;
     }
 
     private record UploadedKnowledgeMetadata(

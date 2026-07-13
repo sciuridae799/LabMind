@@ -46,12 +46,17 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
             SET topic.name = $topicName
             MERGE (scope)-[:HAS_TOPIC]->(topic)
             MERGE (document:Document {documentId: $documentId})
-            SET document.documentName = $documentName,
+            SET document.workspaceId = $workspaceId,
+                document.documentName = $documentName,
                 document.status = 'ROUTABLE',
                 document.summary = $summary,
                 document.routeText = $routeText,
                 document.routeTokens = $routeTokens
             MERGE (topic)-[:HAS_DOCUMENT]->(document)
+            WITH topic, document
+            OPTIONAL MATCH (oldTopic:KnowledgeTopic)-[oldContains:HAS_DOCUMENT]->(document)
+            WHERE oldTopic <> topic
+            DELETE oldContains
             WITH document
             OPTIONAL MATCH (document)-[oldUses:USES_TERM]->(:Term)
             DELETE oldUses
@@ -73,6 +78,7 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
     private static final String RANK_SCOPES_CYPHER = """
             MATCH (scope:KnowledgeScope)-[:HAS_TOPIC]->(:KnowledgeTopic)-[:HAS_DOCUMENT]->(document:Document)
             WHERE document.status = 'ROUTABLE'
+              AND document.workspaceId = $workspaceId
             OPTIONAL MATCH (document)-[usesTerm:USES_TERM]->(term:Term)
             WITH scope, document,
                  collect(CASE WHEN $question CONTAINS term.normalizedName THEN term.normalizedName ELSE null END) AS rawHitTerms,
@@ -112,6 +118,7 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
     private static final String RANK_TOPICS_CYPHER = """
             MATCH (scope:KnowledgeScope)-[:HAS_TOPIC]->(topic:KnowledgeTopic)-[:HAS_DOCUMENT]->(document:Document)
             WHERE document.status = 'ROUTABLE'
+              AND document.workspaceId = $workspaceId
               AND scope.code IN $scopeCodes
             OPTIONAL MATCH (document)-[usesTerm:USES_TERM]->(term:Term)
             WITH scope, topic, document,
@@ -154,6 +161,7 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
     private static final String RANK_DOCUMENTS_CYPHER = """
             MATCH (scope:KnowledgeScope)-[:HAS_TOPIC]->(topic:KnowledgeTopic)-[:HAS_DOCUMENT]->(document:Document)
             WHERE document.status = 'ROUTABLE'
+              AND document.workspaceId = $workspaceId
               AND scope.code IN $scopeCodes
               AND ($topicFilterEnabled = false OR topic.code IN $topicCodes)
             OPTIONAL MATCH (document)-[usesTerm:USES_TERM]->(term:Term)
@@ -204,14 +212,14 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
             """;
 
     private static final String DELETE_DOCUMENT_STRUCTURE_CYPHER = """
-            MATCH (document:Document {documentId: $documentId})
+            MATCH (document:Document {documentId: $documentId, workspaceId: $workspaceId})
             OPTIONAL MATCH (document)-[:HAS_CHILD*1..]->(node)
             WITH collect(DISTINCT node) AS nodes
             FOREACH (node IN nodes | DETACH DELETE node)
             """;
 
     private static final String SET_DOCUMENT_ROOT_CYPHER = """
-            MERGE (document:Document {documentId: $documentId})
+            MATCH (document:Document {documentId: $documentId, workspaceId: $workspaceId})
             SET document.documentName = $documentName,
                 document.nodeType = 'DOCUMENT',
                 document.canonicalPath = $documentName,
@@ -220,7 +228,8 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
 
     private static final String UPSERT_SECTION_NODE_CYPHER = """
             MERGE (node:Section {nodeId: $nodeId})
-            SET node.documentId = $documentId,
+            SET node.workspaceId = $workspaceId,
+                node.documentId = $documentId,
                 node.nodeNo = $nodeNo,
                 node.nodeType = 'SECTION',
                 node.depth = $depth,
@@ -235,7 +244,8 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
 
     private static final String UPSERT_ITEM_NODE_CYPHER = """
             MERGE (node:Item {nodeId: $nodeId})
-            SET node.documentId = $documentId,
+            SET node.workspaceId = $workspaceId,
+                node.documentId = $documentId,
                 node.nodeNo = $nodeNo,
                 node.nodeType = 'ITEM',
                 node.depth = $depth,
@@ -249,25 +259,28 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
             """;
 
     private static final String LINK_DOCUMENT_CHILD_CYPHER = """
-            MATCH (document:Document {documentId: $documentId})
-            MATCH (child {nodeId: $childNodeId})
+            MATCH (document:Document {documentId: $documentId, workspaceId: $workspaceId})
+            MATCH (child {nodeId: $childNodeId, workspaceId: $workspaceId})
             MERGE (document)-[:HAS_CHILD]->(child)
             """;
 
     private static final String LINK_NODE_CHILD_CYPHER = """
-            MATCH (parent {nodeId: $parentNodeId})
-            MATCH (child {nodeId: $childNodeId})
+            MATCH (parent {nodeId: $parentNodeId, workspaceId: $workspaceId})
+            MATCH (child {nodeId: $childNodeId, workspaceId: $workspaceId})
             MERGE (parent)-[:HAS_CHILD]->(child)
             """;
 
     private static final String LINK_NEXT_SIBLING_CYPHER = """
-            MATCH (left {nodeId: $leftNodeId})
-            MATCH (right {nodeId: $rightNodeId})
+            MATCH (left {nodeId: $leftNodeId, workspaceId: $workspaceId})
+            MATCH (right {nodeId: $rightNodeId, workspaceId: $workspaceId})
             MERGE (left)-[:NEXT_SIBLING]->(right)
             """;
 
     private static final String DELETE_ROUTE_ASSET_CYPHER = """
-            MATCH (document:Document {documentId: $documentId})
+            MATCH (document:Document {documentId: $documentId, workspaceId: $workspaceId})
+            OPTIONAL MATCH (document)-[:HAS_CHILD*1..]->(node)
+            WITH document, collect(DISTINCT node) AS nodes
+            FOREACH (node IN nodes | DETACH DELETE node)
             DETACH DELETE document
             """;
 
@@ -287,6 +300,7 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
     public void upsertDocumentRouteAsset(KnowledgeDocumentRouteAsset asset) {
         Map<String, Object> parameters = new HashMap<>();
         parameters.put("documentId", asset.documentId());
+        parameters.put("workspaceId", asset.workspaceId());
         parameters.put("documentName", asset.documentName());
         parameters.put("scopeCode", asset.scopeCode());
         parameters.put("scopeName", asset.scopeName());
@@ -305,14 +319,18 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
 
     @Override
     public void replaceDocumentStructure(
+            String workspaceId,
             long documentId,
             String documentName,
             List<KnowledgeDocumentStructureGraphNode> nodes) {
         // 结构图必须以一次解析任务产物为准整体替换，避免旧章节在 Neo4j 中残留并被结构查询命中。
         try (var session = getRequiredDriver().session(sessionConfig())) {
             session.executeWriteWithoutResult(tx -> {
-                tx.run(DELETE_DOCUMENT_STRUCTURE_CYPHER, Map.of("documentId", documentId)).consume();
+                tx.run(DELETE_DOCUMENT_STRUCTURE_CYPHER, Map.of(
+                        "workspaceId", workspaceId,
+                        "documentId", documentId)).consume();
                 tx.run(SET_DOCUMENT_ROOT_CYPHER, Map.of(
+                        "workspaceId", workspaceId,
                         "documentId", documentId,
                         "documentName", documentName)).consume();
                 Map<Long, KnowledgeDocumentStructureGraphNode> nodeMap = new HashMap<>();
@@ -324,20 +342,23 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
                     tx.run(Integer.valueOf(2).equals(node.nodeType())
                                     ? UPSERT_SECTION_NODE_CYPHER
                                     : UPSERT_ITEM_NODE_CYPHER,
-                            nodeParameters(documentId, node)).consume();
+                            nodeParameters(workspaceId, documentId, node)).consume();
                 }
                 for (KnowledgeDocumentStructureGraphNode node : nodeMap.values()) {
                     if (node.parentNodeId() == null || !nodeMap.containsKey(node.parentNodeId())) {
                         tx.run(LINK_DOCUMENT_CHILD_CYPHER, Map.of(
+                                "workspaceId", workspaceId,
                                 "documentId", documentId,
                                 "childNodeId", node.nodeId())).consume();
                     } else {
                         tx.run(LINK_NODE_CHILD_CYPHER, Map.of(
+                                "workspaceId", workspaceId,
                                 "parentNodeId", node.parentNodeId(),
                                 "childNodeId", node.nodeId())).consume();
                     }
                     if (node.nextSiblingNodeId() != null && nodeMap.containsKey(node.nextSiblingNodeId())) {
                         tx.run(LINK_NEXT_SIBLING_CYPHER, Map.of(
+                                "workspaceId", workspaceId,
                                 "leftNodeId", node.nodeId(),
                                 "rightNodeId", node.nextSiblingNodeId())).consume();
                     }
@@ -353,11 +374,12 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
      * 收缩专题，最后只在收缩后的范围内选文档。返回结果只表达“路由相关性”，不表达最终回答质量。</p>
      */
     @Override
-    public KnowledgeRouteDecision routeQuestion(String question, int limit) {
+    public KnowledgeRouteDecision routeQuestion(String workspaceId, String question, int limit) {
         try (var session = getRequiredDriver().session(sessionConfig())) {
             return session.executeRead(tx -> {
                 List<RankedScope> rankedScopes = tx.run(RANK_SCOPES_CYPHER, Map.of(
                                 "question", question,
+                                "workspaceId", workspaceId,
                                 "queryTokens", tokenize(question),
                                 "semanticWeight", routeProperties.getSemanticWeight(),
                                 "lexicalWeight", routeProperties.getLexicalWeight(),
@@ -376,6 +398,7 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
                 String topScopeCode = rankedScopes.get(0).scopeCode();
                 List<RankedTopic> rankedTopics = tx.run(RANK_TOPICS_CYPHER, Map.of(
                                 "question", question,
+                                "workspaceId", workspaceId,
                                 "queryTokens", tokenize(question),
                                 "semanticWeight", routeProperties.getSemanticWeight(),
                                 "lexicalWeight", routeProperties.getLexicalWeight(),
@@ -396,6 +419,7 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
                 String topTopicCode = rankedTopics.isEmpty() ? "" : rankedTopics.get(0).topicCode();
                 Map<String, Object> documentRankParameters = new HashMap<>();
                 documentRankParameters.put("question", question);
+                documentRankParameters.put("workspaceId", workspaceId);
                 documentRankParameters.put("queryTokens", tokenize(question));
                 documentRankParameters.put("semanticWeight", routeProperties.getSemanticWeight());
                 documentRankParameters.put("lexicalWeight", routeProperties.getLexicalWeight());
@@ -462,8 +486,12 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
                 + "；问题模式命中：" + String.join(",", matchedPatterns);
     }
 
-    private Map<String, Object> nodeParameters(long documentId, KnowledgeDocumentStructureGraphNode node) {
+    private Map<String, Object> nodeParameters(
+            String workspaceId,
+            long documentId,
+            KnowledgeDocumentStructureGraphNode node) {
         Map<String, Object> parameters = new HashMap<>();
+        parameters.put("workspaceId", workspaceId);
         parameters.put("documentId", documentId);
         parameters.put("nodeId", node.nodeId());
         parameters.put("nodeNo", node.nodeNo());
@@ -522,11 +550,13 @@ public class Neo4jKnowledgeGraphClient implements KnowledgeGraphClient, Disposab
      * <p>文档被删除时必须同步移除图节点，否则前台列表不可见的文档仍可能被知识路由召回。</p>
      */
     @Override
-    public void deleteDocumentRouteAsset(long documentId) {
+    public void deleteDocumentRouteAsset(String workspaceId, long documentId) {
         try (var session = getRequiredDriver().session(sessionConfig())) {
             session.executeWriteWithoutResult(tx -> tx.run(
                     DELETE_ROUTE_ASSET_CYPHER,
-                    Map.of("documentId", documentId)).consume());
+                    Map.of(
+                            "workspaceId", workspaceId,
+                            "documentId", documentId)).consume());
         }
     }
 
