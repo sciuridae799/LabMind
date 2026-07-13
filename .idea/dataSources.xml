@@ -5,7 +5,7 @@
       <driver-ref>redis</driver-ref>
       <synchronize>true</synchronize>
       <imported>true</imported>
-      <remarks>$PROJECT_DIR$/super-agent-backend/services/super-agent-business/super-agent-business-chat/src/main/resources/application.yaml</remarks>
+      <remarks>$PROJECT_DIR$/lab-mind-backend/services/lab-mind-business/lab-mind-business-chat/src/main/resources/application.yaml</remarks>
       <jdbc-driver>jdbc.RedisDriver</jdbc-driver>
       <jdbc-url>jdbc:redis://43.139.223.137:6379/0</jdbc-url>
       <jdbc-additional-properties>
@@ -19,7 +19,7 @@
       <driver-ref>mysql.8</driver-ref>
       <synchronize>true</synchronize>
       <imported>true</imported>
-      <remarks>$PROJECT_DIR$/super-agent-backend/services/super-agent-business/super-agent-business-chat/src/main/resources/application.yaml</remarks>
+      <remarks>$PROJECT_DIR$/lab-mind-backend/services/lab-mind-business/lab-mind-business-chat/src/main/resources/application.yaml</remarks>
       <jdbc-driver>com.mysql.cj.jdbc.Driver</jdbc-driver>
       <jdbc-url>jdbc:mysql://43.139.223.137:3306/service_db?useUnicode=true&amp;characterEncoding=utf8&amp;useSSL=false&amp;serverTimezone=Asia/Shanghai</jdbc-url>
       <jdbc-additional-properties>

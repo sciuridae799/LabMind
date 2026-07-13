@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
 MAVEN_BIN="/Users/admin/Documents/apache-maven-3.9.11/bin/mvn"
 MAVEN_SETTINGS="/Users/admin/Documents/apache-maven-3.9.11/conf/settings.xml"
-SUPER_AGENT_LOG_DIR="${ROOT_DIR}/logs/super-agent-business-chat"
+LAB_MIND_LOG_DIR="${ROOT_DIR}/logs/lab-mind-business-chat"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo ".env was not found: ${ENV_FILE}" >&2
@@ -16,15 +16,15 @@ set -a
 source "${ENV_FILE}"
 set +a
 
-export SUPER_AGENT_LOG_DIR
-mkdir -p "${SUPER_AGENT_LOG_DIR}"
+export LAB_MIND_LOG_DIR
+mkdir -p "${LAB_MIND_LOG_DIR}"
 
 for required_env in \
-  SUPER_AGENT_MINIO_ENDPOINT \
-  SUPER_AGENT_MINIO_ACCESS_KEY \
-  SUPER_AGENT_MINIO_SECRET_KEY \
-  SUPER_AGENT_MINIO_BUCKET \
-  SUPER_AGENT_MODEL_API_CONFIG_AES_KEY_BASE64
+  LAB_MIND_MINIO_ENDPOINT \
+  LAB_MIND_MINIO_ACCESS_KEY \
+  LAB_MIND_MINIO_SECRET_KEY \
+  LAB_MIND_MINIO_BUCKET \
+  LAB_MIND_MODEL_API_CONFIG_AES_KEY_BASE64
 do
   if [[ -z "${!required_env:-}" ]]; then
     echo "${required_env} must be configured in ${ENV_FILE}" >&2
@@ -37,25 +37,25 @@ import base64
 import os
 import sys
 
-value = os.environ["SUPER_AGENT_MODEL_API_CONFIG_AES_KEY_BASE64"].strip()
+value = os.environ["LAB_MIND_MODEL_API_CONFIG_AES_KEY_BASE64"].strip()
 try:
     decoded = base64.b64decode(value, validate=True)
 except Exception:
-    print("SUPER_AGENT_MODEL_API_CONFIG_AES_KEY_BASE64 must be base64 encoded", file=sys.stderr)
+    print("LAB_MIND_MODEL_API_CONFIG_AES_KEY_BASE64 must be base64 encoded", file=sys.stderr)
     sys.exit(1)
 if len(decoded) not in (16, 24, 32):
-    print("SUPER_AGENT_MODEL_API_CONFIG_AES_KEY_BASE64 must decode to 16, 24, or 32 bytes", file=sys.stderr)
+    print("LAB_MIND_MODEL_API_CONFIG_AES_KEY_BASE64 must decode to 16, 24, or 32 bytes", file=sys.stderr)
     sys.exit(1)
 PY
 then
   exit 1
 fi
 
-cd "${ROOT_DIR}/super-agent-backend"
+cd "${ROOT_DIR}/lab-mind-backend"
 "${MAVEN_BIN}" \
   -s "${MAVEN_SETTINGS}" \
   -Dmaven.repo.local="${ROOT_DIR}/.m2" \
-  -pl services/super-agent-business/super-agent-business-chat \
+  -pl services/lab-mind-business/lab-mind-business-chat \
   -am \
   -DskipTests \
   install
@@ -63,5 +63,5 @@ cd "${ROOT_DIR}/super-agent-backend"
 exec "${MAVEN_BIN}" \
   -s "${MAVEN_SETTINGS}" \
   -Dmaven.repo.local="${ROOT_DIR}/.m2" \
-  -f services/super-agent-business/super-agent-business-chat/pom.xml \
+  -f services/lab-mind-business/lab-mind-business-chat/pom.xml \
   spring-boot:run

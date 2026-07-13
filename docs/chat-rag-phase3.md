@@ -104,14 +104,14 @@ KnowledgeRetrievalRequest(
 文档解析成功后，`KnowledgeManageServiceImpl.processDocumentParseTask(...)` 不直接构建检索索引，而是先生成并保存切块策略方案：
 
 ```text
-super_agent_document_strategy_plan
-super_agent_document_strategy_step
+lab_mind_document_strategy_plan
+lab_mind_document_strategy_step
 ```
 
 用户确认策略后，`KnowledgeManageServiceImpl.confirmStrategy(...)` 创建索引构建任务并发布 Kafka 消息：
 
 ```text
-super-agent.document.index.requested
+lab-mind.document.index.requested
 ```
 
 Kafka 消费端进入 `KnowledgeManageServiceImpl.processDocumentIndexTask(...)`，校验 document 当前索引任务、当前策略方案和 confirmed 状态一致后，再调用：
@@ -126,10 +126,10 @@ retrievalIndexService.rebuildIndex(completedDocumentData, taskId, structureNodes
 
 | 目标 | 表或索引 | 用途 |
 | --- | --- | --- |
-| MySQL | `super_agent_document_parent_block` | 保存 Parent 证据块完整正文 |
-| MySQL | `super_agent_document_chunk` | 保存 Child 检索块和状态 |
-| PGVector | `public.super_agent_document_embedding` | 保存 Child embedding，用于语义召回 |
-| Elasticsearch | `super_agent_document_chunk` | 保存 Child 文本字段，用于关键词召回 |
+| MySQL | `lab_mind_document_parent_block` | 保存 Parent 证据块完整正文 |
+| MySQL | `lab_mind_document_chunk` | 保存 Child 检索块和状态 |
+| PGVector | `public.lab_mind_document_embedding` | 保存 Child embedding，用于语义召回 |
+| Elasticsearch | `lab_mind_document_chunk` | 保存 Child 文本字段，用于关键词召回 |
 
 当前策略执行规则：
 
@@ -157,7 +157,7 @@ PGVector 通道先调用 `KnowledgeEmbeddingClient.embed(question)`，再进入 
 ```sql
 SELECT id, document_id, parent_block_id, chunk_no, section_path, chunk_text,
        1 - (embedding <=> ?::vector) AS similarity
-FROM public.super_agent_document_embedding
+FROM public.lab_mind_document_embedding
 WHERE status = 1
   AND document_id IN (...)
   AND 1 - (embedding <=> ?::vector) >= minSimilarity
@@ -168,7 +168,7 @@ LIMIT topK
 当前配置项：
 
 ```yaml
-super-agent:
+lab-mind:
   knowledge:
     retrieval:
       vector:
@@ -205,7 +205,7 @@ minScore = topScore * relativeThreshold
 当前配置项：
 
 ```yaml
-super-agent:
+lab-mind:
   knowledge:
     retrieval:
       keyword:
@@ -230,7 +230,7 @@ score = sum(1 / (k + rank))
 当前配置：
 
 ```yaml
-super-agent:
+lab-mind:
   knowledge:
     retrieval:
       rrf:
@@ -252,7 +252,7 @@ KEYWORD
 `KnowledgeRerankService.rerank(...)` 只在配置开启时执行：
 
 ```yaml
-super-agent:
+lab-mind:
   knowledge:
     retrieval:
       rerank:
@@ -274,7 +274,7 @@ Child 只是检索粒度，不直接作为最终证据交给模型。最终由 `
 组装规则：
 
 1. 收集融合后的 `parentBlockId`
-2. 从 MySQL `super_agent_document_parent_block` 读取 Parent 正文
+2. 从 MySQL `lab_mind_document_parent_block` 读取 Parent 正文
 3. 如果 Parent 缺失或正文为空，直接抛错
 4. 按 Parent 下最高 Child `finalScore` 排序
 5. 截取 `final-parent-top-k`
@@ -283,7 +283,7 @@ Child 只是检索粒度，不直接作为最终证据交给模型。最终由 `
 当前配置：
 
 ```yaml
-super-agent:
+lab-mind:
   knowledge:
     retrieval:
       final-parent-top-k: 6
@@ -470,7 +470,7 @@ flowchart TD
 开放式 Agent 分支有独立预算控制，配置在：
 
 ```yaml
-super-agent:
+lab-mind:
   chat:
     runtime:
       max-model-calls-per-run: 8
@@ -537,8 +537,8 @@ maxParallelTools(runtimeProperties.getMaxParallelTools())
 当前 key：
 
 ```text
-super-agent:chat:model-calls:thread:{conversationId}
-super-agent:chat:tool-calls:thread:{conversationId}:tavily_search
+lab-mind:chat:model-calls:thread:{conversationId}
+lab-mind:chat:tool-calls:thread:{conversationId}:tavily_search
 ```
 
 这保证同一会话后续轮次会继承历史调用次数，不会只限制单轮。
@@ -617,15 +617,15 @@ Phase 3 解决“在选定分支内如何执行”的问题：
 
 ```sql
 SELECT id, document_name, parse_status, index_status, last_index_task_id
-FROM super_agent_document
+FROM lab_mind_document
 WHERE id = ?;
 
 SELECT COUNT(*)
-FROM super_agent_document_parent_block
+FROM lab_mind_document_parent_block
 WHERE document_id = ? AND status = 1;
 
 SELECT COUNT(*)
-FROM super_agent_document_chunk
+FROM lab_mind_document_chunk
 WHERE document_id = ? AND status = 1;
 ```
 

@@ -4,8 +4,8 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.superagent</groupId>
-    <artifactId>super-agent-parent</artifactId>
+    <groupId>com.labmind</groupId>
+    <artifactId>lab-mind-parent</artifactId>
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
@@ -81,7 +81,7 @@
     </build>
 
     <modules>
-        <module>super-agent-backend</module>
+        <module>lab-mind-backend</module>
     </modules>
 
 </project>

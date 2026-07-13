@@ -230,7 +230,7 @@ Scope 和 Topic 候选会转换为 `KnowledgeRouteRankedCandidate`，保存候�
 
 知识路由追踪由 `KnowledgeRouteTraceService.recordRouteTrace(...)` 写入。它不重新计算路由，只保存本轮已经得到的 `KnowledgeRouteDecision` 快照。
 
-主表 `super_agent_knowledge_route_trace` 保存：
+主表 `lab_mind_knowledge_route_trace` 保存：
 
 - 原始问题 `question`
 - 改写问题 `rewritten_question`
@@ -244,7 +244,7 @@ Scope 和 Topic 候选会转换为 `KnowledgeRouteRankedCandidate`，保存候�
 - 路由状态 `route_status`
 - 路由模式 `route_mode`
 
-明细表 `super_agent_knowledge_route_trace_candidate` 保存三级 Top3 候选：
+明细表 `lab_mind_knowledge_route_trace_candidate` 保存三级 Top3 候选：
 
 - `candidate_type = SCOPE`：Top3 Scope 候选
 - `candidate_type = TOPIC`：Top3 Topic 候选
@@ -280,7 +280,7 @@ flowchart TD
 当前配置：
 
 ```yaml
-super-agent:
+lab-mind:
   chat:
     clarification:
       enabled: true

@@ -1,0 +1,26 @@
+integration:
+  external:
+    mysql:
+      jdbc-url: jdbc:mysql://43.139.223.137:3306/service_db?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+      username: root
+      password: 123456
+    redis:
+      uri: redis://:123456@43.139.223.137:6379/0
+    kafka:
+      bootstrap-servers: 43.139.223.137:9092
+      topic: lab-mind.external.integration.test
+    minio:
+      endpoint: http://43.139.223.137:9000
+      access-key: minioadmin
+      secret-key: 12345678
+      bucket: lab-mind-external-integration-test
+    pgvector:
+      jdbc-url: jdbc:postgresql://43.139.223.137:5432/lab_mind_pgvector
+      username: postgres
+      password: 123456
+    elasticsearch:
+      endpoint: http://43.139.223.137:9200
+    neo4j:
+      endpoint: bolt://43.139.223.137:7687
+      username: neo4j
+      password: 12345678

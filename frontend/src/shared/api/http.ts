@@ -63,9 +63,9 @@ function buildAuthHeaders(): Record<string, string> {
 
   return {
     Authorization: `Bearer ${session.token}`,
-    'X-Super-Agent-Role': session.role,
-    'X-Super-Agent-Workspace-Id': session.workspaceId,
-    'X-Super-Agent-User-Id': session.userId
+    'X-Lab-Mind-Role': session.role,
+    'X-Lab-Mind-Workspace-Id': session.workspaceId,
+    'X-Lab-Mind-User-Id': session.userId
   }
 }
 

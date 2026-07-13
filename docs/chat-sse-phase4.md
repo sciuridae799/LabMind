@@ -265,7 +265,7 @@ BusinessChatFinalizationGenerator.generate(runtimeContext, frozenTurn, titleRequ
 推荐追问数量来自配置：
 
 ```yaml
-super-agent:
+lab-mind:
   chat:
     recommendation:
       enabled: true
@@ -458,7 +458,7 @@ TURN_FINISHED
 
 ### 推荐追问验证
 
-- 推荐追问开启时，数量必须等于 `super-agent.chat.recommendation.count`
+- 推荐追问开启时，数量必须等于 `lab-mind.chat.recommendation.count`
 - 默认数量是 3
 - 推荐追问必须非空、去重后数量仍正确
 - 推荐追问 SSE 和归档字段必须一致

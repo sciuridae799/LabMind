@@ -16,13 +16,13 @@ flowchart TD
         F --> G{history-summary.enabled?}
         G -- false --> H[返回空历史上下文]
         G -- true --> I[按 conversationId 加载长期摘要]
-        I --> J[从 super_agent_chat_memory_summary 读取 summary_text]
+        I --> J[从 lab_mind_chat_memory_summary 读取 summary_text]
         J --> K{摘要存在?}
         K -- 否 --> L[长期摘要为空]
         K -- 是 --> M[校验 summary_text 非空并按 summary-max-chars 截断]
         L --> N[加载最近完成轮次]
         M --> N
-        N --> O[从 super_agent_chat_exchange 查询最近 N 轮 COMPLETED exchange]
+        N --> O[从 lab_mind_chat_exchange 查询最近 N 轮 COMPLETED exchange]
         O --> P[倒序取数后反转为自然时间顺序]
         P --> Q[构建 rewriteContextText]
         P --> R[构建 answerContextText]
@@ -55,10 +55,10 @@ flowchart TD
 
 ### 长期摘要表
 
-长期摘要来自 MySQL 表 `super_agent_chat_memory_summary`：
+长期摘要来自 MySQL 表 `lab_mind_chat_memory_summary`：
 
 ```sql
-CREATE TABLE IF NOT EXISTS super_agent_chat_memory_summary (
+CREATE TABLE IF NOT EXISTS lab_mind_chat_memory_summary (
     id BIGINT NOT NULL COMMENT '主键id',
     dialogue_code VARCHAR(64) NOT NULL COMMENT '所属业务会话编号',
     covered_exchange_id BIGINT NOT NULL DEFAULT '0' COMMENT '长期摘要已覆盖到的最后一条exchangeId',
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_memory_summary (
 
 ### 最近对话窗口
 
-最近窗口来自 MySQL 表 `super_agent_chat_exchange`。查询条件是：
+最近窗口来自 MySQL 表 `lab_mind_chat_exchange`。查询条件是：
 
 - `dialogue_code = 当前 conversationId`
 - `status = 1`
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS super_agent_chat_memory_summary (
 配置在 `application.yaml`：
 
 ```yaml
-super-agent:
+lab-mind:
   chat:
     history-summary:
       enabled: true
@@ -203,7 +203,7 @@ flowchart TD
     B --> C[archiveSucceededTurn 归档 exchange]
     C --> D[refreshConversationSummary]
     D --> E{summary 已存在?}
-    E -- 否 --> F[插入 super_agent_chat_memory_summary]
+    E -- 否 --> F[插入 lab_mind_chat_memory_summary]
     E -- 是 --> G[summary_version + 1 后更新]
     F --> H[写入 covered_exchange_id / covered_exchange_count]
     G --> H
@@ -247,7 +247,7 @@ flowchart TD
   - `refreshConversationSummary()`：成功回答后刷新摘要。
   - `fillSummary()`：写入 `summary_text` 和 `summary_json`。
 - `BusinessChatHistorySummaryProperties`
-  - 绑定 `super-agent.chat.history-summary` 配置。
+  - 绑定 `lab-mind.chat.history-summary` 配置。
 
 ## 当前链路结论
 

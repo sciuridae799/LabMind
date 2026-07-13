@@ -1,0 +1,1 @@
+CREATE DATABASE lab_mind_pgvector WITH ENCODING 'UTF8';

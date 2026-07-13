@@ -18,9 +18,9 @@ export interface AuthSession {
   accessibleWorkspaces: WorkspaceSummary[]
 }
 
-const AUTH_SESSION_STORAGE_KEY = 'super-agent.auth-session'
-const LEGACY_ADMIN_SESSION_STORAGE_KEY = 'super-agent.admin-session'
-const LEGACY_ADMIN_AUTH_STORAGE_KEY = 'super-agent.admin-authenticated'
+const AUTH_SESSION_STORAGE_KEY = 'lab-mind.auth-session'
+const LEGACY_ADMIN_SESSION_STORAGE_KEY = 'lab-mind.admin-session'
+const LEGACY_ADMIN_AUTH_STORAGE_KEY = 'lab-mind.admin-authenticated'
 function isAuthRole(value: unknown): value is AuthRole {
   return value === 'guest' || value === 'user' || value === 'super_admin'
 }
