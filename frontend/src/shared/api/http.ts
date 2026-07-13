@@ -7,7 +7,8 @@ import type {
   StreamEventHandlers,
   StreamRequest
 } from './types'
-import { readAuthSessionSnapshot } from '../auth/authSession'
+import router from '../../router'
+import { logoutAuthSession, readAuthSessionSnapshot } from '../auth/authSession'
 
 const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || '').trim()
 const REQUEST_TIMEOUT = 30000
@@ -126,6 +127,20 @@ function readResponseMessage(rawData: unknown, status: number): string {
   }
 }
 
+function redirectToLogin(): void {
+  logoutAuthSession()
+  const currentRoute = router.currentRoute.value
+  if (currentRoute.name === 'Login') {
+    return
+  }
+  void router.replace({
+    name: 'Login',
+    query: {
+      redirect: currentRoute.fullPath
+    }
+  })
+}
+
 function normalizeAxiosError(error: unknown): APIError {
   if (error instanceof APIError) {
     return error
@@ -136,6 +151,9 @@ function normalizeAxiosError(error: unknown): APIError {
   }
 
   if (axios.isAxiosError(error) && error.response) {
+    if (error.response.status === 401) {
+      redirectToLogin()
+    }
     return new APIError(
       readResponseMessage(error.response.data, error.response.status),
       error.response.status,
@@ -199,6 +217,9 @@ function unwrapApiResponse<T>(
 ): T | null {
   const code = String(payload?.code ?? '')
   if (code !== '0') {
+    if (code === '401') {
+      redirectToLogin()
+    }
     throw new APIError(payload?.message || fallbackMessage, Number(payload?.code || 500), payload)
   }
   return payload?.data ?? null

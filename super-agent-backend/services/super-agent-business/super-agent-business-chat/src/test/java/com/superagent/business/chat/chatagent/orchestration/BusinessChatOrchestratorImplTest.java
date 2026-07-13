@@ -215,8 +215,8 @@ class BusinessChatOrchestratorImplTest {
                 "长期摘要",
                 "用户之前在讨论订单审核链路。",
                 "最近对话",
-                "订单审核链路有哪些节点？");
-        assertThat(executionPlan.rewriteHistoryContextText()).doesNotContain("包括提交、风控、人工审核和归档。");
+                "订单审核链路有哪些节点？",
+                "包括提交、风控、人工审核和归档。");
         assertThat(executionPlan.answerHistoryContextText()).contains(
                 "长期摘要",
                 "用户之前在讨论订单审核链路。",

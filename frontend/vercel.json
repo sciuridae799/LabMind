@@ -15,6 +15,10 @@
     {
       "source": "/admin/:path*",
       "destination": "http://43.139.223.137:8080/admin/:path*"
+    },
+    {
+      "source": "/:path*",
+      "destination": "/index.html"
     }
   ]
 }

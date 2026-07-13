@@ -58,7 +58,7 @@ public class BusinessChatFinalizationGeneratorImpl implements BusinessChatFinali
                 String.join("\n", finalizedTurn.sourceSnapshotList()),
                 finalizedTurn.taskInfo().chatMode().getValue());
 
-        String content = modelClient.call(
+        String content = modelClient.callJsonObject(
                 runtimeContext,
                 finalizedTurn.taskInfo().modelConfig(),
                 buildSystemPrompt(titleRequired),

@@ -58,7 +58,7 @@ class BusinessChatFinalizationGeneratorImplTest {
                 "https://api.deepseek.com",
                 "deepseek-v4-pro",
                 "api-key", java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, 1000, "CNY");
-        when(modelClient.call(any(), eq(selectedModelConfig), anyString(), anyString()))
+        when(modelClient.callJsonObject(any(), eq(selectedModelConfig), anyString(), anyString()))
                 .thenReturn("""
                         {
                           "dialogueTitle": "模型切换验证",
@@ -73,7 +73,7 @@ class BusinessChatFinalizationGeneratorImplTest {
         assertThat(result.followUpSuggestionList()).containsExactly("继续验证链路？", "查看执行模型？", "检查归档内容？");
         ArgumentCaptor<BusinessChatModelApiConfigSnapshot> modelConfigCaptor =
                 ArgumentCaptor.forClass(BusinessChatModelApiConfigSnapshot.class);
-        verify(modelClient).call(any(), modelConfigCaptor.capture(), anyString(), anyString());
+        verify(modelClient).callJsonObject(any(), modelConfigCaptor.capture(), anyString(), anyString());
         assertThat(modelConfigCaptor.getValue()).isEqualTo(selectedModelConfig);
     }
 
@@ -89,6 +89,7 @@ class BusinessChatFinalizationGeneratorImplTest {
         assertThat(result.dialogueTitle()).isEmpty();
         assertThat(result.followUpSuggestionList()).isEmpty();
         verify(modelClient, never()).call(any(), any(), anyString(), anyString());
+        verify(modelClient, never()).callJsonObject(any(), any(), anyString(), anyString());
     }
 
     private BusinessChatRuntimeContext createRuntimeContext(BusinessChatFinalizedTurn finalizedTurn) {

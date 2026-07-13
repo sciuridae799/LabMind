@@ -545,7 +545,7 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                             return finalizedTurn;
                         },
                         this::buildFinalizeTraceSnapshot,
-                        turn -> "本轮回答、引用、推荐问题和调试快照已完成归档");
+                        this::buildFinalizeSummary);
                 pushTurnFinished(runtimeContext, archivedTurn);
                 businessFlowLogger.logFinished(archivedTurn);
                 return refreshConversationSummary(archivedTurn);
@@ -605,6 +605,12 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                 "totalLatencyMs", finalizedTurn.totalLatencyMs());
     }
 
+    private String buildFinalizeSummary(BusinessChatFinalizedTurn finalizedTurn) {
+        return finalizedTurn.followUpSuggestionList().isEmpty()
+                ? "本轮回答、引用和调试快照已完成归档"
+                : "本轮回答、引用、推荐问题和调试快照已完成归档";
+    }
+
     private void pushReferenceSupplement(BusinessChatRuntimeContext runtimeContext, BusinessChatFinalizedTurn finalizedTurn) {
         emitStreamEvent(runtimeContext, BusinessChatStreamEvent.sourceSnapshotList(
                 finalizedTurn.taskInfo().conversationId(),
@@ -617,6 +623,9 @@ public class BusinessChatServiceImpl implements BusinessChatService {
     private void pushFollowUpRecommendations(
             BusinessChatRuntimeContext runtimeContext,
             BusinessChatFinalizedTurn finalizedTurn) {
+        if (finalizedTurn.followUpSuggestionList().isEmpty()) {
+            return;
+        }
         emitStreamEvent(runtimeContext, BusinessChatStreamEvent.followUpSuggestionList(
                 finalizedTurn.taskInfo().conversationId(),
                 finalizedTurn.taskInfo().exchangeId(),

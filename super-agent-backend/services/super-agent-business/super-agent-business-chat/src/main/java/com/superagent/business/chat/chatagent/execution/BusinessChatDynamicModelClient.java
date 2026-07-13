@@ -18,4 +18,10 @@ public interface BusinessChatDynamicModelClient {
             BusinessChatModelApiConfigSnapshot modelConfig,
             String systemPrompt,
             String userMessage);
+
+    String callJsonObject(
+            BusinessChatRuntimeContext runtimeContext,
+            BusinessChatModelApiConfigSnapshot modelConfig,
+            String systemPrompt,
+            String userMessage);
 }

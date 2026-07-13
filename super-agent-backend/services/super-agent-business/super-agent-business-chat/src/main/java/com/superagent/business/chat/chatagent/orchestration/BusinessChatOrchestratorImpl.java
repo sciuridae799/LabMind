@@ -391,6 +391,8 @@ public class BusinessChatOrchestratorImpl implements BusinessChatOrchestrator {
                         .append(recentExchange.createTime())
                         .append("\n用户：")
                         .append(recentExchange.userPrompt())
+                        .append("\n助手：")
+                        .append(recentExchange.replyContent())
                         .append("\n\n");
             }
         }

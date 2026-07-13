@@ -195,6 +195,34 @@ class BusinessChatServiceImplTest {
     }
 
     @Test
+    void shouldArchiveFailureWhenRecommendationFinalizationFailsAfterAnswer() {
+        BusinessChatRuntimeContext runtimeContext = prepareSuccessfulRuntime(
+                Flux.just("第一段", "第二段"));
+        when(businessChatFinalizationGenerator.generate(any(), any(), anyBoolean()))
+                .thenThrow(new IllegalStateException("recommendation failed"));
+
+        List<ServerSentEvent<BusinessChatStreamEvent>> events = businessChatService.streamChat(createRequest())
+                .collectList()
+                .block(Duration.ofSeconds(5));
+
+        assertThat(events)
+                .extracting(event -> event.data().eventType())
+                .containsExactly(
+                        "EXECUTION_PROGRESS",
+                        "AGENT_STARTED",
+                        "TEXT_DELTA",
+                        "TEXT_DELTA",
+                        "AGENT_FINISHED",
+                        "FUNCTION_SUPPLEMENT",
+                        "TURN_FAILED");
+        assertThat(runtimeContext.getReplyContent()).isEqualTo("第一段第二段");
+        verify(businessChatPersistenceService, never()).archiveSucceededTurn(any());
+        verify(businessChatPersistenceService).archiveFailedTurn(runtimeContext, "recommendation failed");
+        verify(businessChatPersistenceService, never()).updateDialogueTitleIfAbsent(any(), any());
+        verify(redisLeaseManager).release(any(), any());
+    }
+
+    @Test
     void shouldArchiveRetrievalEvidenceAsSourceSnapshots() {
         BusinessChatRuntimeContext runtimeContext = prepareSuccessfulRuntime(
                 Flux.just("基于证据回答 [1]"),

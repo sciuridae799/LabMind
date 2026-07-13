@@ -173,6 +173,69 @@ class OpenAiCompatibleBusinessChatDynamicModelClientTest {
                             .contains("\"stream\":true")
                             .contains("\"stream_options\":{\"include_usage\":true}")
                             .contains("\"thinking\":{\"type\":\"disabled\"}")
+                            .doesNotContain("response_format")
+                            .doesNotContain("enable_thinking"));
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void shouldSendDeepSeekThinkingDisabledInNonStreamingHttpRequestBody() throws IOException {
+        CapturingOpenAiServer server = CapturingOpenAiServer.start(false, "/chat/completions");
+        try {
+            String content = modelClient.call(
+                    buildModelConfig(server.baseUrl(), BusinessChatModelProvider.DEEPSEEK, "deepseek-v4-flash"),
+                    "system",
+                    "user");
+
+            assertThat(content).isEqualTo("ok");
+            assertThat(server.requestBodies()).singleElement()
+                    .satisfies(body -> assertThat(body)
+                            .contains("\"model\":\"deepseek-v4-flash\"")
+                            .contains("\"stream\":false")
+                            .contains("\"thinking\":{\"type\":\"disabled\"}")
+                            .doesNotContain("response_format")
+                            .doesNotContain("enable_thinking"));
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void shouldSendDeepSeekJsonObjectFormatInJsonObjectNonStreamingHttpRequestBody() throws IOException {
+        CapturingOpenAiServer server = CapturingOpenAiServer.start(false, "/chat/completions");
+        try {
+            BusinessChatModelApiConfigSnapshot modelConfig =
+                    buildModelConfig(server.baseUrl(), BusinessChatModelProvider.DEEPSEEK, "deepseek-v4-flash");
+            RedissonClient redissonClient = mock(RedissonClient.class);
+            RAtomicLong atomicLong = mock(RAtomicLong.class);
+            when(redissonClient.getAtomicLong("super-agent:chat:model-calls:thread:conversation-1"))
+                    .thenReturn(atomicLong);
+            when(atomicLong.incrementAndGet()).thenReturn(1L);
+            OpenAiCompatibleBusinessChatDynamicModelClient jsonObjectClient =
+                    new OpenAiCompatibleBusinessChatDynamicModelClient(
+                            ToolCallingManager.builder().build(),
+                            RetryTemplate.defaultInstance(),
+                            new BusinessChatRuntimeProperties(),
+                            redissonClient,
+                            mock(com.superagent.business.chat.chatagent.trace.BusinessChatUsageTraceService.class),
+                            new BusinessChatModelBusinessLogger());
+
+            String content = jsonObjectClient.callJsonObject(
+                    buildRuntimeContext(modelConfig),
+                    modelConfig,
+                    "system",
+                    "user");
+
+            assertThat(content).isEqualTo("ok");
+            assertThat(server.requestBodies()).singleElement()
+                    .satisfies(body -> assertThat(body)
+                            .contains("\"model\":\"deepseek-v4-flash\"")
+                            .contains("\"stream\":false")
+                            .contains("\"thinking\":{\"type\":\"disabled\"}")
+                            .contains("\"response_format\":{\"type\":\"json_object\"}")
+                            .contains("\"max_tokens\":512")
                             .doesNotContain("enable_thinking"));
         } finally {
             server.stop();
@@ -246,6 +309,28 @@ class OpenAiCompatibleBusinessChatDynamicModelClientTest {
                     .satisfies(body -> assertThat(body)
                             .contains("\"model\":\"glm-5\"")
                             .contains("\"stream\":true"));
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void shouldIncludeHttpMetadataWhenNonStreamingResponseIsNotJson() throws IOException {
+        CapturingOpenAiServer server = CapturingOpenAiServer.startRaw(
+                "/v1/chat/completions",
+                200,
+                "text/html",
+                "<html>bad gateway</html>");
+        try {
+            assertThatThrownBy(() -> modelClient.call(
+                    buildModelConfig(server.baseUrl(), BusinessChatModelProvider.DASHSCOPE, "qwen-plus"),
+                    "system",
+                    "user"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("non-streaming model response body must be valid JSON")
+                    .hasMessageContaining("/v1/chat/completions")
+                    .hasMessageContaining("status=200")
+                    .hasMessageContaining("contentType=text/html");
         } finally {
             server.stop();
         }
@@ -343,6 +428,10 @@ class OpenAiCompatibleBusinessChatDynamicModelClientTest {
     private BusinessChatRuntimeContext buildRuntimeContext() {
         BusinessChatModelApiConfigSnapshot modelConfig =
                 buildModelConfig("http://127.0.0.1:1", BusinessChatModelProvider.DASHSCOPE, "qwen-plus");
+        return buildRuntimeContext(modelConfig);
+    }
+
+    private BusinessChatRuntimeContext buildRuntimeContext(BusinessChatModelApiConfigSnapshot modelConfig) {
         BusinessChatTaskInfo taskInfo = new BusinessChatTaskInfo(
                 1001L,
                 2001L,
@@ -385,6 +474,25 @@ class OpenAiCompatibleBusinessChatDynamicModelClientTest {
                         "Content-Type",
                         streaming ? "text/event-stream" : "application/json");
                 exchange.sendResponseHeaders(200, response.length);
+                exchange.getResponseBody().write(response);
+                exchange.close();
+            });
+            server.start();
+            return new CapturingOpenAiServer(server, requestBodies);
+        }
+
+        static CapturingOpenAiServer startRaw(
+                String completionsPath,
+                int status,
+                String contentType,
+                String responseText) throws IOException {
+            HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            List<String> requestBodies = new ArrayList<>();
+            server.createContext(completionsPath, exchange -> {
+                requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                byte[] response = responseText.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", contentType);
+                exchange.sendResponseHeaders(status, response.length);
                 exchange.getResponseBody().write(response);
                 exchange.close();
             });

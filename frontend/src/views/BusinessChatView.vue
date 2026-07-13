@@ -1388,7 +1388,7 @@ onBeforeUnmount(() => {
                 </article>
 
                 <div
-                  v-if="turn.id === latestTurnId && turn.assistantMessage.followUpSuggestionList.length > 0 && turn.assistantMessage.status === 'finished'"
+                  v-if="turn.id === latestTurnId && turn.assistantMessage.followUpSuggestionList.length > 0 && turn.assistantMessage.status !== 'failed'"
                   class="follow-up-list"
                 >
                   <button

@@ -81,6 +81,32 @@ class BusinessChatQuestionRewriteServiceTest {
     }
 
     @Test
+    void shouldRewriteNextQuestionWhenPreviousAnswerContainsExamQuestion() {
+        when(modelClient.call(any(), any(), any(), contains("当前问题：\n下一题呢")))
+                .thenReturn("{\"rewrite\":\"模拟试卷（十一）选择题第11题是什么？\"}");
+
+        String rewrittenQuestion = rewriteService.rewrite(
+                null,
+                "下一题呢",
+                """
+                        最近对话：
+                        时间：2026-06-03T17:08
+                        用户：模拟试卷第10题是什么
+                        助手：根据检索证据，模拟试卷（十一）选择题第10题原文为：
+                        人类适应不包括的层次为（ ）。
+                        A. 知识技术层次
+                        B. 生理层次
+                        C. 心理层次
+                        D. 社会文化层次
+                        E. 情感精神层次
+                        """,
+                modelConfig);
+
+        assertThat(rewrittenQuestion).isEqualTo("模拟试卷（十一）选择题第11题是什么？");
+        verify(modelClient).call(any(), any(), contains("你是企业对话系统的问题改写器"), any());
+    }
+
+    @Test
     void shouldRejectInvalidJsonResponse() {
         when(modelClient.call(any(), any(), any(), any()))
                 .thenReturn("订单审核链路有哪些风险？", "仍然不是 JSON");
