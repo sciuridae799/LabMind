@@ -234,6 +234,11 @@ public class AuthServiceImpl implements AuthService {
         workspaceScopeService.requireSuperAdmin();
         String workspaceId = BusinessInputValidator.normalizeRequiredText(request.getWorkspaceId(), "workspaceId");
         AuthWorkspaceData workspaceData = loadNormalWorkspace(workspaceId);
+        if (GUEST_WORKSPACE_ID.equals(workspaceData.getWorkspaceId())) {
+            throw new BaseException(
+                    BaseCode.INVALID_PARAMETER,
+                    "reserved guest workspace cannot be deleted: " + workspaceData.getWorkspaceId());
+        }
         requireWorkspaceEmpty(workspaceData.getWorkspaceId());
         workspaceMapper.update(null, Wrappers.<AuthWorkspaceData>lambdaUpdate()
                 .eq(AuthWorkspaceData::getWorkspaceId, workspaceData.getWorkspaceId())
@@ -314,6 +319,7 @@ public class AuthServiceImpl implements AuthService {
         AuthWorkspaceData workspaceData = workspaceDataList.get(0);
         AuthUserAccountData userData = loadNormalUser(userId);
         int enabled = Boolean.TRUE.equals(request.getEnabled()) ? ENABLED : DELETED_STATUS;
+        requireAnotherAvailableSuperAdmin(userData, role, enabled);
         userAccountMapper.update(null, Wrappers.<AuthUserAccountData>lambdaUpdate()
                 .eq(AuthUserAccountData::getId, userData.getId())
                 .eq(AuthUserAccountData::getStatus, NORMAL_STATUS)
@@ -336,6 +342,7 @@ public class AuthServiceImpl implements AuthService {
         workspaceScopeService.requireSuperAdmin();
         long userId = BusinessInputValidator.parsePositiveLong(request.getUserId(), "userId");
         AuthUserAccountData userData = loadNormalUser(userId);
+        requireAnotherAvailableSuperAdmin(userData, AuthRole.USER, DELETED_STATUS);
         userAccountMapper.update(null, Wrappers.<AuthUserAccountData>lambdaUpdate()
                 .eq(AuthUserAccountData::getId, userData.getId())
                 .eq(AuthUserAccountData::getStatus, NORMAL_STATUS)
@@ -386,6 +393,38 @@ public class AuthServiceImpl implements AuthService {
             throw new BaseException(BaseCode.INVALID_PARAMETER, "user does not exist: " + userId);
         }
         return userData;
+    }
+
+    private void requireAnotherAvailableSuperAdmin(
+            AuthUserAccountData currentUser,
+            AuthRole requestedRole,
+            int requestedEnabled) {
+        if (!isAvailableSuperAdmin(currentUser)
+                || isAvailableSuperAdmin(requestedRole, requestedEnabled, NORMAL_STATUS)) {
+            return;
+        }
+        List<Long> lockedSuperAdminIds = userAccountMapper.selectAvailableSuperAdminIdsForUpdate(
+                AuthRole.SUPER_ADMIN.value(), ENABLED, NORMAL_STATUS);
+        boolean hasAnotherAvailableSuperAdmin = lockedSuperAdminIds.stream()
+                .anyMatch(userId -> !currentUser.getId().equals(userId));
+        if (!hasAnotherAvailableSuperAdmin) {
+            throw new BaseException(
+                    BaseCode.INVALID_PARAMETER,
+                    "at least one enabled super_admin account is required");
+        }
+    }
+
+    private boolean isAvailableSuperAdmin(AuthUserAccountData userData) {
+        return isAvailableSuperAdmin(
+                AuthRole.fromValue(userData.getRole()),
+                userData.getEnabled(),
+                userData.getStatus());
+    }
+
+    private boolean isAvailableSuperAdmin(AuthRole role, Integer enabled, Integer status) {
+        return role == AuthRole.SUPER_ADMIN
+                && Integer.valueOf(ENABLED).equals(enabled)
+                && Integer.valueOf(NORMAL_STATUS).equals(status);
     }
 
     private void requireWorkspaceEmpty(String workspaceId) {

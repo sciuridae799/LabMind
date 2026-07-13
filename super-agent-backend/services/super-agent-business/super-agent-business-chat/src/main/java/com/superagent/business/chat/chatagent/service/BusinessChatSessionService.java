@@ -13,7 +13,8 @@ public interface BusinessChatSessionService {
     /**
      * 删除整条会话归档。
      *
-     * <p>删除对象是 conversationId 下的会话主记录、问答轮次、摘要和阶段明细。
+     * <p>删除对象是 conversationId 下的会话主记录、问答轮次、摘要、阶段明细、模型/工具调用轨迹
+     * 和 Graph checkpoint thread。
      * 如果会话正在生成，本方法应拒绝删除，避免运行中的 exchange 被软删后仍继续写回。</p>
      *
      * @param request 删除请求，必须包含 conversationId

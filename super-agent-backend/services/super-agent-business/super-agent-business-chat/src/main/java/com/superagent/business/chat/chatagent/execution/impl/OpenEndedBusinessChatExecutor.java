@@ -6,7 +6,6 @@ import com.alibaba.cloud.ai.graph.agent.hook.modelcalllimit.ModelCallLimitHook;
 import com.alibaba.cloud.ai.graph.agent.hook.toolcalllimit.ToolCallLimitHook;
 import com.alibaba.cloud.ai.graph.agent.interceptor.toolerror.ToolErrorInterceptor;
 import com.alibaba.cloud.ai.graph.agent.interceptor.toolretry.ToolRetryInterceptor;
-import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.CreateOption;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
 import com.alibaba.cloud.ai.toolcalling.tavily.TavilySearchService;
 import com.superagent.business.chat.chatagent.config.BusinessChatRuntimeProperties;
@@ -14,20 +13,20 @@ import com.superagent.business.chat.chatagent.execution.BusinessChatExecutor;
 import com.superagent.business.chat.chatagent.logging.BusinessChatToolBusinessLogger;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatExecutionPlan;
 import com.superagent.business.chat.chatagent.orchestration.model.BusinessChatMode;
+import com.superagent.business.chat.chatagent.runtime.BusinessChatAgentCounterKeys;
 import com.superagent.business.chat.chatagent.runtime.BusinessChatRuntimeContext;
 import com.superagent.business.chat.chatagent.trace.BusinessChatUsageTraceService;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.function.Function;
-import javax.sql.DataSource;
 import org.redisson.api.RAtomicLong;
 import org.redisson.api.RedissonClient;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.function.FunctionToolCallback;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
@@ -62,10 +61,6 @@ public class OpenEndedBusinessChatExecutor implements BusinessChatExecutor {
     private static final String TAVILY_RUN_CONTEXT_KEY =
             "__tool_call_limit_run_count___" + TAVILY_TOOL_NAME;
 
-    private static final String MODEL_THREAD_COUNTER_KEY_PREFIX = "super-agent:chat:model-calls:thread:";
-
-    private static final String TAVILY_THREAD_COUNTER_KEY_PREFIX = "super-agent:chat:tool-calls:thread:";
-
     private final OpenAiCompatibleBusinessChatDynamicModelClient modelClient;
 
     private final BusinessChatRuntimeProperties runtimeProperties;
@@ -89,10 +84,11 @@ public class OpenEndedBusinessChatExecutor implements BusinessChatExecutor {
             BusinessChatRuntimeProperties runtimeProperties,
             TavilySearchService tavilySearchService,
             RedissonClient redissonClient,
-            DataSource dataSource,
+            MysqlSaver mysqlSaver,
             BusinessChatUsageTraceService usageTraceService,
             BusinessChatModelBusinessLogger modelBusinessLogger,
-            BusinessChatToolBusinessLogger toolBusinessLogger) {
+            BusinessChatToolBusinessLogger toolBusinessLogger,
+            @Qualifier("businessChatToolExecutor") ExecutorService toolExecutor) {
         this.modelClient = modelClient;
         this.runtimeProperties = runtimeProperties;
         this.tavilySearchService = tavilySearchService;
@@ -100,11 +96,8 @@ public class OpenEndedBusinessChatExecutor implements BusinessChatExecutor {
         this.usageTraceService = usageTraceService;
         this.modelBusinessLogger = modelBusinessLogger;
         this.toolBusinessLogger = toolBusinessLogger;
-        this.mysqlSaver = MysqlSaver.builder()
-                .dataSource(dataSource)
-                .createOption(CreateOption.CREATE_NONE)
-                .build();
-        this.toolExecutor = Executors.newFixedThreadPool(runtimeProperties.getMaxParallelTools());
+        this.mysqlSaver = mysqlSaver;
+        this.toolExecutor = toolExecutor;
     }
 
     @Override
@@ -164,11 +157,13 @@ public class OpenEndedBusinessChatExecutor implements BusinessChatExecutor {
                 .build();
         runnableConfig.context().put(
                 MODEL_THREAD_CONTEXT_KEY,
-                toInt(redissonClient.getAtomicLong(MODEL_THREAD_COUNTER_KEY_PREFIX + conversationId).get()));
+                toInt(redissonClient.getAtomicLong(
+                        BusinessChatAgentCounterKeys.modelThreadCounterKey(conversationId)).get()));
         runnableConfig.context().put(MODEL_RUN_CONTEXT_KEY, 0);
         runnableConfig.context().put(
                 TAVILY_THREAD_CONTEXT_KEY,
-                toInt(redissonClient.getAtomicLong(tavilyThreadCounterKey(conversationId)).get()));
+                toInt(redissonClient.getAtomicLong(
+                        BusinessChatAgentCounterKeys.toolThreadCounterKey(conversationId, TAVILY_TOOL_NAME)).get()));
         runnableConfig.context().put(TAVILY_RUN_CONTEXT_KEY, 0);
         return runnableConfig;
     }
@@ -258,10 +253,10 @@ public class OpenEndedBusinessChatExecutor implements BusinessChatExecutor {
         }
         String conversationId = runtimeContext.getTaskInfo().conversationId();
         syncThreadCounter(
-                MODEL_THREAD_COUNTER_KEY_PREFIX + conversationId,
+                BusinessChatAgentCounterKeys.modelThreadCounterKey(conversationId),
                 intContextValue(runnableConfig, MODEL_THREAD_CONTEXT_KEY));
         syncThreadCounter(
-                tavilyThreadCounterKey(conversationId),
+                BusinessChatAgentCounterKeys.toolThreadCounterKey(conversationId, TAVILY_TOOL_NAME),
                 intContextValue(runnableConfig, TAVILY_THREAD_CONTEXT_KEY));
     }
 
@@ -282,10 +277,6 @@ public class OpenEndedBusinessChatExecutor implements BusinessChatExecutor {
 
     private int toInt(long value) {
         return value > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) value;
-    }
-
-    private String tavilyThreadCounterKey(String conversationId) {
-        return TAVILY_THREAD_COUNTER_KEY_PREFIX + conversationId + ":" + TAVILY_TOOL_NAME;
     }
 
     private TavilySearchService.Response tracedTavilySearch(

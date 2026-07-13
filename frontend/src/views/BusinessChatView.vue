@@ -99,6 +99,7 @@ const historyStatusMessage = ref('')
 const modelConfigStatusMessage = ref('')
 const isHistoryLoading = ref(false)
 const isModelConfigLoading = ref(false)
+const isConversationLoading = ref(false)
 const deletingConversationId = ref('')
 const deleteConfirmConversationId = ref('')
 const isStreaming = ref(false)
@@ -117,6 +118,8 @@ const activeCitationPopover = ref<CitationPopover | null>(null)
 let docContextHideTimer: ReturnType<typeof setTimeout> | null = null
 let scrollAnimationFrame: number | null = null
 let citationPopoverHideTimer: ReturnType<typeof setTimeout> | null = null
+let conversationRequestGeneration = 0
+let historyRequestGeneration = 0
 
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 80
 const CITATION_POPOVER_WIDTH = 360
@@ -195,6 +198,15 @@ function createMessageId(): string {
 
 function resolveErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '请求失败'
+}
+
+function beginConversationRequest(): number {
+  conversationRequestGeneration += 1
+  return conversationRequestGeneration
+}
+
+function isConversationRequestCurrent(requestGeneration: number): boolean {
+  return requestGeneration === conversationRequestGeneration
 }
 
 function createAssistantMessage(): ChatMessage {
@@ -380,9 +392,9 @@ function buildMessageListFromSession(sessionDetail: BusinessChatSessionDetail): 
         id: `assistant-${exchangeId}`,
         role: 'assistant',
         text: exchange.replyContent,
-        functionSupplementItems: exchange.toolTraceList
-          .map((item) => String(item || '').trim())
-          .filter(Boolean),
+        functionSupplementItems: exchange.toolTraceList.flatMap((item) => {
+          return parseFunctionSupplementItems(String(item || ''))
+        }),
         sourceSnapshotList: [...exchange.sourceSnapshotList],
         followUpSuggestionList: [...exchange.followUpSuggestionList],
         errorMessage: buildAssistantErrorMessage(exchange),
@@ -423,9 +435,12 @@ const hasConversation = computed<boolean>(() => messageList.value.length > 0)
 
 const canSendMessage = computed<boolean>(() => {
   return !isStreaming.value &&
+    !isConversationLoading.value &&
     userQuestion.value.trim().length > 0 &&
     currentModelConfigId.value.length > 0 &&
-    (currentMode.value !== 'CURRENT_DOCUMENT' || selectedDoc.value.length > 0)
+    (currentMode.value !== 'CURRENT_DOCUMENT' || knowledgeDocumentOptions.value.some((document) => {
+      return document.documentId === selectedDoc.value
+    }))
 })
 
 const currentModelConfig = computed<ModelApiConfig | null>(() => {
@@ -667,7 +682,11 @@ function upsertAgentEventMessage(assistantMessage: ChatMessage, event: BusinessC
   })
 }
 
-async function loadConversationHistory(preservedConversationId: string | null = activeConversationId.value): Promise<void> {
+async function loadConversationHistory(
+  preservedConversationId: string | null = activeConversationId.value,
+  ownerGeneration: number = conversationRequestGeneration
+): Promise<void> {
+  const requestGeneration = ++historyRequestGeneration
   isHistoryLoading.value = true
   historyStatusMessage.value = ''
 
@@ -680,6 +699,13 @@ async function loadConversationHistory(preservedConversationId: string | null = 
       pageNo: '1',
       pageSize: '50'
     })
+    if (
+      requestGeneration !== historyRequestGeneration ||
+      !isConversationRequestCurrent(ownerGeneration)
+    ) {
+      return
+    }
+
     conversationHistory.value = sessionPage.sessions.map(mapConversationHistoryItem)
     const activeHistoryItem = conversationHistory.value.find((item) => item.conversationId === preservedConversationId)
 
@@ -697,10 +723,19 @@ async function loadConversationHistory(preservedConversationId: string | null = 
       activeConversationTitle.value = ''
     }
   } catch (error) {
+    if (
+      requestGeneration !== historyRequestGeneration ||
+      !isConversationRequestCurrent(ownerGeneration)
+    ) {
+      return
+    }
+
     conversationHistory.value = []
     historyStatusMessage.value = resolveErrorMessage(error)
   } finally {
-    isHistoryLoading.value = false
+    if (requestGeneration === historyRequestGeneration) {
+      isHistoryLoading.value = false
+    }
   }
 }
 
@@ -774,7 +809,12 @@ async function openSelectedDocumentDetail(): Promise<void> {
 }
 
 function toggleModelPicker(): void {
-  if (isStreaming.value || isModelConfigLoading.value || availableModelConfigs.value.length === 0) {
+  if (
+    isStreaming.value ||
+    isConversationLoading.value ||
+    isModelConfigLoading.value ||
+    availableModelConfigs.value.length === 0
+  ) {
     return
   }
 
@@ -813,38 +853,68 @@ function handleDocumentClick(event: MouseEvent): void {
   }
 }
 
-async function openConversation(conversationIdToOpen: string): Promise<void> {
+async function openConversation(
+  conversationIdToOpen: string,
+  ownerGeneration?: number
+): Promise<void> {
   if (isStreaming.value || deletingConversationId.value) {
     return
   }
 
+  const requestGeneration = ownerGeneration ?? beginConversationRequest()
+  if (!isConversationRequestCurrent(requestGeneration)) {
+    return
+  }
+
   deleteConfirmConversationId.value = ''
+  isConversationLoading.value = true
   streamStatusMessage.value = '正在加载会话历史'
 
   try {
     // 打开历史会话时，用后端详情作为唯一数据源回填当前模式、会话编号和消息列表。
     const sessionDetail = await chatApi.getSession(conversationIdToOpen)
+    if (!isConversationRequestCurrent(requestGeneration)) {
+      return
+    }
+
+    const selectedDocumentId = sessionDetail.selectedDocumentId == null
+      ? ''
+      : String(sessionDetail.selectedDocumentId)
+    const selectedDocumentAvailable = !selectedDocumentId || knowledgeDocumentOptions.value.some((document) => {
+      return document.documentId === selectedDocumentId
+    })
+
     activeConversationId.value = sessionDetail.conversationId
     activeConversationTitle.value = sessionDetail.title
     conversationId.value = sessionDetail.conversationId
     currentMode.value = sessionDetail.chatMode
-    selectedDoc.value = sessionDetail.selectedDocumentId == null ? '' : String(sessionDetail.selectedDocumentId)
+    selectedDoc.value = selectedDocumentAvailable ? selectedDocumentId : ''
     isDocContextVisible.value = false
     messageList.value = buildMessageListFromSession(sessionDetail)
     resetThinkingExpansion()
     userQuestion.value = ''
-    streamStatusMessage.value = ''
+    streamStatusMessage.value = selectedDocumentAvailable
+      ? ''
+      : '该历史会话引用的文档已不可用，请重新选择文档。'
     scheduleScrollToLatest(true)
   } catch (error) {
-    streamStatusMessage.value = resolveErrorMessage(error)
+    if (isConversationRequestCurrent(requestGeneration)) {
+      streamStatusMessage.value = resolveErrorMessage(error)
+    }
+  } finally {
+    if (isConversationRequestCurrent(requestGeneration)) {
+      isConversationLoading.value = false
+    }
   }
 }
 
 async function deleteConversation(conversationIdToDelete: string): Promise<void> {
-  if (isStreaming.value || deletingConversationId.value) {
+  if (isStreaming.value || isConversationLoading.value || deletingConversationId.value) {
     return
   }
 
+  beginConversationRequest()
+  streamStatusMessage.value = ''
   deletingConversationId.value = conversationIdToDelete
   historyStatusMessage.value = ''
 
@@ -867,7 +937,7 @@ async function deleteConversation(conversationIdToDelete: string): Promise<void>
 }
 
 function requestDeleteConversation(conversationIdToDelete: string): void {
-  if (isStreaming.value || deletingConversationId.value) {
+  if (isStreaming.value || isConversationLoading.value || deletingConversationId.value) {
     return
   }
 
@@ -882,7 +952,23 @@ function confirmDeleteConversation(conversationIdToDelete: string): void {
   void deleteConversation(conversationIdToDelete)
 }
 
-function consumeStreamEvent(assistantMessageId: string, event: BusinessChatStreamEvent): void {
+function consumeStreamEvent(
+  requestGeneration: number,
+  streamConversationId: string,
+  assistantMessageId: string,
+  event: BusinessChatStreamEvent
+): void {
+  if (
+    !isConversationRequestCurrent(requestGeneration) ||
+    activeConversationId.value !== streamConversationId
+  ) {
+    return
+  }
+
+  if (String(event.conversationId || '').trim() !== streamConversationId) {
+    throw new Error('流式事件的会话标识与当前请求不一致')
+  }
+
   const assistantMessage = findMessage(assistantMessageId)
   if (!assistantMessage) {
     return
@@ -910,6 +996,9 @@ function consumeStreamEvent(assistantMessageId: string, event: BusinessChatStrea
       streamStatusMessage.value = ''
       break
     case 'FUNCTION_SUPPLEMENT':
+      assistantMessage.functionSupplementItems = parseFunctionSupplementItems(
+        String(event.functionSupplement || '')
+      )
       streamStatusMessage.value = ''
       break
     case 'REFERENCE_SUPPLEMENT':
@@ -947,16 +1036,17 @@ function consumeStreamEvent(assistantMessageId: string, event: BusinessChatStrea
 
 async function handleSend(): Promise<void> {
   const question = userQuestion.value.trim()
-  if (!question || isStreaming.value || !currentModelConfigId.value) {
+  if (!question || isStreaming.value || isConversationLoading.value || !currentModelConfigId.value) {
     return
   }
 
-  if (currentMode.value === 'CURRENT_DOCUMENT' && !selectedDoc.value) {
+  if (currentMode.value === 'CURRENT_DOCUMENT' && !selectedDocumentOption.value) {
     streamStatusMessage.value = '请先选择要问答的上传文档'
     isDocContextVisible.value = true
     return
   }
   // 前端先把用户消息和占位助手消息放入本地消息流，随后用 SSE 事件持续填充这条助手消息。
+  const requestGeneration = beginConversationRequest()
   const currentConversationId = conversationId.value || createConversationId()
   conversationId.value = currentConversationId
   activeConversationId.value = currentConversationId
@@ -994,38 +1084,59 @@ async function handleSend(): Promise<void> {
     },
     {
       // 每条 SSE 事件只更新当前轮助手消息，避免历史消息被正在进行的流式响应污染。
-      onEvent: (event) => consumeStreamEvent(assistantMessage.id, event)
+      onEvent: (event) => consumeStreamEvent(
+        requestGeneration,
+        currentConversationId,
+        assistantMessage.id,
+        event
+      )
     }
   )
   activeStreamRequest.value = streamRequest
 
   try {
     await streamRequest.done
+    if (!isConversationRequestCurrent(requestGeneration)) {
+      return
+    }
+
     const currentAssistantMessage = findMessage(assistantMessageId)
     if (currentAssistantMessage?.status === 'streaming') {
-      currentAssistantMessage.status = 'finished'
-      streamStatusMessage.value = ''
+      currentAssistantMessage.status = 'failed'
+      currentAssistantMessage.errorMessage = '流式连接在返回本轮终态前结束'
+      streamStatusMessage.value = currentAssistantMessage.errorMessage
+      scheduleScrollToLatest()
     }
   } catch (error) {
+    if (!isConversationRequestCurrent(requestGeneration)) {
+      return
+    }
+
     const currentAssistantMessage = findMessage(assistantMessageId)
-    if (currentAssistantMessage) {
+    if (currentAssistantMessage?.status === 'streaming') {
       currentAssistantMessage.status = 'failed'
       currentAssistantMessage.errorMessage = error instanceof Error ? error.message : '流式请求失败'
       streamStatusMessage.value = currentAssistantMessage.errorMessage
       scheduleScrollToLatest()
     }
   } finally {
-    activeStreamRequest.value = null
-    isStreaming.value = false
+    if (activeStreamRequest.value === streamRequest) {
+      activeStreamRequest.value = null
+      isStreaming.value = false
+    }
   }
 
-  await loadConversationHistory(currentConversationId)
+  if (isConversationRequestCurrent(requestGeneration)) {
+    await loadConversationHistory(currentConversationId, requestGeneration)
+  }
 }
 
 function startNewConversation(): void {
+  const requestGeneration = beginConversationRequest()
   activeStreamRequest.value?.controller.abort()
   activeStreamRequest.value = null
   isStreaming.value = false
+  isConversationLoading.value = false
   deleteConfirmConversationId.value = ''
   userQuestion.value = ''
   streamStatusMessage.value = ''
@@ -1037,12 +1148,14 @@ function startNewConversation(): void {
   resetThinkingExpansion()
   conversationId.value = createConversationId()
   void chatApi.clearActiveSession().catch((error) => {
-    historyStatusMessage.value = resolveErrorMessage(error)
+    if (isConversationRequestCurrent(requestGeneration)) {
+      historyStatusMessage.value = resolveErrorMessage(error)
+    }
   })
 }
 
 function useFollowUpSuggestion(question: string): void {
-  if (isStreaming.value) {
+  if (isStreaming.value || isConversationLoading.value) {
     return
   }
 
@@ -1071,12 +1184,25 @@ function handleTextareaCompositionEnd(): void {
 }
 
 async function restoreChatPage(): Promise<void> {
+  const requestGeneration = conversationRequestGeneration
   await loadKnowledgeDocumentOptions()
-  await loadConversationHistory()
+  if (!isConversationRequestCurrent(requestGeneration)) {
+    return
+  }
+
+  await loadConversationHistory(null, requestGeneration)
+  if (!isConversationRequestCurrent(requestGeneration)) {
+    return
+  }
+
   const activeSession = await chatApi.getActiveSession()
+  if (!isConversationRequestCurrent(requestGeneration)) {
+    return
+  }
+
   const activeConversationId = String(activeSession.conversationId || '').trim()
   if (activeConversationId) {
-    await openConversation(activeConversationId)
+    await openConversation(activeConversationId, requestGeneration)
   }
 }
 
@@ -1089,6 +1215,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  beginConversationRequest()
   clearDocContextHideTimer()
   clearCitationPopoverHideTimer()
   if (scrollAnimationFrame !== null) {
@@ -1214,7 +1341,7 @@ onBeforeUnmount(() => {
                 type="button"
                 class="history-delete-button"
                 :data-visible="deletingConversationId === conversation.conversationId || deleteConfirmConversationId === conversation.conversationId ? 'true' : 'false'"
-                :disabled="isStreaming || deletingConversationId.length > 0"
+                :disabled="isStreaming || isConversationLoading || deletingConversationId.length > 0"
                 @click="requestDeleteConversation(conversation.conversationId)"
               >
                 {{ deletingConversationId === conversation.conversationId ? '删除中' : '删除' }}
@@ -1428,6 +1555,7 @@ onBeforeUnmount(() => {
                   type="button"
                   class="mode-btn"
                   :class="{ active: currentMode === mode.value }"
+                  :disabled="isStreaming || isConversationLoading"
                   @click="selectMode(mode.value)"
                   @mouseenter="handleModePointerEnter(mode.value)"
                 >
@@ -1447,7 +1575,7 @@ onBeforeUnmount(() => {
                       <select
                         v-model="selectedDoc"
                         class="doc-select"
-                        :disabled="isDocumentOptionsLoading || knowledgeDocumentOptions.length === 0"
+                        :disabled="isStreaming || isConversationLoading || isDocumentOptionsLoading || knowledgeDocumentOptions.length === 0"
                       >
                         <option
                           disabled
@@ -1489,6 +1617,7 @@ onBeforeUnmount(() => {
             >
               <textarea
                 v-model="userQuestion"
+                :disabled="isStreaming || isConversationLoading"
                 placeholder="询问课程讲义、实验指导书、项目 README、接口文档或交接资料。"
                 @compositionstart="handleTextareaCompositionStart"
                 @compositionend="handleTextareaCompositionEnd"
@@ -1504,7 +1633,7 @@ onBeforeUnmount(() => {
                   <button
                     type="button"
                     class="model-provider-trigger"
-                    :disabled="isStreaming || isModelConfigLoading || availableModelConfigs.length === 0"
+                    :disabled="isStreaming || isConversationLoading || isModelConfigLoading || availableModelConfigs.length === 0"
                     @click.stop="toggleModelPicker"
                   >
                     <span class="model-provider-select-label">模型</span>
@@ -1538,6 +1667,7 @@ onBeforeUnmount(() => {
                 <button
                   type="button"
                   class="send-btn"
+                  aria-label="发送问题"
                   :disabled="!canSendMessage"
                   @click="handleSend"
                 >
@@ -1974,23 +2104,32 @@ select {
   background: transparent;
   cursor: pointer;
   opacity: 0;
-  visibility: hidden;
+  visibility: visible;
+  pointer-events: none;
 }
 
 .history-action-slot:hover .time,
+.history-action-slot:focus-within .time,
 .history-action-slot[data-delete-visible='true'] .time {
   opacity: 0;
   visibility: hidden;
 }
 
 .history-action-slot:hover .history-delete-button,
+.history-action-slot:focus-within .history-delete-button,
 .history-action-slot[data-delete-visible='true'] .history-delete-button {
   opacity: 1;
   visibility: visible;
+  pointer-events: auto;
 }
 
 .history-delete-button:disabled {
   cursor: not-allowed;
+}
+
+.history-delete-button:focus-visible {
+  outline: 2px solid #7dd3c7;
+  outline-offset: 2px;
 }
 
 .delete-popover {
@@ -3108,8 +3247,16 @@ select {
 
   .sidebar {
     width: 100%;
+    height: clamp(180px, 38vh, 320px);
+    min-height: 0;
+    flex: none;
     border-right: 0;
     border-bottom: 1px solid #d8e6e8;
+    overflow-y: hidden;
+  }
+
+  .history-section {
+    min-height: 0;
   }
 
   .workspace::before {
@@ -3124,6 +3271,19 @@ select {
   .workspace-has-conversation {
     padding-top: 20px;
     padding-bottom: 16px;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .history-action-slot .time {
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .history-action-slot .history-delete-button {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
   }
 }
 

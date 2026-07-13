@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS super_agent_knowledge_route_trace (
     id BIGINT NOT NULL COMMENT '主键id',
     trace_id VARCHAR(64) NOT NULL COMMENT '路由追踪编号',
     workspace_id VARCHAR(64) NOT NULL COMMENT '所属工作组id',
-    conversation_id VARCHAR(64) DEFAULT NULL COMMENT '会话编号',
+    conversation_id VARCHAR(64) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '会话编号',
     exchange_id BIGINT DEFAULT NULL COMMENT '轮次id',
     question TEXT NOT NULL COMMENT '原始问题',
     rewritten_question TEXT DEFAULT NULL COMMENT '改写问题',

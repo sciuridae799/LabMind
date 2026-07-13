@@ -7,21 +7,19 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     proxy: {
-      '/api': {
+      '/backend': {
         target: 'http://127.0.0.1:8080',
-        changeOrigin: true
-      },
-      '/manage': {
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/backend/, '')
+      }
+    }
+  },
+  preview: {
+    proxy: {
+      '/backend': {
         target: 'http://127.0.0.1:8080',
-        changeOrigin: true
-      },
-      '/auth': {
-        target: 'http://127.0.0.1:8080',
-        changeOrigin: true
-      },
-      '/admin': {
-        target: 'http://127.0.0.1:8080',
-        changeOrigin: true
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/backend/, '')
       }
     }
   }

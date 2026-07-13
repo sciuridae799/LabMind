@@ -104,8 +104,6 @@ class BusinessChatOrchestratorImplTest {
                 knowledgeRetrievalService,
                 traceStageRunner);
         lenient().when(knowledgeRetrievalService.retrieve(any())).thenReturn(KnowledgeRetrievalResult.empty());
-        lenient().when(knowledgeManageService.filterDocumentIdsByWorkspace(any(), any()))
-                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -159,7 +157,7 @@ class BusinessChatOrchestratorImplTest {
         when(businessChatMemorySummaryMapper.selectOne(any())).thenReturn(null);
         when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of());
         when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("订单审核怎么配置？");
-        when(knowledgeGraphClient.routeQuestion("订单审核怎么配置？", 5))
+        when(knowledgeGraphClient.routeQuestion("workspace-1", "订单审核怎么配置？", 5))
                 .thenThrow(new IllegalStateException("graph query failed"));
 
         assertThatThrownBy(() -> businessChatOrchestrator.orchestrate(
@@ -190,7 +188,7 @@ class BusinessChatOrchestratorImplTest {
                 LocalDateTime.of(2026, 4, 24, 9, 0));
         when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of(latestExchangeData));
         when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("订单审核链路有哪些风险？");
-        when(knowledgeGraphClient.routeQuestion("订单审核链路有哪些风险？", 5))
+        when(knowledgeGraphClient.routeQuestion("workspace-1", "订单审核链路有哪些风险？", 5))
                 .thenReturn(routeDecision(List.of(new KnowledgeRouteCandidate(
                         9001L,
                         "订单审核手册",
@@ -230,7 +228,7 @@ class BusinessChatOrchestratorImplTest {
         assertThat(executionPlan.clarificationPlan().required()).isFalse();
         assertThat(executionPlan.answerAgentStep().agentType()).isEqualTo(BusinessChatAgentType.KNOWLEDGE_QA);
         assertThat(executionPlan.executionMode()).isEqualTo(BusinessChatMode.KNOWLEDGE_BASE);
-        verify(knowledgeGraphClient).routeQuestion("订单审核链路有哪些风险？", 5);
+        verify(knowledgeGraphClient).routeQuestion("workspace-1", "订单审核链路有哪些风险？", 5);
         assertThat(executionPlan.executionStepList()).contains(
                 "加载长期摘要：已加载",
                 "加载最近对话窗口：1轮",
@@ -243,7 +241,8 @@ class BusinessChatOrchestratorImplTest {
         when(businessChatMemorySummaryMapper.selectOne(any())).thenReturn(null);
         when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of());
         when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("订单审核怎么配置？");
-        when(knowledgeGraphClient.routeQuestion("订单审核怎么配置？", 5)).thenReturn(KnowledgeRouteDecision.empty());
+        when(knowledgeGraphClient.routeQuestion("workspace-1", "订单审核怎么配置？", 5))
+                .thenReturn(KnowledgeRouteDecision.empty());
 
         var executionPlan = businessChatOrchestrator.orchestrate(
                 createRuntimeContext(BusinessChatMode.KNOWLEDGE_BASE, "订单审核怎么配置？"));
@@ -262,7 +261,7 @@ class BusinessChatOrchestratorImplTest {
         when(businessChatMemorySummaryMapper.selectOne(any())).thenReturn(null);
         when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of());
         when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("流程怎么配置？");
-        when(knowledgeGraphClient.routeQuestion("流程怎么配置？", 5)).thenReturn(routeDecision(List.of(
+        when(knowledgeGraphClient.routeQuestion("workspace-1", "流程怎么配置？", 5)).thenReturn(routeDecision(List.of(
                 routeCandidate(9001L, "订单审核手册", "order_scope", "订单知识域", 5.0),
                 routeCandidate(9002L, "合同审批手册", "contract_scope", "合同知识域", 4.4),
                 routeCandidate(9003L, "费用报销手册", "expense_scope", "费用知识域", 3.0))));
@@ -287,7 +286,8 @@ class BusinessChatOrchestratorImplTest {
         when(businessChatMemorySummaryMapper.selectOne(any())).thenReturn(null);
         when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of());
         when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("订单审核流程怎么配置？");
-        when(knowledgeGraphClient.routeQuestion("订单审核流程怎么配置？", 5)).thenReturn(routeDecision(List.of(
+        when(knowledgeGraphClient.routeQuestion("workspace-1", "订单审核流程怎么配置？", 5))
+                .thenReturn(routeDecision(List.of(
                 routeCandidate(9001L, "订单审核手册", "order_scope", "订单知识域", 5.0),
                 routeCandidate(9002L, "订单风控手册", "order_scope", "订单知识域", 4.4))));
 
@@ -378,7 +378,7 @@ class BusinessChatOrchestratorImplTest {
                 "订单审核包括提交、风控、人工审核和归档。");
         assertThat(executionPlan.shortCircuit()).isFalse();
         assertThat(executionPlan.executionStepList()).contains("当前文档画像上下文：已加载");
-        verify(knowledgeGraphClient, never()).routeQuestion(any(), anyInt());
+        verify(knowledgeGraphClient, never()).routeQuestion(any(), any(), anyInt());
         verify(knowledgeManageService, never()).queryDocumentParsedText(any());
         verify(knowledgeRetrievalService).retrieve(any());
         verify(shadowRouteProducer).publish(any());
@@ -410,7 +410,7 @@ class BusinessChatOrchestratorImplTest {
         when(businessChatMemorySummaryMapper.selectOne(any())).thenReturn(null);
         when(businessChatExchangeMapper.selectList(any())).thenReturn(List.of());
         when(questionRewriteService.rewrite(any(), any(), any(), any())).thenReturn("订单审核有哪些节点？");
-        when(knowledgeGraphClient.routeQuestion("订单审核有哪些节点？", 5))
+        when(knowledgeGraphClient.routeQuestion("workspace-1", "订单审核有哪些节点？", 5))
                 .thenReturn(routeDecision(List.of(routeCandidate(9001L, "订单审核手册", "order_scope", "订单知识域", 5.0))));
         when(knowledgeRetrievalService.retrieve(any())).thenReturn(KnowledgeRetrievalResult.empty());
 
@@ -483,7 +483,7 @@ class BusinessChatOrchestratorImplTest {
                 createRuntimeContext(BusinessChatMode.KNOWLEDGE_BASE, "这个有哪些风险？")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("question rewrite model response must be a JSON object");
-        verify(knowledgeGraphClient, never()).routeQuestion(any(), anyInt());
+        verify(knowledgeGraphClient, never()).routeQuestion(any(), any(), anyInt());
     }
 
     private BusinessChatRuntimeContext createRuntimeContext(BusinessChatMode chatMode) {

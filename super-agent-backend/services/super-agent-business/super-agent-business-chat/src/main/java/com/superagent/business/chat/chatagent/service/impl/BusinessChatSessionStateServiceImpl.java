@@ -39,21 +39,14 @@ public class BusinessChatSessionStateServiceImpl implements BusinessChatSessionS
         String normalizedConversationId = normalizeConversationId(conversationId);
         String normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
         String normalizedAuthSessionToken = normalizeAuthSessionToken(authSessionToken);
-        BusinessChatSessionStateData stateData = loadChatPageState(normalizedWorkspaceId, normalizedAuthSessionToken);
-        if (stateData == null) {
-            stateData = new BusinessChatSessionStateData();
-            stateData.setId(snowflakeIdGenerator.nextId());
-            stateData.setStateKey(CHAT_PAGE_STATE_KEY);
-            stateData.setWorkspaceId(normalizedWorkspaceId);
-            stateData.setAuthSessionToken(normalizedAuthSessionToken);
-            stateData.setActiveConversationId(normalizedConversationId);
-            stateData.setStatus(NORMAL_STATUS);
-            sessionStateMapper.insert(stateData);
-            return;
-        }
+        BusinessChatSessionStateData stateData = new BusinessChatSessionStateData();
+        stateData.setId(snowflakeIdGenerator.nextId());
+        stateData.setStateKey(CHAT_PAGE_STATE_KEY);
+        stateData.setWorkspaceId(normalizedWorkspaceId);
+        stateData.setAuthSessionToken(normalizedAuthSessionToken);
         stateData.setActiveConversationId(normalizedConversationId);
         stateData.setStatus(NORMAL_STATUS);
-        sessionStateMapper.updateById(stateData);
+        sessionStateMapper.upsertActiveConversation(stateData);
     }
 
     @Override
