@@ -4,6 +4,8 @@ LabMind 是面向团队知识资产的全栈 AI 助手。它不只是聊天页�
 
 前端同时提供用户问答界面和管理后台；后端负责知识处理、对话编排、模型调用与全链路状态归档。
 
+**在线体验**：[https://labmind-sciuridae799s-projects.vercel.app](https://labmind-sciuridae799s-projects.vercel.app)
+
 ## 核心能力
 
 - **三种问答模式**：当前文档问答、自动知识问答、开放式提问由请求中的 `chatMode` 明确决定。
