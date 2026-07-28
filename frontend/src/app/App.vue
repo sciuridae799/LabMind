@@ -10,8 +10,9 @@ const router = useRouter()
 const authSession = useAuthSession()
 const showTopBar = computed(() => route.meta.layout !== 'fullscreen')
 const isAdminView = computed(() => route.path.startsWith('/admin'))
+const showProductNavigation = computed(() => showTopBar.value && !isAdminView.value)
 const topBarBrandIcon = computed(() => (isAdminView.value ? 'A' : 'LAB'))
-const topBarBrandText = computed(() => (isAdminView.value ? '后台管理' : '实验室 AI 文档助手'))
+const topBarBrandText = computed(() => (isAdminView.value ? '后台管理' : 'LabMind'))
 const topBarActionText = computed(() => (isAdminView.value ? '回到对话' : '后台管理'))
 const topBarActionTo = computed(() => (isAdminView.value ? '/chat' : '/admin/dashboard'))
 const userDisplayName = computed(() => authSession.value?.displayName ?? authSession.value?.account ?? '')
@@ -178,9 +179,15 @@ onBeforeUnmount(() => {
       v-if="showTopBar"
       class="top-bar"
     >
-      <div class="logo">
-        <span class="logo-icon">{{ topBarBrandIcon }}</span>
-        <span class="logo-text">{{ topBarBrandText }}</span>
+      <div class="top-bar-leading">
+        <div class="logo">
+          <span class="logo-icon">{{ topBarBrandIcon }}</span>
+          <span class="logo-text">{{ topBarBrandText }}</span>
+        </div>
+        <nav v-if="showProductNavigation" class="product-navigation" aria-label="产品入口">
+          <RouterLink to="/chat" class="product-navigation-link">文档助手</RouterLink>
+          <RouterLink to="/paper-graphs" class="product-navigation-link">论文知识图谱</RouterLink>
+        </nav>
       </div>
       <div class="top-bar-actions">
         <div
@@ -326,6 +333,39 @@ onBeforeUnmount(() => {
   font-weight: 600;
   font-size: 16px;
   color: #12282c;
+}
+
+.top-bar-leading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.product-navigation {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.product-navigation-link {
+  padding: 7px 11px;
+  border-radius: 7px;
+  color: #587176;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.product-navigation-link:hover {
+  background: #edf7f6;
+  color: #0f766e;
+}
+
+.product-navigation-link.router-link-active {
+  background: #e5f5f2;
+  color: #0f766e;
 }
 
 .logo-text {
@@ -583,6 +623,27 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 
+@media (max-width: 900px) {
+  .top-bar {
+    padding: 0 14px;
+  }
+
+  .top-bar-leading {
+    gap: 8px;
+  }
+
+  .logo-text,
+  .top-bar-user-copy,
+  .top-bar-user-caret {
+    display: none;
+  }
+
+  .product-navigation-link {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+}
+
 @media (max-width: 720px) {
   .top-bar {
     height: 64px;
@@ -602,6 +663,16 @@ onBeforeUnmount(() => {
   .logo {
     flex: 1 1 auto;
     font-size: 15px;
+  }
+
+  .top-bar-leading {
+    flex: 1 1 auto;
+    gap: 10px;
+  }
+
+  .product-navigation-link {
+    padding: 6px 7px;
+    font-size: 11px;
   }
 
   .logo-icon {
@@ -628,7 +699,7 @@ onBeforeUnmount(() => {
   }
 
   .top-bar-button-text {
-    font-size: 13px;
+    display: none;
   }
 }
 </style>

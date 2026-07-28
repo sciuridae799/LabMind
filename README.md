@@ -2,7 +2,7 @@
 
 LabMind 是面向团队知识资产的全栈 AI 助手。它不只是聊天页面，而是把文档接入、结构解析、知识路由、混合检索、Agent 执行、流式回答、权限隔离和调用观测串成一条完整链路。
 
-前端同时提供用户问答界面和管理后台；后端负责知识处理、对话编排、模型调用与全链路状态归档。
+前端提供文档助手、论文知识图谱和管理后台；Java 后端负责鉴权、问答编排与 Python 接口接入，独立 Python 服务负责论文图谱构建和查询。
 
 ## 核心能力
 
@@ -14,6 +14,7 @@ LabMind 是面向团队知识资产的全栈 AI 助手。它不只是聊天页�
 - **模型管理**：后台可维护 DashScope、DeepSeek、智谱 AI 的模型地址、名称、启用状态和顺序，系统匹配对应计价信息，API Key 使用 AES-GCM 加密保存。
 - **工作区与权限**：支持访客、普通用户、超级管理员角色，账号、会话和知识文档按工作区隔离。
 - **流式与可观测性**：通过 SSE 推送正文、引用、推荐追问和完成状态；保存执行阶段、模型调用、工具调用、Token、费用、延迟及失败信息。
+- **论文知识图谱**：独立上传计算机领域论文，以固定 7 类实体和 6 类关系构图，每条关系绑定页码、Chunk 和原文证据；该模块不进入原 RAG 链路。
 
 ## 系统主链路
 
@@ -64,6 +65,27 @@ flowchart TD
 
 知识模式未检索到正文证据时会直接结束本轮，不调用模型编造答案。同一会话已有任务运行时，新请求返回 `TURN_REJECTED`；执行失败或客户端中止分别归档为 `FAILED` 或 `STOPPED`，并释放 Redis 会话租约。
 
+### 论文知识图谱链路
+
+论文图谱是与上述问答链路平行的 Python 模块：
+
+```mermaid
+flowchart LR
+    A["论文知识图谱页面"] --> B["Java 鉴权网关"]
+    B --> C["Python FastAPI"]
+    C --> D["MinIO 保存 PDF"]
+    C --> E["PostgreSQL 保存元数据"]
+    C --> F["Kafka: paper.graph.build"]
+    F --> G["Python Worker"]
+    G --> H["PyMuPDF 分页与分块"]
+    H --> I["固定 Schema 模型抽取"]
+    I --> J["代码校验类型、方向与原文 quote"]
+    J --> K["节点、关系和证据入库"]
+    K --> L["ECharts 图谱、节点与证据详情"]
+```
+
+Python 只使用 `Paper`、`Method`、`Task`、`Dataset`、`MetricResult`、`Baseline`、`Limitation`，以及 `PROPOSES`、`SOLVES`、`USES`、`ACHIEVES`、`OUTPERFORMS`、`HAS_LIMITATION`。解析、模型、Schema 或证据校验失败时，文档进入 `FAILED` 并保留错误；不会尝试其他解析器或保存无证据关系。
+
 ### 文档处理
 
 文档上传后进入可追踪的异步任务链路：
@@ -82,12 +104,14 @@ flowchart TD
 | --- | --- |
 | Vue 3 + TypeScript + Vite | 问答、文档接入、知识路由、会话观测、模型、账号和工作区管理界面 |
 | Spring Boot + Spring AI Alibaba | REST/SSE 接口、对话编排、Agent、模型与工具调用 |
+| Python + FastAPI | 论文上传、版本、PDF 分块、固定 Schema 抽取、证据校验和图谱查询 |
 | MySQL | 用户与工作区、文档状态、任务、会话、轮次、记忆摘要、调用轨迹和模型配置 |
 | Redis / Redisson | 会话租约、Agent 调用计数和分布式并发控制 |
 | Kafka | 文档解析、索引构建和当前文档影子路由任务 |
 | MinIO | 文档原文件和解析后的纯文本 |
 | Neo4j | 知识域、专题、文档、术语、问题模式及文档结构图 |
 | PostgreSQL + pgvector | 文档块向量与语义检索 |
+| PostgreSQL 关系表 | 独立保存论文图谱空间、文档、Chunk、节点、关系和原文证据 |
 | Elasticsearch | 文档块关键词检索 |
 
 ## 项目结构
@@ -95,6 +119,7 @@ flowchart TD
 ```text
 frontend/          Vue 前端与管理后台
 lab-mind-backend/  Maven 聚合工程、业务服务、共享模块和基础框架
+paper-graph-service/ 独立 Python 论文知识图谱 API 与 Worker
 sql/               MySQL、pgvector、Elasticsearch 初始化与迁移脚本
 docs/              对话记忆、RAG 编排、检索生成和 SSE 链路文档
 scripts/           本地启动脚本
@@ -104,19 +129,23 @@ scripts/           本地启动脚本
 
 ## 本地启动
 
-准备 JDK 25、Maven 3.9.11、Node.js/npm，以及 MySQL、Redis、Kafka、MinIO、Neo4j、PostgreSQL/pgvector 和 Elasticsearch。
+准备 JDK 25、Maven 3.9.11、Python 3.12、Node.js/npm，以及 MySQL、Redis、Kafka、MinIO、Neo4j、PostgreSQL/pgvector 和 Elasticsearch。
 
 数据库与索引初始化文件：
 
 - [MySQL](sql/lab-mind-business-chat/mysql/init)
 - [pgvector](sql/lab-mind-business-chat/pgvector/init)
 - [Elasticsearch](sql/lab-mind-business-chat/elasticsearch/init/001_create_document_chunk_index.json)
+- [论文知识图谱 PostgreSQL](sql/lab-mind-paper-graph/postgresql/init/001_create_paper_graph_tables.sql)
 
 复制环境变量模板，并根据后端配置补齐连接信息与 API Key：
 
 ```bash
 cp .env.example .env
+cp paper-graph-service/.env.example paper-graph-service/.env
 ```
+
+论文图谱服务的环境、初始化和双进程启动方式见 [`paper-graph-service/README.md`](paper-graph-service/README.md)。启动 Python API 和 Worker 后，再启动 Java 后端；根目录 `.env` 中的 Python 服务地址与内部令牌必须和 Python `.env` 一致。
 
 启动后端：
 

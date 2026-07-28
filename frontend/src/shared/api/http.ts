@@ -255,6 +255,33 @@ export async function requestMultipartApiEnvelope<T>(
   return unwrapApiResponse(payload)
 }
 
+export async function requestBlob(path: string): Promise<Blob> {
+  const baseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  let response: Response
+  try {
+    response = await fetch(`${baseUrl}${normalizedPath}`, {
+      method: 'GET',
+      headers: buildAuthHeaders()
+    })
+  } catch (error) {
+    throw normalizeAxiosError(error)
+  }
+
+  if (!response.ok) {
+    const responseText = await response.text()
+    if (response.status === 401) {
+      redirectToLogin()
+    }
+    throw new APIError(
+      readResponseMessage(responseText, response.status),
+      response.status,
+      response
+    )
+  }
+  return response.blob()
+}
+
 function dispatchStreamPayload<TEvent extends ApiRecord>(
   rawPayload: string,
   handlers: StreamEventHandlers<TEvent>

@@ -46,6 +46,10 @@ spring:
       protocol: redis
       local-lock-cache-ttl: 30s
 lab-mind:
+  paper-graph:
+    service:
+      base-url: ${LAB_MIND_PAPER_GRAPH_SERVICE_BASE_URL}
+      internal-token: ${LAB_MIND_PAPER_GRAPH_INTERNAL_API_TOKEN}
   chat:
     model-api-config:
       api-key-aes-key-base64: ${LAB_MIND_MODEL_API_CONFIG_AES_KEY_BASE64}

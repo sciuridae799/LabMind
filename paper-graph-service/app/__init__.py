@@ -1,0 +1,1 @@
+"""LabMind paper graph service."""

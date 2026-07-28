@@ -24,7 +24,9 @@ for required_env in \
   LAB_MIND_MINIO_ACCESS_KEY \
   LAB_MIND_MINIO_SECRET_KEY \
   LAB_MIND_MINIO_BUCKET \
-  LAB_MIND_MODEL_API_CONFIG_AES_KEY_BASE64
+  LAB_MIND_MODEL_API_CONFIG_AES_KEY_BASE64 \
+  LAB_MIND_PAPER_GRAPH_SERVICE_BASE_URL \
+  LAB_MIND_PAPER_GRAPH_INTERNAL_API_TOKEN
 do
   if [[ -z "${!required_env:-}" ]]; then
     echo "${required_env} must be configured in ${ENV_FILE}" >&2
