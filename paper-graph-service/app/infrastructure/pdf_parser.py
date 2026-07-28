@@ -97,11 +97,11 @@ class ComputerPaperPdfParser:
     @staticmethod
     def _normalize_block_text(text: str) -> str:
         lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
-        return "\n".join(line for line in lines if line)
+        return " ".join(line for line in lines if line)
 
     @staticmethod
     def _is_heading(text: str) -> bool:
-        if "\n" in text or len(text) > 120:
+        if len(text) > 120:
             return False
         return bool(_NAMED_HEADING.fullmatch(text) or _NUMBERED_HEADING.fullmatch(text))
 

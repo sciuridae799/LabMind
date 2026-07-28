@@ -53,17 +53,14 @@ then
   exit 1
 fi
 
-cd "${ROOT_DIR}/lab-mind-backend"
+cd "${ROOT_DIR}"
 "${MAVEN_BIN}" \
   -s "${MAVEN_SETTINGS}" \
   -Dmaven.repo.local="${ROOT_DIR}/.m2" \
-  -pl services/lab-mind-business/lab-mind-business-chat \
+  -pl lab-mind-backend/services/lab-mind-business/lab-mind-business-chat \
   -am \
   -DskipTests \
-  install
+  package
 
-exec "${MAVEN_BIN}" \
-  -s "${MAVEN_SETTINGS}" \
-  -Dmaven.repo.local="${ROOT_DIR}/.m2" \
-  -f services/lab-mind-business/lab-mind-business-chat/pom.xml \
-  spring-boot:run
+exec java -jar \
+  "${ROOT_DIR}/lab-mind-backend/services/lab-mind-business/lab-mind-business-chat/target/lab-mind-business-chat-1.0-SNAPSHOT.jar"

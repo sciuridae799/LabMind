@@ -35,16 +35,25 @@ class BuildEventProducer:
     def __init__(self, settings: Settings) -> None:
         admin = KafkaAdminClient(**_connection_options(settings))
         try:
-            response = admin.create_topics(
-                [NewTopic(PAPER_GRAPH_BUILD_TOPIC, num_partitions=1, replication_factor=1)]
-            )
-            for topic, error_code, error_message in response.topic_error_codes:
-                if error_code in {0, TopicAlreadyExistsError.errno}:
-                    continue
-                error_type = for_code(error_code)
-                raise error_type(
-                    f"failed to create Kafka topic {topic}: {error_message}"
+            try:
+                response = admin.create_topics(
+                    [
+                        NewTopic(
+                            PAPER_GRAPH_BUILD_TOPIC,
+                            num_partitions=1,
+                            replication_factor=1,
+                        )
+                    ]
                 )
+            except TopicAlreadyExistsError:
+                response = None
+            if response is not None:
+                for topic, error_code, error_message in response.topic_errors:
+                    if error_code != 0:
+                        error_type = for_code(error_code)
+                        raise error_type(
+                            f"failed to create Kafka topic {topic}: {error_message}"
+                        )
         finally:
             admin.close()
         self._producer = KafkaProducer(

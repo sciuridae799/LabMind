@@ -453,25 +453,26 @@ class PaperGraphDatabase:
                 raise RecordNotFoundError(f"paper document was not found: {document_id}")
             self._clear_document_results(connection, document_id, document["graph_id"])
             now = datetime.now(timezone.utc)
-            connection.executemany(
-                """
-                INSERT INTO paper_graph_chunk (
-                    id, document_id, chunk_index, page_number, section_name, text, created_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                [
-                    (
-                        chunk.id,
-                        document_id,
-                        chunk.index,
-                        chunk.page_number,
-                        chunk.section_name,
-                        chunk.text,
-                        now,
-                    )
-                    for chunk in chunks
-                ],
-            )
+            with connection.cursor() as cursor:
+                cursor.executemany(
+                    """
+                    INSERT INTO paper_graph_chunk (
+                        id, document_id, chunk_index, page_number, section_name, text, created_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        (
+                            chunk.id,
+                            document_id,
+                            chunk.index,
+                            chunk.page_number,
+                            chunk.section_name,
+                            chunk.text,
+                            now,
+                        )
+                        for chunk in chunks
+                    ],
+                )
             connection.execute(
                 """
                 UPDATE paper_graph_document
@@ -550,16 +551,17 @@ class PaperGraphDatabase:
                             now,
                         )
                     )
-            connection.executemany(
-                """
-                INSERT INTO paper_graph_edge (
-                    id, graph_id, source_node_id, target_node_id, relation_type,
-                    document_id, chunk_id, page_number, section_name, evidence_quote,
-                    created_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                edge_rows,
-            )
+            with connection.cursor() as cursor:
+                cursor.executemany(
+                    """
+                    INSERT INTO paper_graph_edge (
+                        id, graph_id, source_node_id, target_node_id, relation_type,
+                        document_id, chunk_id, page_number, section_name, evidence_quote,
+                        created_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    edge_rows,
+                )
             self._delete_orphan_nodes(connection, graph_id)
             connection.execute(
                 """

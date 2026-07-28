@@ -29,7 +29,7 @@ def settings() -> Settings:
     )
 
 
-def test_existing_topic_is_accepted_and_build_event_is_exact(monkeypatch) -> None:
+def test_topic_response_is_validated_and_build_event_is_exact(monkeypatch) -> None:
     sent: dict = {}
 
     class FakeAdmin:
@@ -39,12 +39,8 @@ def test_existing_topic_is_accepted_and_build_event_is_exact(monkeypatch) -> Non
         def create_topics(self, topics):
             assert topics[0].name == kafka_module.PAPER_GRAPH_BUILD_TOPIC
             return SimpleNamespace(
-                topic_error_codes=[
-                    (
-                        kafka_module.PAPER_GRAPH_BUILD_TOPIC,
-                        TopicAlreadyExistsError.errno,
-                        "topic already exists",
-                    )
+                topic_errors=[
+                    (kafka_module.PAPER_GRAPH_BUILD_TOPIC, 0, None)
                 ]
             )
 
@@ -95,3 +91,24 @@ def test_existing_topic_is_accepted_and_build_event_is_exact(monkeypatch) -> Non
         ),
         "timeout": kafka_module.KAFKA_SEND_TIMEOUT_SECONDS,
     }
+
+
+def test_existing_topic_is_accepted(monkeypatch) -> None:
+    class FakeAdmin:
+        def __init__(self, **options) -> None:
+            pass
+
+        def create_topics(self, topics):
+            raise TopicAlreadyExistsError("topic already exists")
+
+        def close(self) -> None:
+            pass
+
+    class FakeProducer:
+        def __init__(self, **options) -> None:
+            pass
+
+    monkeypatch.setattr(kafka_module, "KafkaAdminClient", FakeAdmin)
+    monkeypatch.setattr(kafka_module, "KafkaProducer", FakeProducer)
+
+    kafka_module.BuildEventProducer(settings())

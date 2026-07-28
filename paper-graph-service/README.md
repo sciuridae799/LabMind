@@ -50,3 +50,21 @@ psql "$LAB_MIND_PAPER_GRAPH_POSTGRES_DSN" \
 cd /Users/admin/Documents/web-management/labmind/paper-graph-service
 .venv/bin/python -m pytest
 ```
+
+## 生产部署
+
+生产环境保持 API 和 Worker 两个独立 systemd 服务，单元文件位于 `deploy/`。服务先读取 Java 后端的 `/opt/labmind/.env`，再读取 `/opt/labmind-paper-graph/.env`；后者只负责把现有共享变量映射为 Python 模块的显式配置：
+
+```bash
+LAB_MIND_PAPER_GRAPH_POSTGRES_DSN="${LAB_MIND_PGVECTOR_URL#jdbc:}"
+PGUSER="${LAB_MIND_PGVECTOR_USERNAME}"
+PGPASSWORD="${LAB_MIND_PGVECTOR_PASSWORD}"
+LAB_MIND_PAPER_GRAPH_LLM_CHAT_COMPLETIONS_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+LAB_MIND_PAPER_GRAPH_LLM_API_KEY="${ALI_BAI_LIAN_API_KEY}"
+LAB_MIND_PAPER_GRAPH_LLM_MODEL=qwen-plus-latest
+LAB_MIND_PAPER_GRAPH_INTERNAL_API_TOKEN=<与 Java 完全一致的内部令牌>
+LAB_MIND_KAFKA_SECURITY_PROTOCOL=SASL_PLAINTEXT
+LAB_MIND_KAFKA_SASL_MECHANISM=PLAIN
+```
+
+API 只监听 `127.0.0.1:18090`，Java 使用 `LAB_MIND_PAPER_GRAPH_SERVICE_BASE_URL=http://127.0.0.1:18090` 转发请求；Worker 只消费 `paper.graph.build`。

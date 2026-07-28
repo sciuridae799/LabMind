@@ -48,40 +48,40 @@ public class PaperGraphController {
     }
 
     @GetMapping("/paper-graphs/{graphId}")
-    public ApiResponse<JsonNode> getGraph(@PathVariable UUID graphId) {
+    public ApiResponse<JsonNode> getGraph(@PathVariable("graphId") UUID graphId) {
         return ApiResponse.ok(gatewayClient.getGraph(readableContext(), graphId));
     }
 
     @DeleteMapping("/paper-graphs/{graphId}")
-    public ApiResponse<Void> deleteGraph(@PathVariable UUID graphId) {
+    public ApiResponse<Void> deleteGraph(@PathVariable("graphId") UUID graphId) {
         gatewayClient.deleteGraph(writableContext(), graphId);
         return ApiResponse.ok();
     }
 
     @PostMapping("/paper-graphs/{graphId}/documents")
     public ApiResponse<JsonNode> uploadDocument(
-            @PathVariable UUID graphId,
+            @PathVariable("graphId") UUID graphId,
             @RequestPart("file") MultipartFile file) {
         return ApiResponse.ok(gatewayClient.uploadDocument(writableContext(), graphId, file));
     }
 
     @GetMapping("/paper-graphs/{graphId}/documents")
-    public ApiResponse<JsonNode> listDocuments(@PathVariable UUID graphId) {
+    public ApiResponse<JsonNode> listDocuments(@PathVariable("graphId") UUID graphId) {
         return ApiResponse.ok(gatewayClient.listDocuments(readableContext(), graphId));
     }
 
     @GetMapping("/paper-documents/{documentId}/status")
-    public ApiResponse<JsonNode> documentStatus(@PathVariable UUID documentId) {
+    public ApiResponse<JsonNode> documentStatus(@PathVariable("documentId") UUID documentId) {
         return ApiResponse.ok(gatewayClient.documentStatus(readableContext(), documentId));
     }
 
     @PostMapping("/paper-documents/{documentId}/rebuild")
-    public ApiResponse<JsonNode> rebuildDocument(@PathVariable UUID documentId) {
+    public ApiResponse<JsonNode> rebuildDocument(@PathVariable("documentId") UUID documentId) {
         return ApiResponse.ok(gatewayClient.rebuildDocument(writableContext(), documentId));
     }
 
     @GetMapping("/paper-documents/{documentId}/download")
-    public ResponseEntity<byte[]> downloadDocument(@PathVariable UUID documentId) {
+    public ResponseEntity<byte[]> downloadDocument(@PathVariable("documentId") UUID documentId) {
         PaperGraphDownload download = gatewayClient.downloadDocument(readableContext(), documentId);
         return ResponseEntity.ok()
                 .headers(download.headers())
@@ -89,17 +89,17 @@ public class PaperGraphController {
     }
 
     @DeleteMapping("/paper-documents/{documentId}")
-    public ApiResponse<Void> deleteDocument(@PathVariable UUID documentId) {
+    public ApiResponse<Void> deleteDocument(@PathVariable("documentId") UUID documentId) {
         gatewayClient.deleteDocument(writableContext(), documentId);
         return ApiResponse.ok();
     }
 
     @GetMapping("/paper-graphs/{graphId}/visualization")
     public ApiResponse<JsonNode> visualization(
-            @PathVariable UUID graphId,
-            @RequestParam(required = false) UUID documentId,
-            @RequestParam(required = false) List<String> entityType,
-            @RequestParam(required = false) String query) {
+            @PathVariable("graphId") UUID graphId,
+            @RequestParam(name = "documentId", required = false) UUID documentId,
+            @RequestParam(name = "entityType", required = false) List<String> entityType,
+            @RequestParam(name = "query", required = false) String query) {
         List<String> requestedEntityTypes = entityType == null ? List.of() : List.copyOf(entityType);
         return ApiResponse.ok(gatewayClient.visualization(
                 readableContext(),
@@ -111,22 +111,22 @@ public class PaperGraphController {
 
     @GetMapping("/paper-graphs/{graphId}/nodes/{nodeId}")
     public ApiResponse<JsonNode> nodeDetail(
-            @PathVariable UUID graphId,
-            @PathVariable UUID nodeId) {
+            @PathVariable("graphId") UUID graphId,
+            @PathVariable("nodeId") UUID nodeId) {
         return ApiResponse.ok(gatewayClient.nodeDetail(readableContext(), graphId, nodeId));
     }
 
     @GetMapping("/paper-graphs/{graphId}/nodes/{nodeId}/neighbors")
     public ApiResponse<JsonNode> neighbors(
-            @PathVariable UUID graphId,
-            @PathVariable UUID nodeId) {
+            @PathVariable("graphId") UUID graphId,
+            @PathVariable("nodeId") UUID nodeId) {
         return ApiResponse.ok(gatewayClient.neighbors(readableContext(), graphId, nodeId));
     }
 
     @GetMapping("/paper-graphs/{graphId}/edges/{edgeId}/evidence")
     public ApiResponse<JsonNode> edgeEvidence(
-            @PathVariable UUID graphId,
-            @PathVariable UUID edgeId) {
+            @PathVariable("graphId") UUID graphId,
+            @PathVariable("edgeId") UUID edgeId) {
         return ApiResponse.ok(gatewayClient.edgeEvidence(readableContext(), graphId, edgeId));
     }
 

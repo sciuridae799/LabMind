@@ -49,6 +49,14 @@ def test_rejects_non_pdf_bytes() -> None:
         ComputerPaperPdfParser().parse(b"plain text")
 
 
+def test_pdf_layout_line_breaks_become_spaces() -> None:
+    text = ComputerPaperPdfParser._normalize_block_text(
+        "source-code vulnerability\ndetection"
+    )
+
+    assert text == "source-code vulnerability detection"
+
+
 def test_long_section_splits_with_explicit_overlap() -> None:
     text = "A" * (MAX_CHUNK_CHARACTERS + 800)
 
