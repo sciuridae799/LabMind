@@ -57,6 +57,21 @@ def test_pdf_layout_line_breaks_become_spaces() -> None:
     assert text == "source-code vulnerability detection"
 
 
+def test_pdf_layout_blocks_become_spaces() -> None:
+    sections = []
+
+    ComputerPaperPdfParser._append_section(
+        sections,
+        page_number=1,
+        section_name="Abstract",
+        parts=["GraphNet solves the", "source-code vulnerability detection task."],
+    )
+
+    assert sections[0].text == (
+        "GraphNet solves the source-code vulnerability detection task."
+    )
+
+
 def test_long_section_splits_with_explicit_overlap() -> None:
     text = "A" * (MAX_CHUNK_CHARACTERS + 800)
 

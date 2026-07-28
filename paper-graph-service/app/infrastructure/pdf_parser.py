@@ -112,7 +112,7 @@ class ComputerPaperPdfParser:
         section_name: str,
         parts: list[str],
     ) -> None:
-        text = "\n\n".join(parts).strip()
+        text = " ".join(parts).strip()
         if text:
             sections.append(
                 _SectionText(
