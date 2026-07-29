@@ -32,13 +32,11 @@ def model_response(quote: str = CHUNK.text) -> str:
             "nodes": [
                 {
                     "temp_id": "paper_1",
-                    "type": "Paper",
                     "name": "codegraph",
                     "properties": {},
                 },
                 {
                     "temp_id": "method_1",
-                    "type": "Method",
                     "name": "CodeGraph",
                     "properties": {},
                 },

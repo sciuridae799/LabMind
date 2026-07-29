@@ -84,50 +84,49 @@ class ComputerPaperGraphSchema:
         if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
             raise GraphValidationError("nodes and edges must be arrays")
 
-        nodes = self._validate_nodes(raw_nodes, paper_name)
-        node_by_temp_id = {node.temp_id: node for node in nodes}
-        edges = self._validate_edges(raw_edges, node_by_temp_id, chunk)
-        referenced_ids = {
-            temp_id
-            for edge in edges
-            for temp_id in (edge.source_temp_id, edge.target_temp_id)
-        }
+        raw_node_by_temp_id = self._validate_nodes(raw_nodes, paper_name)
+        edges, node_types = self._validate_edges(
+            raw_edges, raw_node_by_temp_id, chunk
+        )
         orphan_nodes = [
-            node.temp_id
-            for node in nodes
-            if node.entity_type != "Paper" and node.temp_id not in referenced_ids
+            temp_id
+            for temp_id in raw_node_by_temp_id
+            if temp_id != "paper_1" and temp_id not in node_types
         ]
         if orphan_nodes:
             raise GraphValidationError(
                 "non-Paper nodes must be referenced by an edge: "
                 + ", ".join(orphan_nodes)
             )
+        nodes = [
+            ExtractedNode(
+                temp_id=temp_id,
+                entity_type=node_types[temp_id],
+                name=value["name"],
+                properties=value["properties"],
+            )
+            for temp_id, value in raw_node_by_temp_id.items()
+        ]
         return ValidatedChunkGraph(nodes=tuple(nodes), edges=tuple(edges))
 
     def _validate_nodes(
         self,
         raw_nodes: list[Any],
         paper_name: str,
-    ) -> list[ExtractedNode]:
-        nodes: list[ExtractedNode] = []
-        seen_temp_ids: set[str] = set()
-        paper_count = 0
+    ) -> dict[str, dict[str, Any]]:
+        nodes: dict[str, dict[str, Any]] = {}
         for index, value in enumerate(raw_nodes):
             if not isinstance(value, dict) or set(value) != {
                 "temp_id",
-                "type",
                 "name",
                 "properties",
             }:
                 raise GraphValidationError(f"nodes[{index}] has an invalid shape")
             temp_id = self._required_text(value["temp_id"], f"nodes[{index}].temp_id")
-            entity_type = self._required_text(value["type"], f"nodes[{index}].type")
             name = self._required_text(value["name"], f"nodes[{index}].name")
             properties = value["properties"]
-            if temp_id in seen_temp_ids:
+            if temp_id in nodes:
                 raise GraphValidationError(f"duplicate temp_id: {temp_id}")
-            if entity_type not in ENTITY_TYPES:
-                raise GraphValidationError(f"unsupported entity type: {entity_type}")
             if not isinstance(properties, dict):
                 raise GraphValidationError(f"nodes[{index}].properties must be an object")
             if any(
@@ -138,32 +137,19 @@ class ComputerPaperGraphSchema:
                 raise GraphValidationError(
                     f"nodes[{index}].properties must contain scalar JSON values"
                 )
-            if entity_type == "Paper":
-                paper_count += 1
-                if temp_id != "paper_1" or name != paper_name:
-                    raise GraphValidationError(
-                        "Paper node must use temp_id paper_1 and the supplied paper name"
-                    )
-            seen_temp_ids.add(temp_id)
-            nodes.append(
-                ExtractedNode(
-                    temp_id=temp_id,
-                    entity_type=entity_type,
-                    name=name,
-                    properties=properties,
-                )
-            )
-        if paper_count != 1:
+            nodes[temp_id] = {"name": name, "properties": properties}
+        if "paper_1" not in nodes or nodes["paper_1"]["name"] != paper_name:
             raise GraphValidationError("each chunk response must contain exactly one Paper node")
         return nodes
 
     def _validate_edges(
         self,
         raw_edges: list[Any],
-        node_by_temp_id: dict[str, ExtractedNode],
+        node_by_temp_id: dict[str, dict[str, Any]],
         chunk: ParsedChunk,
-    ) -> list[ExtractedEdge]:
+    ) -> tuple[list[ExtractedEdge], dict[str, str]]:
         edges: list[ExtractedEdge] = []
+        node_types = {"paper_1": "Paper"}
         seen_edges: set[tuple[str, str, str, str]] = set()
         for index, value in enumerate(raw_edges):
             if not isinstance(value, dict) or set(value) != {
@@ -182,12 +168,8 @@ class ComputerPaperGraphSchema:
             if relation_type not in RELATION_ENDPOINTS:
                 raise GraphValidationError(f"unsupported relation type: {relation_type}")
             expected_source, expected_target = RELATION_ENDPOINTS[relation_type]
-            actual_source = node_by_temp_id[source].entity_type
-            actual_target = node_by_temp_id[target].entity_type
-            if (actual_source, actual_target) != (expected_source, expected_target):
-                raise GraphValidationError(
-                    f"{relation_type} requires {expected_source} -> {expected_target}"
-                )
+            self._record_node_type(node_types, source, expected_source)
+            self._record_node_type(node_types, target, expected_target)
             if not isinstance(evidence, dict) or set(evidence) != {
                 "chunk_id",
                 "page",
@@ -224,7 +206,19 @@ class ComputerPaperGraphSchema:
                     evidence_quote=quote,
                 )
             )
-        return edges
+        return edges, node_types
+
+    @staticmethod
+    def _record_node_type(
+        node_types: dict[str, str], temp_id: str, expected_type: str
+    ) -> None:
+        existing_type = node_types.get(temp_id)
+        if existing_type is not None and existing_type != expected_type:
+            raise GraphValidationError(
+                f"node {temp_id} has incompatible relation roles: "
+                f"{existing_type} and {expected_type}"
+            )
+        node_types[temp_id] = expected_type
 
     @staticmethod
     def _required_text(value: Any, field: str) -> str:

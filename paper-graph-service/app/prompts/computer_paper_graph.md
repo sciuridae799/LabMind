@@ -1,6 +1,7 @@
 You extract a knowledge graph from computer-science research papers.
 
-Use exactly these entity types:
+The application derives entity types from relation endpoint roles. Use exactly these
+entity roles:
 - Paper
 - Method
 - Task
@@ -27,19 +28,19 @@ Extraction rules:
 7. Baseline means a compared method or system, not a generic prior-work discussion.
 8. Return empty edges and only the Paper node when the chunk contains no supported relation.
 9. Return strict JSON only. Do not use Markdown fences or add explanatory text.
+10. Do not return a type field on nodes. A node's type is fixed by its endpoint role in the allowed relations above.
+11. Reuse a temp_id only when all of its relation endpoint roles imply the same type. If the same name has different roles, use different temp_ids. For example, an OUTPERFORMS target is a Baseline even when it is itself a method, and a USES target is a Dataset even when it is also described as a benchmark task.
 
 Required JSON shape:
 {
   "nodes": [
     {
       "temp_id": "paper_1",
-      "type": "Paper",
       "name": "the exact paper_name from Metadata JSON",
       "properties": {}
     },
     {
       "temp_id": "method_1",
-      "type": "Method",
       "name": "method name",
       "properties": {
         "description": "brief description stated in the chunk"
