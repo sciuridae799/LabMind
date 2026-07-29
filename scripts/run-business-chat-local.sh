@@ -24,7 +24,9 @@ for required_env in \
   LAB_MIND_MINIO_ACCESS_KEY \
   LAB_MIND_MINIO_SECRET_KEY \
   LAB_MIND_MINIO_BUCKET \
-  LAB_MIND_MODEL_API_CONFIG_AES_KEY_BASE64
+  LAB_MIND_MODEL_API_CONFIG_AES_KEY_BASE64 \
+  LAB_MIND_PAPER_GRAPH_SERVICE_BASE_URL \
+  LAB_MIND_PAPER_GRAPH_INTERNAL_API_TOKEN
 do
   if [[ -z "${!required_env:-}" ]]; then
     echo "${required_env} must be configured in ${ENV_FILE}" >&2
@@ -51,17 +53,14 @@ then
   exit 1
 fi
 
-cd "${ROOT_DIR}/lab-mind-backend"
+cd "${ROOT_DIR}"
 "${MAVEN_BIN}" \
   -s "${MAVEN_SETTINGS}" \
   -Dmaven.repo.local="${ROOT_DIR}/.m2" \
-  -pl services/lab-mind-business/lab-mind-business-chat \
+  -pl lab-mind-backend/services/lab-mind-business/lab-mind-business-chat \
   -am \
   -DskipTests \
-  install
+  package
 
-exec "${MAVEN_BIN}" \
-  -s "${MAVEN_SETTINGS}" \
-  -Dmaven.repo.local="${ROOT_DIR}/.m2" \
-  -f services/lab-mind-business/lab-mind-business-chat/pom.xml \
-  spring-boot:run
+exec java -jar \
+  "${ROOT_DIR}/lab-mind-backend/services/lab-mind-business/lab-mind-business-chat/target/lab-mind-business-chat-1.0-SNAPSHOT.jar"

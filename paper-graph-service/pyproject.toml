@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "labmind-paper-graph"
+version = "0.1.0"
+description = "Independent paper knowledge graph service for LabMind"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "httpx>=0.28,<1",
+    "kafka-python-ng>=2.2,<3",
+    "minio>=7.2,<8",
+    "psycopg[binary]>=3.2,<4",
+    "pydantic>=2.10,<3",
+    "pymupdf>=1.25,<2",
+    "python-multipart>=0.0.20,<1",
+    "uvicorn>=0.34,<1",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3,<9",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

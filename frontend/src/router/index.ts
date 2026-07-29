@@ -26,6 +26,15 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/paper-graphs',
+    name: 'PaperGraphs',
+    component: () => import('../views/PaperGraphView.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '论文知识图谱'
+    }
+  },
+  {
     path: '/model-config',
     name: 'ModelConfig',
     component: () => import('../views/ModelConfigView.vue'),

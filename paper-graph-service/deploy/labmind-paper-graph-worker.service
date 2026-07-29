@@ -1,0 +1,18 @@
+[Unit]
+Description=LabMind Paper Graph Worker
+After=network-online.target labmind-paper-graph-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/labmind-paper-graph/current
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/bash -lc 'set -a; source /opt/labmind/.env; source /opt/labmind-paper-graph/.env; set +a; exec /opt/labmind-paper-graph/current/.venv/bin/python -m app.worker'
+Restart=always
+RestartSec=5
+StandardOutput=append:/opt/labmind-paper-graph/worker.log
+StandardError=append:/opt/labmind-paper-graph/worker.log
+
+[Install]
+WantedBy=multi-user.target

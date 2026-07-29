@@ -1,0 +1,18 @@
+[Unit]
+Description=LabMind Paper Graph API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/labmind-paper-graph/current
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/bash -lc 'set -a; source /opt/labmind/.env; source /opt/labmind-paper-graph/.env; set +a; exec /opt/labmind-paper-graph/current/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 18090'
+Restart=always
+RestartSec=5
+StandardOutput=append:/opt/labmind-paper-graph/api.log
+StandardError=append:/opt/labmind-paper-graph/api.log
+
+[Install]
+WantedBy=multi-user.target
