@@ -10,7 +10,7 @@ from app.infrastructure.database import BUILDING_DOCUMENT_STATUSES, PaperGraphDa
 from app.infrastructure.kafka import BuildEventProducer
 from app.infrastructure.object_storage import PaperObjectStorage
 
-EXTRACTOR_VERSION = "computer-paper-v3"
+EXTRACTOR_VERSION = "computer-paper-v4"
 MAX_PDF_FILE_SIZE_BYTES = 10 * 1024 * 1024
 MAX_PDF_FILE_SIZE_MESSAGE = "uploaded PDF must not exceed 10 MB"
 

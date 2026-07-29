@@ -5,7 +5,6 @@ import re
 import unicodedata
 from pathlib import Path
 from typing import Any
-from uuid import UUID
 
 from app.domain.models import (
     ExtractedEdge,
@@ -44,6 +43,8 @@ RELATION_TARGET_FIELDS = {
     "HAS_LIMITATION": "limitation",
 }
 
+_EVIDENCE_BOUNDARY = re.compile(r"(?<=[.!?。！？])\s+")
+
 PROMPT_PATH = (
     Path(__file__).resolve().parent.parent
     / "prompts"
@@ -68,13 +69,22 @@ class ComputerPaperGraphSchema:
         metadata = json.dumps(
             {
                 "paper_name": paper_name,
-                "chunk_id": str(chunk.id),
                 "page_number": chunk.page_number,
                 "section_name": chunk.section_name,
             },
             ensure_ascii=False,
         )
-        return f"{self._prompt_template}\n\nMetadata JSON:\n{metadata}\n\nChunk:\n{chunk.text}"
+        evidence_candidates = json.dumps(
+            [
+                {"evidence_id": evidence_id, "text": text}
+                for evidence_id, text in self._evidence_candidates(chunk).items()
+            ],
+            ensure_ascii=False,
+        )
+        return (
+            f"{self._prompt_template}\n\nMetadata JSON:\n{metadata}"
+            f"\n\nEvidence Candidates JSON:\n{evidence_candidates}"
+        )
 
     def validate_response(
         self,
@@ -100,6 +110,7 @@ class ComputerPaperGraphSchema:
             )
         ]
         edges: list[ExtractedEdge] = []
+        evidence_by_id = self._evidence_candidates(chunk)
         seen_edges: set[tuple[str, str, str, str]] = set()
         for relation_type, endpoint_types in RELATION_ENDPOINTS.items():
             relation_values = payload[relation_type]
@@ -113,6 +124,7 @@ class ComputerPaperGraphSchema:
                     value,
                     paper_name,
                     chunk,
+                    evidence_by_id,
                 )
                 source_node, target_node = relation_nodes
                 edge_key = (
@@ -140,9 +152,10 @@ class ComputerPaperGraphSchema:
         value: Any,
         paper_name: str,
         chunk: ParsedChunk,
+        evidence_by_id: dict[str, str],
     ) -> tuple[tuple[ExtractedNode, ExtractedNode], ExtractedEdge]:
         target_field = RELATION_TARGET_FIELDS[relation_type]
-        required_fields = {"method", "evidence"}
+        required_fields = {"method", "evidence_id"}
         if relation_type != "PROPOSES":
             required_fields.add(target_field)
         if not isinstance(value, dict) or set(value) != required_fields:
@@ -179,9 +192,14 @@ class ComputerPaperGraphSchema:
             name=target_name,
             properties=target_properties,
         )
-        quote = self._validate_evidence(
-            value["evidence"], f"{relation_type}[{index}].evidence", chunk
+        evidence_id = self._required_text(
+            value["evidence_id"], f"{relation_type}[{index}].evidence_id"
         )
+        quote = evidence_by_id.get(evidence_id)
+        if quote is None:
+            raise GraphValidationError(
+                f"{relation_type}[{index}] references an unknown evidence_id"
+            )
         edge = ExtractedEdge(
             source_temp_id=source_node.temp_id,
             target_temp_id=target_node.temp_id,
@@ -212,43 +230,20 @@ class ComputerPaperGraphSchema:
             )
         return name, properties
 
-    def _validate_evidence(
-        self, value: Any, field: str, chunk: ParsedChunk
-    ) -> str:
-        if not isinstance(value, dict) or set(value) != {
-            "chunk_id",
-            "page",
-            "section",
-            "quote",
-        }:
-            raise GraphValidationError(f"{field} has an invalid shape")
-        evidence_chunk_id = self._parse_uuid(
-            value["chunk_id"], f"{field}.chunk_id"
-        )
-        if evidence_chunk_id != chunk.id:
-            raise GraphValidationError(f"{field} has the wrong chunk_id")
-        if value["page"] != chunk.page_number:
-            raise GraphValidationError(f"{field} has the wrong page")
-        if value["section"] != chunk.section_name:
-            raise GraphValidationError(f"{field} has the wrong section")
-        quote = self._required_text(value["quote"], f"{field}.quote")
-        if quote not in chunk.text:
-            raise GraphValidationError(
-                f"{field} quote is not an exact chunk substring"
-            )
-        return quote
+    @staticmethod
+    def _evidence_candidates(chunk: ParsedChunk) -> dict[str, str]:
+        sentences = [
+            sentence.strip()
+            for sentence in _EVIDENCE_BOUNDARY.split(chunk.text)
+            if sentence.strip()
+        ]
+        return {
+            f"evidence_{index:04d}": sentence
+            for index, sentence in enumerate(sentences, start=1)
+        }
 
     @staticmethod
     def _required_text(value: Any, field: str) -> str:
         if not isinstance(value, str) or not value.strip():
             raise GraphValidationError(f"{field} must be a non-empty string")
         return value.strip()
-
-    @staticmethod
-    def _parse_uuid(value: Any, field: str) -> UUID:
-        if not isinstance(value, str):
-            raise GraphValidationError(f"{field} must be a UUID string")
-        try:
-            return UUID(value)
-        except ValueError as error:
-            raise GraphValidationError(f"{field} must be a UUID string") from error
