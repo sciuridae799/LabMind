@@ -17,6 +17,8 @@ app/
 
 PDF 解析只使用 PyMuPDF；没有 Tika/MinerU/pypdf 级联。模型每个 Chunk 调用一次，任何非法类型、错误关系方向、缺失证据或非原文 quote 都会使该文档明确进入 `FAILED`。
 
+单个 PDF 最大 10 MB。前端、Java multipart 入口和 Python 内部接口使用同一限制；超过限制时接口返回 413，不创建文档或构图任务。
+
 ## 初始化
 
 ```bash

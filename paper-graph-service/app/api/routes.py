@@ -4,13 +4,26 @@ from io import BytesIO
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 
 from app.api.dependencies import paper_graph_service, request_context
 from app.api.schemas import CreateGraphRequest
 from app.domain.models import RequestContext
-from app.services.paper_graph_service import PaperGraphService
+from app.services.paper_graph_service import (
+    MAX_PDF_FILE_SIZE_BYTES,
+    MAX_PDF_FILE_SIZE_MESSAGE,
+    PaperGraphService,
+)
 
 router = APIRouter(prefix="/api", tags=["paper-graphs"])
 
@@ -64,7 +77,12 @@ async def upload_document(
     filename = file.filename
     if filename is None:
         raise ValueError("uploaded PDF filename is required")
-    content = await file.read()
+    content = await file.read(MAX_PDF_FILE_SIZE_BYTES + 1)
+    if len(content) > MAX_PDF_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=MAX_PDF_FILE_SIZE_MESSAGE,
+        )
     return service.upload_document(context, graph_id, filename, content)
 
 

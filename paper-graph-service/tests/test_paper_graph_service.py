@@ -7,7 +7,11 @@ from uuid import UUID
 import pytest
 
 from app.domain.models import RequestContext
-from app.services.paper_graph_service import EXTRACTOR_VERSION, PaperGraphService
+from app.services.paper_graph_service import (
+    EXTRACTOR_VERSION,
+    MAX_PDF_FILE_SIZE_BYTES,
+    PaperGraphService,
+)
 
 GRAPH_ID = UUID("22222222-2222-2222-2222-222222222222")
 DOCUMENT_ID = UUID("33333333-3333-3333-3333-333333333333")
@@ -123,3 +127,17 @@ def test_kafka_publish_failure_is_recorded_and_raised() -> None:
 
     assert database.failed is not None
     assert "broker rejected message" in database.failed[1]
+
+
+def test_oversized_pdf_is_rejected_before_storage() -> None:
+    database = FakeDatabase()
+    storage = FakeStorage()
+    producer = FakeProducer()
+    service = PaperGraphService(database, storage, producer)
+    content = b"%PDF-" + b"x" * (MAX_PDF_FILE_SIZE_BYTES - len(b"%PDF-") + 1)
+
+    with pytest.raises(ValueError, match="must not exceed 10 MB"):
+        service.upload_document(CONTEXT, GRAPH_ID, "paper.pdf", content)
+
+    assert storage.puts == []
+    assert producer.messages == []

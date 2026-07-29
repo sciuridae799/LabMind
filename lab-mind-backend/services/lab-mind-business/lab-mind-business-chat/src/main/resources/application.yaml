@@ -1,4 +1,8 @@
 spring:
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
   datasource:
     url: ${LAB_MIND_MYSQL_URL}
     username: ${LAB_MIND_MYSQL_USERNAME}
