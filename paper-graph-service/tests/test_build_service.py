@@ -29,23 +29,9 @@ MESSAGE = BuildMessage(
 def model_response(quote: str = CHUNK.text) -> str:
     return json.dumps(
         {
-            "nodes": [
+            "PROPOSES": [
                 {
-                    "temp_id": "paper_1",
-                    "name": "codegraph",
-                    "properties": {},
-                },
-                {
-                    "temp_id": "method_1",
-                    "name": "CodeGraph",
-                    "properties": {},
-                },
-            ],
-            "edges": [
-                {
-                    "source": "paper_1",
-                    "target": "method_1",
-                    "type": "PROPOSES",
+                    "method": {"name": "CodeGraph", "properties": {}},
                     "evidence": {
                         "chunk_id": str(CHUNK_ID),
                         "page": 1,
@@ -54,6 +40,11 @@ def model_response(quote: str = CHUNK.text) -> str:
                     },
                 }
             ],
+            "SOLVES": [],
+            "USES": [],
+            "ACHIEVES": [],
+            "OUTPERFORMS": [],
+            "HAS_LIMITATION": [],
         }
     )
 

@@ -33,7 +33,7 @@ def test_requests_native_json_output(monkeypatch) -> None:
         def json(self) -> dict:
             return {
                 "choices": [
-                    {"message": {"content": '{"nodes":[],"edges":[]}'}}
+                    {"message": {"content": '{"PROPOSES":[]}'}}
                 ]
             }
 
@@ -46,5 +46,5 @@ def test_requests_native_json_output(monkeypatch) -> None:
 
     content = GraphExtractionModelClient(settings()).extract("Return strict JSON.")
 
-    assert content == '{"nodes":[],"edges":[]}'
+    assert content == '{"PROPOSES":[]}'
     assert request["json"]["response_format"] == {"type": "json_object"}

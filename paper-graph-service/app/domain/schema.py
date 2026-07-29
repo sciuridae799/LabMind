@@ -35,6 +35,15 @@ RELATION_ENDPOINTS = {
     "HAS_LIMITATION": ("Method", "Limitation"),
 }
 
+RELATION_TARGET_FIELDS = {
+    "PROPOSES": "method",
+    "SOLVES": "task",
+    "USES": "dataset",
+    "ACHIEVES": "metric_result",
+    "OUTPERFORMS": "baseline",
+    "HAS_LIMITATION": "limitation",
+}
+
 PROMPT_PATH = (
     Path(__file__).resolve().parent.parent
     / "prompts"
@@ -77,148 +86,157 @@ class ComputerPaperGraphSchema:
             payload = json.loads(raw_response)
         except json.JSONDecodeError as error:
             raise GraphValidationError("model response is not valid JSON") from error
-        if not isinstance(payload, dict) or set(payload) != {"nodes", "edges"}:
-            raise GraphValidationError("model response must contain only nodes and edges")
-        raw_nodes = payload["nodes"]
-        raw_edges = payload["edges"]
-        if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
-            raise GraphValidationError("nodes and edges must be arrays")
-
-        raw_node_by_temp_id = self._validate_nodes(raw_nodes, paper_name)
-        edges, node_types = self._validate_edges(
-            raw_edges, raw_node_by_temp_id, chunk
-        )
-        orphan_nodes = [
-            temp_id
-            for temp_id in raw_node_by_temp_id
-            if temp_id != "paper_1" and temp_id not in node_types
-        ]
-        if orphan_nodes:
+        if not isinstance(payload, dict) or set(payload) != set(RELATION_ENDPOINTS):
             raise GraphValidationError(
-                "non-Paper nodes must be referenced by an edge: "
-                + ", ".join(orphan_nodes)
+                "model response must contain exactly the six relation arrays"
             )
+
         nodes = [
             ExtractedNode(
-                temp_id=temp_id,
-                entity_type=node_types[temp_id],
-                name=value["name"],
-                properties=value["properties"],
+                temp_id="paper_1",
+                entity_type="Paper",
+                name=paper_name,
+                properties={},
             )
-            for temp_id, value in raw_node_by_temp_id.items()
         ]
+        edges: list[ExtractedEdge] = []
+        seen_edges: set[tuple[str, str, str, str]] = set()
+        for relation_type, endpoint_types in RELATION_ENDPOINTS.items():
+            relation_values = payload[relation_type]
+            if not isinstance(relation_values, list):
+                raise GraphValidationError(f"{relation_type} must be an array")
+            for index, value in enumerate(relation_values):
+                relation_nodes, edge = self._validate_relation(
+                    relation_type,
+                    endpoint_types,
+                    index,
+                    value,
+                    paper_name,
+                    chunk,
+                )
+                source_node, target_node = relation_nodes
+                edge_key = (
+                    relation_type,
+                    normalize_entity_name(source_node.name),
+                    normalize_entity_name(target_node.name),
+                    edge.evidence_quote,
+                )
+                if edge_key in seen_edges:
+                    raise GraphValidationError(
+                        f"duplicate {relation_type} relation at index {index}"
+                    )
+                seen_edges.add(edge_key)
+                if source_node.temp_id != "paper_1":
+                    nodes.append(source_node)
+                nodes.append(target_node)
+                edges.append(edge)
         return ValidatedChunkGraph(nodes=tuple(nodes), edges=tuple(edges))
 
-    def _validate_nodes(
+    def _validate_relation(
         self,
-        raw_nodes: list[Any],
+        relation_type: str,
+        endpoint_types: tuple[str, str],
+        index: int,
+        value: Any,
         paper_name: str,
-    ) -> dict[str, dict[str, Any]]:
-        nodes: dict[str, dict[str, Any]] = {}
-        for index, value in enumerate(raw_nodes):
-            if not isinstance(value, dict) or set(value) != {
-                "temp_id",
-                "name",
-                "properties",
-            }:
-                raise GraphValidationError(f"nodes[{index}] has an invalid shape")
-            temp_id = self._required_text(value["temp_id"], f"nodes[{index}].temp_id")
-            name = self._required_text(value["name"], f"nodes[{index}].name")
-            properties = value["properties"]
-            if temp_id in nodes:
-                raise GraphValidationError(f"duplicate temp_id: {temp_id}")
-            if not isinstance(properties, dict):
-                raise GraphValidationError(f"nodes[{index}].properties must be an object")
-            if any(
-                not isinstance(key, str)
-                or not isinstance(property_value, (str, int, float, bool))
-                for key, property_value in properties.items()
-            ):
-                raise GraphValidationError(
-                    f"nodes[{index}].properties must contain scalar JSON values"
-                )
-            nodes[temp_id] = {"name": name, "properties": properties}
-        if "paper_1" not in nodes or nodes["paper_1"]["name"] != paper_name:
-            raise GraphValidationError("each chunk response must contain exactly one Paper node")
-        return nodes
-
-    def _validate_edges(
-        self,
-        raw_edges: list[Any],
-        node_by_temp_id: dict[str, dict[str, Any]],
         chunk: ParsedChunk,
-    ) -> tuple[list[ExtractedEdge], dict[str, str]]:
-        edges: list[ExtractedEdge] = []
-        node_types = {"paper_1": "Paper"}
-        seen_edges: set[tuple[str, str, str, str]] = set()
-        for index, value in enumerate(raw_edges):
-            if not isinstance(value, dict) or set(value) != {
-                "source",
-                "target",
-                "type",
-                "evidence",
-            }:
-                raise GraphValidationError(f"edges[{index}] has an invalid shape")
-            source = self._required_text(value["source"], f"edges[{index}].source")
-            target = self._required_text(value["target"], f"edges[{index}].target")
-            relation_type = self._required_text(value["type"], f"edges[{index}].type")
-            evidence = value["evidence"]
-            if source not in node_by_temp_id or target not in node_by_temp_id:
-                raise GraphValidationError(f"edges[{index}] references an unknown node")
-            if relation_type not in RELATION_ENDPOINTS:
-                raise GraphValidationError(f"unsupported relation type: {relation_type}")
-            expected_source, expected_target = RELATION_ENDPOINTS[relation_type]
-            self._record_node_type(node_types, source, expected_source)
-            self._record_node_type(node_types, target, expected_target)
-            if not isinstance(evidence, dict) or set(evidence) != {
-                "chunk_id",
-                "page",
-                "section",
-                "quote",
-            }:
-                raise GraphValidationError(f"edges[{index}].evidence has an invalid shape")
-            evidence_chunk_id = self._parse_uuid(
-                evidence["chunk_id"], f"edges[{index}].evidence.chunk_id"
-            )
-            if evidence_chunk_id != chunk.id:
-                raise GraphValidationError(f"edges[{index}] has the wrong chunk_id")
-            if evidence["page"] != chunk.page_number:
-                raise GraphValidationError(f"edges[{index}] has the wrong page")
-            if evidence["section"] != chunk.section_name:
-                raise GraphValidationError(f"edges[{index}] has the wrong section")
-            quote = self._required_text(evidence["quote"], f"edges[{index}].evidence.quote")
-            if quote not in chunk.text:
-                raise GraphValidationError(
-                    f"edges[{index}] evidence quote is not an exact chunk substring"
-                )
-            edge_key = (source, target, relation_type, quote)
-            if edge_key in seen_edges:
-                raise GraphValidationError(f"duplicate edge at edges[{index}]")
-            seen_edges.add(edge_key)
-            edges.append(
-                ExtractedEdge(
-                    source_temp_id=source,
-                    target_temp_id=target,
-                    relation_type=relation_type,
-                    chunk_id=chunk.id,
-                    page_number=chunk.page_number,
-                    section_name=chunk.section_name,
-                    evidence_quote=quote,
-                )
-            )
-        return edges, node_types
-
-    @staticmethod
-    def _record_node_type(
-        node_types: dict[str, str], temp_id: str, expected_type: str
-    ) -> None:
-        existing_type = node_types.get(temp_id)
-        if existing_type is not None and existing_type != expected_type:
+    ) -> tuple[tuple[ExtractedNode, ExtractedNode], ExtractedEdge]:
+        target_field = RELATION_TARGET_FIELDS[relation_type]
+        required_fields = {"method", "evidence"}
+        if relation_type != "PROPOSES":
+            required_fields.add(target_field)
+        if not isinstance(value, dict) or set(value) != required_fields:
             raise GraphValidationError(
-                f"node {temp_id} has incompatible relation roles: "
-                f"{existing_type} and {expected_type}"
+                f"{relation_type}[{index}] has an invalid shape"
             )
-        node_types[temp_id] = expected_type
+
+        source_type, target_type = endpoint_types
+        relation_prefix = relation_type.casefold()
+        if relation_type == "PROPOSES":
+            source_node = ExtractedNode(
+                temp_id="paper_1",
+                entity_type="Paper",
+                name=paper_name,
+                properties={},
+            )
+        else:
+            source_name, source_properties = self._validate_entity(
+                value["method"], f"{relation_type}[{index}].method"
+            )
+            source_node = ExtractedNode(
+                temp_id=f"{relation_prefix}_{index}_method",
+                entity_type=source_type,
+                name=source_name,
+                properties=source_properties,
+            )
+
+        target_name, target_properties = self._validate_entity(
+            value[target_field], f"{relation_type}[{index}].{target_field}"
+        )
+        target_node = ExtractedNode(
+            temp_id=f"{relation_prefix}_{index}_{target_field}",
+            entity_type=target_type,
+            name=target_name,
+            properties=target_properties,
+        )
+        quote = self._validate_evidence(
+            value["evidence"], f"{relation_type}[{index}].evidence", chunk
+        )
+        edge = ExtractedEdge(
+            source_temp_id=source_node.temp_id,
+            target_temp_id=target_node.temp_id,
+            relation_type=relation_type,
+            chunk_id=chunk.id,
+            page_number=chunk.page_number,
+            section_name=chunk.section_name,
+            evidence_quote=quote,
+        )
+        return (source_node, target_node), edge
+
+    def _validate_entity(
+        self, value: Any, field: str
+    ) -> tuple[str, dict[str, Any]]:
+        if not isinstance(value, dict) or set(value) != {"name", "properties"}:
+            raise GraphValidationError(f"{field} has an invalid shape")
+        name = self._required_text(value["name"], f"{field}.name")
+        properties = value["properties"]
+        if not isinstance(properties, dict):
+            raise GraphValidationError(f"{field}.properties must be an object")
+        if any(
+            not isinstance(key, str)
+            or not isinstance(property_value, (str, int, float, bool))
+            for key, property_value in properties.items()
+        ):
+            raise GraphValidationError(
+                f"{field}.properties must contain scalar JSON values"
+            )
+        return name, properties
+
+    def _validate_evidence(
+        self, value: Any, field: str, chunk: ParsedChunk
+    ) -> str:
+        if not isinstance(value, dict) or set(value) != {
+            "chunk_id",
+            "page",
+            "section",
+            "quote",
+        }:
+            raise GraphValidationError(f"{field} has an invalid shape")
+        evidence_chunk_id = self._parse_uuid(
+            value["chunk_id"], f"{field}.chunk_id"
+        )
+        if evidence_chunk_id != chunk.id:
+            raise GraphValidationError(f"{field} has the wrong chunk_id")
+        if value["page"] != chunk.page_number:
+            raise GraphValidationError(f"{field} has the wrong page")
+        if value["section"] != chunk.section_name:
+            raise GraphValidationError(f"{field} has the wrong section")
+        quote = self._required_text(value["quote"], f"{field}.quote")
+        if quote not in chunk.text:
+            raise GraphValidationError(
+                f"{field} quote is not an exact chunk substring"
+            )
+        return quote
 
     @staticmethod
     def _required_text(value: Any, field: str) -> str:
