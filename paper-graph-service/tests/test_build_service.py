@@ -22,40 +22,24 @@ MESSAGE = BuildMessage(
     document_id=DOCUMENT_ID,
     version=1,
     object_key=f"paper-graph/42/{DOCUMENT_ID}/1/source.pdf",
-    extractor_version="computer-paper-v1",
+    extractor_version="computer-paper-v4",
 )
 
 
-def model_response(quote: str = CHUNK.text) -> str:
+def model_response(evidence_id: str = "evidence_0001") -> str:
     return json.dumps(
         {
-            "nodes": [
+            "PROPOSES": [
                 {
-                    "temp_id": "paper_1",
-                    "type": "Paper",
-                    "name": "codegraph",
-                    "properties": {},
-                },
-                {
-                    "temp_id": "method_1",
-                    "type": "Method",
-                    "name": "CodeGraph",
-                    "properties": {},
-                },
-            ],
-            "edges": [
-                {
-                    "source": "paper_1",
-                    "target": "method_1",
-                    "type": "PROPOSES",
-                    "evidence": {
-                        "chunk_id": str(CHUNK_ID),
-                        "page": 1,
-                        "section": "Abstract",
-                        "quote": quote,
-                    },
+                    "method": {"name": "CodeGraph", "properties": {}},
+                    "evidence_id": evidence_id,
                 }
             ],
+            "SOLVES": [],
+            "USES": [],
+            "ACHIEVES": [],
+            "OUTPERFORMS": [],
+            "HAS_LIMITATION": [],
         }
     )
 
@@ -128,9 +112,9 @@ def test_build_transitions_through_all_states_and_persists_evidence() -> None:
 def test_invalid_evidence_records_failed_status_without_persisting() -> None:
     database = FakeDatabase()
 
-    outcome = build_service(database, model_response("invented quote")).build(MESSAGE)
+    outcome = build_service(database, model_response("evidence_9999")).build(MESSAGE)
 
     assert outcome.status == "FAILED"
     assert database.calls == ["PARSING", "EXTRACTING", "VALIDATING", "FAILED"]
-    assert "not an exact chunk substring" in database.failed
+    assert "unknown evidence_id" in database.failed
     assert database.persisted is None
