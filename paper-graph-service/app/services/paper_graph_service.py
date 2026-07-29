@@ -11,6 +11,8 @@ from app.infrastructure.kafka import BuildEventProducer
 from app.infrastructure.object_storage import PaperObjectStorage
 
 EXTRACTOR_VERSION = "computer-paper-v1"
+MAX_PDF_FILE_SIZE_BYTES = 10 * 1024 * 1024
+MAX_PDF_FILE_SIZE_MESSAGE = "uploaded PDF must not exceed 10 MB"
 
 
 class PaperGraphService:
@@ -69,6 +71,8 @@ class PaperGraphService:
             raise ValueError("uploaded PDF filename must contain a paper name")
         if len(normalized_filename) > 255:
             raise ValueError("uploaded PDF filename must not exceed 255 characters")
+        if len(content) > MAX_PDF_FILE_SIZE_BYTES:
+            raise ValueError(MAX_PDF_FILE_SIZE_MESSAGE)
         if not content:
             raise ValueError("uploaded PDF must not be empty")
         if not content.startswith(b"%PDF-"):

@@ -5,6 +5,10 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import ApiContainer
 from app.config import Settings
 from app.main import create_app
+from app.services.paper_graph_service import (
+    MAX_PDF_FILE_SIZE_BYTES,
+    MAX_PDF_FILE_SIZE_MESSAGE,
+)
 
 
 class FakePaperGraphService:
@@ -17,6 +21,9 @@ class FakePaperGraphService:
                 "workspaceId": context.workspace_id,
             }
         ]
+
+    def upload_document(self, context, graph_id, filename, content):
+        return {"size": len(content)}
 
 
 def settings() -> Settings:
@@ -77,3 +84,41 @@ def test_internal_api_uses_java_identity_headers() -> None:
             "workspaceId": "workspace-1",
         }
     ]
+
+
+def test_internal_api_accepts_pdf_at_10_mb_limit() -> None:
+    app = create_app(ApiContainer(settings(), FakePaperGraphService()))
+    content = b"%PDF-" + b"x" * (MAX_PDF_FILE_SIZE_BYTES - len(b"%PDF-"))
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/paper-graphs/22222222-2222-2222-2222-222222222222/documents",
+            headers={
+                "X-Lab-Mind-Internal-Token": "internal-secret",
+                "X-Lab-Mind-User-Id": "42",
+                "X-Lab-Mind-Workspace-Id": "workspace-1",
+            },
+            files={"file": ("paper.pdf", content, "application/pdf")},
+        )
+
+    assert response.status_code == 201
+    assert response.json() == {"size": MAX_PDF_FILE_SIZE_BYTES}
+
+
+def test_internal_api_rejects_pdf_over_10_mb_limit() -> None:
+    app = create_app(ApiContainer(settings(), FakePaperGraphService()))
+    content = b"%PDF-" + b"x" * (MAX_PDF_FILE_SIZE_BYTES - len(b"%PDF-") + 1)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/paper-graphs/22222222-2222-2222-2222-222222222222/documents",
+            headers={
+                "X-Lab-Mind-Internal-Token": "internal-secret",
+                "X-Lab-Mind-User-Id": "42",
+                "X-Lab-Mind-Workspace-Id": "workspace-1",
+            },
+            files={"file": ("paper.pdf", content, "application/pdf")},
+        )
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": MAX_PDF_FILE_SIZE_MESSAGE}

@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -117,6 +118,14 @@ class DefaultExceptionHandlerTest {
     }
 
     @Test
+    void shouldHandleOversizedUpload() throws Exception {
+        mockMvc.perform(get("/test/oversized-upload"))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.code").value("413"))
+                .andExpect(jsonPath("$.message").value("uploaded file is too large"));
+    }
+
+    @Test
     void shouldHandleDisconnectedAsyncRequest() throws Exception {
         mockMvc.perform(get("/test/disconnected"))
                 .andExpect(status().isNoContent());
@@ -160,6 +169,11 @@ class DefaultExceptionHandlerTest {
         @GetMapping("/test/missing-resource")
         public ApiResponse<Void> missingResource() throws NoResourceFoundException {
             throw new NoResourceFoundException(HttpMethod.GET, "/missing-resource");
+        }
+
+        @GetMapping("/test/oversized-upload")
+        public ApiResponse<Void> oversizedUpload() throws MaxUploadSizeExceededException {
+            throw new MaxUploadSizeExceededException(10L * 1024 * 1024);
         }
 
         @PostMapping("/test/echo")

@@ -62,6 +62,7 @@ const buildingStatuses: PaperDocumentStatus[] = [
   'EXTRACTING',
   'VALIDATING'
 ]
+const MAX_PDF_FILE_SIZE_BYTES = 10 * 1024 * 1024
 
 const canWrite = computed(() => canWriteDocuments())
 const graphs = ref<PaperGraph[]>([])
@@ -285,8 +286,12 @@ async function handleFileSelection(event: Event): Promise<void> {
   if (!file || !selectedGraphId.value) {
     return
   }
-  isUploading.value = true
   clearFeedback()
+  if (file.size > MAX_PDF_FILE_SIZE_BYTES) {
+    errorMessage.value = 'PDF 文件不能超过 10 MB'
+    return
+  }
+  isUploading.value = true
   try {
     const document = await paperGraphApi.uploadDocument(selectedGraphId.value, file)
     documents.value = await paperGraphApi.listDocuments(selectedGraphId.value)
@@ -649,7 +654,7 @@ onBeforeUnmount(() => {
             :disabled="isUploading"
             @click="triggerUpload"
           >
-            {{ isUploading ? '上传中' : '上传 PDF' }}
+            {{ isUploading ? '上传中' : '上传 PDF（≤ 10 MB）' }}
           </button>
           <input
             ref="fileInput"

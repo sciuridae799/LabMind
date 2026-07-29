@@ -26,12 +26,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
 public class PaperGraphController {
+
+    private static final long MAX_PAPER_PDF_FILE_SIZE_BYTES = 10L * 1024 * 1024;
 
     private final PaperGraphGatewayClient gatewayClient;
 
@@ -62,6 +65,9 @@ public class PaperGraphController {
     public ApiResponse<JsonNode> uploadDocument(
             @PathVariable("graphId") UUID graphId,
             @RequestPart("file") MultipartFile file) {
+        if (file.getSize() > MAX_PAPER_PDF_FILE_SIZE_BYTES) {
+            throw new MaxUploadSizeExceededException(MAX_PAPER_PDF_FILE_SIZE_BYTES);
+        }
         return ApiResponse.ok(gatewayClient.uploadDocument(writableContext(), graphId, file));
     }
 

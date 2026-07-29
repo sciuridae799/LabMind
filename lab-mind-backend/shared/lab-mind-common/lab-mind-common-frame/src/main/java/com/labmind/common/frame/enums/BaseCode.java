@@ -6,6 +6,7 @@ public enum BaseCode implements ErrorCode {
     INVALID_PARAMETER("400", "invalid parameter"),
     NOT_FOUND("404", "resource not found"),
     METHOD_NOT_ALLOWED("405", "method not allowed"),
+    PAYLOAD_TOO_LARGE("413", "uploaded file is too large"),
     SYSTEM_ERROR("500", "system error");
 
     private final String code;
