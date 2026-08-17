@@ -95,6 +95,7 @@ let chart: EChartsType | null = null
 let resizeObserver: ResizeObserver | null = null
 let statusTimer: ReturnType<typeof setInterval> | null = null
 let workspaceGeneration = 0
+let detailGeneration = 0
 const openedPdfUrls = new Set<string>()
 
 const selectedGraph = computed(() => (
@@ -181,12 +182,16 @@ async function deleteSelectedGraph(): Promise<void> {
   clearFeedback()
   try {
     await paperGraphApi.deleteGraph(graph.id)
+    await refreshGraphs()
+    if (graph.id !== selectedGraphId.value) {
+      return
+    }
     selectedGraphId.value = ''
+    detailGeneration += 1
     documents.value = []
     visualization.value = { nodes: [], edges: [], nodeLimit: 200, edgeLimit: 400 }
     selectedNode.value = null
     selectedEvidence.value = null
-    await refreshGraphs()
     if (graphs.value[0]) {
       await selectGraph(graphs.value[0].id)
     } else {
@@ -194,7 +199,9 @@ async function deleteSelectedGraph(): Promise<void> {
     }
     statusMessage.value = '图谱空间已删除'
   } catch (error) {
-    setError(error)
+    if (graph.id === selectedGraphId.value) {
+      setError(error)
+    }
   }
 }
 
@@ -203,6 +210,7 @@ async function selectGraph(graphId: string): Promise<void> {
     return
   }
   selectedGraphId.value = graphId
+  detailGeneration += 1
   selectedDocumentId.value = ''
   selectedEntityTypes.value = []
   searchQuery.value = ''
@@ -249,21 +257,31 @@ async function applyFilters(): Promise<void> {
   if (!graphId) {
     return
   }
+  const generation = ++workspaceGeneration
+  detailGeneration += 1
   isLoading.value = true
   clearFeedback()
   try {
-    visualization.value = await paperGraphApi.visualization(graphId, {
+    const graphData = await paperGraphApi.visualization(graphId, {
       documentId: selectedDocumentId.value || undefined,
       entityTypes: selectedEntityTypes.value,
       query: searchQuery.value
     })
+    if (generation !== workspaceGeneration || graphId !== selectedGraphId.value) {
+      return
+    }
+    visualization.value = graphData
     selectedNode.value = null
     selectedEvidence.value = null
     renderChart()
   } catch (error) {
-    setError(error)
+    if (generation === workspaceGeneration) {
+      setError(error)
+    }
   } finally {
-    isLoading.value = false
+    if (generation === workspaceGeneration) {
+      isLoading.value = false
+    }
   }
 }
 
@@ -283,7 +301,8 @@ async function handleFileSelection(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
-  if (!file || !selectedGraphId.value) {
+  const graphId = selectedGraphId.value
+  if (!file || !graphId) {
     return
   }
   clearFeedback()
@@ -293,14 +312,20 @@ async function handleFileSelection(event: Event): Promise<void> {
   }
   isUploading.value = true
   try {
-    const document = await paperGraphApi.uploadDocument(selectedGraphId.value, file)
-    documents.value = await paperGraphApi.listDocuments(selectedGraphId.value)
+    const document = await paperGraphApi.uploadDocument(graphId, file)
+    const documentList = await paperGraphApi.listDocuments(graphId)
+    if (graphId !== selectedGraphId.value) {
+      return
+    }
+    documents.value = documentList
     statusMessage.value = document.reused
       ? `文件内容未变化，沿用版本 v${document.version}`
       : `论文已上传，开始构建版本 v${document.version}`
     configureStatusPolling()
   } catch (error) {
-    setError(error)
+    if (graphId === selectedGraphId.value) {
+      setError(error)
+    }
   } finally {
     isUploading.value = false
   }
@@ -314,11 +339,17 @@ async function rebuildDocument(document: PaperDocument): Promise<void> {
   clearFeedback()
   try {
     await paperGraphApi.rebuildDocument(document.id)
-    documents.value = await paperGraphApi.listDocuments(document.graphId)
+    const documentList = await paperGraphApi.listDocuments(document.graphId)
+    if (document.graphId !== selectedGraphId.value) {
+      return
+    }
+    documents.value = documentList
     statusMessage.value = `已重新提交 ${document.filename} v${document.version}`
     configureStatusPolling()
   } catch (error) {
-    setError(error)
+    if (document.graphId === selectedGraphId.value) {
+      setError(error)
+    }
   } finally {
     activeDocumentActionId.value = ''
   }
@@ -336,13 +367,20 @@ async function deleteDocument(document: PaperDocument): Promise<void> {
   clearFeedback()
   try {
     await paperGraphApi.deleteDocument(document.id)
+    if (document.graphId !== selectedGraphId.value) {
+      return
+    }
     if (selectedDocumentId.value === document.id) {
       selectedDocumentId.value = ''
     }
     await loadGraphWorkspace(document.graphId)
-    statusMessage.value = '论文及对应图谱数据已删除'
+    if (document.graphId === selectedGraphId.value) {
+      statusMessage.value = '论文及对应图谱数据已删除'
+    }
   } catch (error) {
-    setError(error)
+    if (document.graphId === selectedGraphId.value) {
+      setError(error)
+    }
   } finally {
     activeDocumentActionId.value = ''
   }
@@ -387,10 +425,12 @@ async function pollDocumentStatuses(): Promise<void> {
       configureStatusPolling()
     }
   } catch (error) {
-    setError(error)
-    if (statusTimer) {
-      clearInterval(statusTimer)
-      statusTimer = null
+    if (graphId === selectedGraphId.value) {
+      setError(error)
+      if (statusTimer) {
+        clearInterval(statusTimer)
+        statusTimer = null
+      }
     }
   }
 }
@@ -477,38 +517,59 @@ function renderChart(): void {
 }
 
 async function loadNodeDetail(nodeId: string): Promise<void> {
-  if (!selectedGraphId.value) {
+  const graphId = selectedGraphId.value
+  if (!graphId) {
     return
   }
+  const generation = ++detailGeneration
   clearFeedback()
   try {
-    selectedNode.value = await paperGraphApi.nodeDetail(selectedGraphId.value, nodeId)
+    const node = await paperGraphApi.nodeDetail(graphId, nodeId)
+    if (generation !== detailGeneration || graphId !== selectedGraphId.value) {
+      return
+    }
+    selectedNode.value = node
     selectedEvidence.value = null
   } catch (error) {
-    setError(error)
+    if (generation === detailGeneration) {
+      setError(error)
+    }
   }
 }
 
 async function loadEdgeEvidence(edgeId: string): Promise<void> {
-  if (!selectedGraphId.value) {
+  const graphId = selectedGraphId.value
+  if (!graphId) {
     return
   }
+  const generation = ++detailGeneration
   clearFeedback()
   try {
-    selectedEvidence.value = await paperGraphApi.edgeEvidence(selectedGraphId.value, edgeId)
+    const evidence = await paperGraphApi.edgeEvidence(graphId, edgeId)
+    if (generation !== detailGeneration || graphId !== selectedGraphId.value) {
+      return
+    }
+    selectedEvidence.value = evidence
     selectedNode.value = null
   } catch (error) {
-    setError(error)
+    if (generation === detailGeneration) {
+      setError(error)
+    }
   }
 }
 
 async function expandNeighbors(nodeId: string): Promise<void> {
-  if (!selectedGraphId.value) {
+  const graphId = selectedGraphId.value
+  if (!graphId) {
     return
   }
+  const generation = ++workspaceGeneration
   clearFeedback()
   try {
-    const neighbors = await paperGraphApi.neighbors(selectedGraphId.value, nodeId)
+    const neighbors = await paperGraphApi.neighbors(graphId, nodeId)
+    if (generation !== workspaceGeneration || graphId !== selectedGraphId.value) {
+      return
+    }
     const nodeById = new Map(
       [...neighbors.nodes, ...visualization.value.nodes].map((node) => [node.id, node])
     )
@@ -524,7 +585,9 @@ async function expandNeighbors(nodeId: string): Promise<void> {
     renderChart()
     statusMessage.value = '已展开一跳邻居'
   } catch (error) {
-    setError(error)
+    if (generation === workspaceGeneration) {
+      setError(error)
+    }
   }
 }
 
@@ -568,6 +631,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   workspaceGeneration += 1
+  detailGeneration += 1
   if (statusTimer) {
     clearInterval(statusTimer)
   }
@@ -704,7 +768,7 @@ onBeforeUnmount(() => {
           </span>
         </div>
         <div v-if="selectedGraph" class="toolbar-controls">
-          <select v-model="selectedDocumentId" aria-label="按论文筛选">
+          <select v-model="selectedDocumentId" :disabled="isLoading" aria-label="按论文筛选">
             <option value="">全部论文</option>
             <option
               v-for="document in documents.filter((item) => item.status === 'COMPLETED')"
@@ -717,10 +781,11 @@ onBeforeUnmount(() => {
           <div class="search-control">
             <input
               v-model="searchQuery"
+              :disabled="isLoading"
               placeholder="搜索节点名称"
               @keydown.enter="applyFilters"
             >
-            <button type="button" @click="applyFilters">筛选</button>
+            <button type="button" :disabled="isLoading" @click="applyFilters">筛选</button>
           </div>
           <button
             v-if="canWrite"
@@ -739,6 +804,7 @@ onBeforeUnmount(() => {
           type="button"
           class="entity-filter"
           :class="{ active: selectedEntityTypes.includes(option.type) }"
+          :disabled="isLoading"
           @click="toggleEntityType(option.type)"
         >
           <span :style="{ backgroundColor: option.color }" />
