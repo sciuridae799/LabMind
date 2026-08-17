@@ -3233,16 +3233,20 @@ select {
 
 @media (max-width: 960px) {
   .codex-layout {
-    height: auto;
-    min-height: calc(100vh - var(--top-bar-height));
+    height: calc(100vh - var(--top-bar-height));
+    min-height: 0;
     flex-direction: column;
-    overflow: auto;
+    overflow: hidden;
   }
 
-  @supports (min-height: 100dvh) {
+  @supports (height: 100dvh) {
     .codex-layout {
-      min-height: calc(100dvh - var(--top-bar-height));
+      height: calc(100dvh - var(--top-bar-height));
     }
+  }
+
+  .main-content {
+    min-height: 0;
   }
 
   .sidebar {
@@ -3288,6 +3292,9 @@ select {
 }
 
 @media (max-width: 640px) {
+  .codex-layout {
+    --top-bar-height: 64px;
+  }
 
   .workspace {
     padding: 32px 16px 24px;
