@@ -549,9 +549,10 @@ public class BusinessChatServiceImpl implements BusinessChatService {
                         },
                         this::buildFinalizeTraceSnapshot,
                         this::buildFinalizeSummary);
+                refreshConversationSummary(archivedTurn).subscribe();
                 pushTurnFinished(runtimeContext, archivedTurn);
                 businessFlowLogger.logFinished(archivedTurn);
-                return refreshConversationSummary(archivedTurn);
+                return Mono.empty();
             } catch (Throwable error) {
                 return Mono.error(propagate(error));
             }

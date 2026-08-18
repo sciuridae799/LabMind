@@ -3,6 +3,7 @@ package com.labmind.business.chat.chatagent.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -42,6 +43,8 @@ import com.labmind.business.chat.knowledge.document.service.KnowledgeManageServi
 import com.labmind.redisson.servicelease.lease.RedisLeaseManager;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -196,6 +199,34 @@ class BusinessChatServiceImplTest {
     }
 
     @Test
+    void shouldCompleteStreamWithoutWaitingForSummaryRefresh() throws InterruptedException {
+        prepareSuccessfulRuntime(Flux.just("回答"));
+        CountDownLatch summaryStarted = new CountDownLatch(1);
+        CountDownLatch releaseSummary = new CountDownLatch(1);
+        doAnswer(invocation -> {
+                    summaryStarted.countDown();
+                    releaseSummary.await();
+                    return null;
+                })
+                .when(businessChatPersistenceService)
+                .refreshConversationSummary(any());
+
+        try {
+            List<ServerSentEvent<BusinessChatStreamEvent>> events = businessChatService.streamChat(createRequest())
+                    .collectList()
+                    .block(Duration.ofSeconds(2));
+
+            assertThat(summaryStarted.await(1, TimeUnit.SECONDS)).isTrue();
+            assertThat(events)
+                    .extracting(event -> event.data().eventType())
+                    .endsWith("TURN_FINISHED");
+            verify(redisLeaseManager).release(any(), any());
+        } finally {
+            releaseSummary.countDown();
+        }
+    }
+
+    @Test
     void shouldKeepSucceededTerminalStateWhenSummaryRefreshFails() {
         BusinessChatRuntimeContext runtimeContext = prepareSuccessfulRuntime(
                 Flux.just("第一段", "第二段"));
@@ -221,8 +252,8 @@ class BusinessChatServiceImplTest {
                         "TURN_FINISHED");
         verify(businessChatPersistenceService).archiveSucceededTurn(any());
         verify(businessChatPersistenceService, never()).archiveFailedTurn(any(), any());
-        verify(businessChatPersistenceService).refreshConversationSummary(any());
-        verify(redisLeaseManager).release(any(), any());
+        verify(businessChatPersistenceService, timeout(1000)).refreshConversationSummary(any());
+        verify(redisLeaseManager, timeout(1000)).release(any(), any());
         assertThat(runtimeContext.getReplyContent()).isEqualTo("第一段第二段");
     }
 
