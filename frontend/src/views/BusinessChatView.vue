@@ -1095,6 +1095,8 @@ async function handleSend(): Promise<void> {
           activeStreamRequest.value === streamRequest &&
           ['TURN_FINISHED', 'TURN_FAILED', 'TURN_REJECTED'].includes(String(event.eventType || ''))
         ) {
+          activeStreamRequest.value = null
+          isStreaming.value = false
           streamRequest.controller.abort()
         }
       }
