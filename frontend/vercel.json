@@ -25,7 +25,7 @@
   "rewrites": [
     {
       "source": "/backend/:path*",
-      "destination": "http://43.139.223.137:8080/:path*"
+      "destination": "https://43.139.223.137/backend/:path*"
     },
     {
       "source": "/:path*",

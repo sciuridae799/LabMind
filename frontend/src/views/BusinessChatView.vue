@@ -1084,12 +1084,20 @@ async function handleSend(): Promise<void> {
     },
     {
       // 每条 SSE 事件只更新当前轮助手消息，避免历史消息被正在进行的流式响应污染。
-      onEvent: (event) => consumeStreamEvent(
-        requestGeneration,
-        currentConversationId,
-        assistantMessage.id,
-        event
-      )
+      onEvent: (event) => {
+        consumeStreamEvent(
+          requestGeneration,
+          currentConversationId,
+          assistantMessage.id,
+          event
+        )
+        if (
+          activeStreamRequest.value === streamRequest &&
+          ['TURN_FINISHED', 'TURN_FAILED', 'TURN_REJECTED'].includes(String(event.eventType || ''))
+        ) {
+          streamRequest.controller.abort()
+        }
+      }
     }
   )
   activeStreamRequest.value = streamRequest
