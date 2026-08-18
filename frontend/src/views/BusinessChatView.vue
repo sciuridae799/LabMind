@@ -730,7 +730,6 @@ async function loadConversationHistory(
       return
     }
 
-    conversationHistory.value = []
     historyStatusMessage.value = resolveErrorMessage(error)
   } finally {
     if (requestGeneration === historyRequestGeneration) {
@@ -1195,12 +1194,10 @@ function handleTextareaCompositionEnd(): void {
 
 async function restoreChatPage(): Promise<void> {
   const requestGeneration = conversationRequestGeneration
-  await loadKnowledgeDocumentOptions()
-  if (!isConversationRequestCurrent(requestGeneration)) {
-    return
-  }
-
-  await loadConversationHistory(null, requestGeneration)
+  await Promise.all([
+    loadKnowledgeDocumentOptions(),
+    loadConversationHistory(null, requestGeneration)
+  ])
   if (!isConversationRequestCurrent(requestGeneration)) {
     return
   }
@@ -1218,7 +1215,7 @@ async function restoreChatPage(): Promise<void> {
 
 onMounted(() => {
   void restoreChatPage().catch((error) => {
-    historyStatusMessage.value = resolveErrorMessage(error)
+    streamStatusMessage.value = resolveErrorMessage(error)
   })
   void loadAvailableModelConfigs()
   document.addEventListener('click', handleDocumentClick)
@@ -1318,14 +1315,14 @@ onBeforeUnmount(() => {
         </p>
 
         <p
-          v-else-if="!isHistoryLoading && conversationHistory.length === 0"
+          v-if="!historyStatusMessage && !isHistoryLoading && conversationHistory.length === 0"
           class="history-status"
         >
           暂无历史对话
         </p>
 
         <ul
-          v-else
+          v-if="conversationHistory.length > 0"
           class="history-list"
         >
           <li
