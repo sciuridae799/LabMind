@@ -199,6 +199,7 @@ onBeforeUnmount(() => {
             type="button"
             class="top-bar-user-trigger"
             :class="{ 'top-bar-user-trigger-open': isWorkspaceMenuOpen }"
+            :aria-label="`${userDisplayName}，${roleLabel}，${workspaceLabel}`"
             :aria-expanded="isWorkspaceMenuOpen"
             @click.stop="toggleWorkspaceMenu"
           >
@@ -262,6 +263,7 @@ onBeforeUnmount(() => {
         <RouterLink
           :to="topBarActionTo"
           class="top-bar-button"
+          :aria-label="topBarActionText"
         >
           <span
             class="top-bar-button-icon"
@@ -282,6 +284,7 @@ onBeforeUnmount(() => {
           v-if="authSession"
           type="button"
           class="top-bar-button top-bar-logout-button"
+          aria-label="退出"
           @click="handleLogout"
         >
           <span
