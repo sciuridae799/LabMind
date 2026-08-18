@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
   businessChatModeOptions,
@@ -104,7 +104,7 @@ const deletingConversationId = ref('')
 const deleteConfirmConversationId = ref('')
 const isStreaming = ref(false)
 const conversationId = ref(createConversationId())
-const activeStreamRequest = ref<ReturnType<typeof chatApi.openStream> | null>(null)
+const activeStreamRequest = shallowRef<ReturnType<typeof chatApi.openStream> | null>(null)
 const expandedThinkingTurnIds = ref<string[]>([])
 const conversationScrollRegion = ref<HTMLElement | null>(null)
 const shouldAutoScroll = ref(true)
